@@ -1,5 +1,5 @@
 """
-套利引擎 - 核心套利邏輯、風險控制、交易執行
+套利引擎 - 核心套利邏輯、風險控制、交易執行（每日 Up or Down 市場版本）
 """
 import asyncio
 import time
@@ -191,8 +191,6 @@ class ArbitrageEngine:
                             float(a.get("size", 0)) for a in asks[:5]
                         )
 
-                # /price?side=buy 返回的是市價買入價（即實際成交價）
-                # best_ask 是訂單簿最低賣價，用於流動性參考
                 price_info.total_cost = price_info.up_price + price_info.down_price
                 price_info.spread = 1.0 - price_info.total_cost
 
@@ -266,7 +264,7 @@ class ArbitrageEngine:
         )
 
     def _get_clob_client(self):
-        """建立並返回 CLOB 客戶端（快取避免重複建立）"""
+        """建立並返回 CLOB 客戶端"""
         from py_clob_client.client import ClobClient
         if not hasattr(self, '_clob_client') or self._clob_client is None:
             self._clob_client = ClobClient(
@@ -282,20 +280,17 @@ class ArbitrageEngine:
         return self._clob_client
 
     def _calculate_safe_order_size(self, price_info: PriceInfo, desired_size: float) -> float:
-        """
-        根據訂單簿深度計算安全的下單數量，確保兩側 USD 金額都 >= $1
-        """
+        """根據訂單簿深度計算安全的下單數量，確保兩側 USD 金額都 >= $1"""
         import math
         MIN_ORDER_USD = 1.0
 
-        # 取兩邊流動性的最小值，留 20% 安全邊際
         available_up = price_info.up_liquidity * 0.8
         available_down = price_info.down_liquidity * 0.8
         safe_size = min(desired_size, available_up, available_down)
         safe_size = max(round(safe_size, 2), 1.0) if safe_size >= 1.0 else 0.0
 
-        # 確保兩側 USD 金額都 >= $1
         if safe_size > 0:
+            # 確保兩側 USD 金額都 >= $1
             min_price = min(price_info.up_price, price_info.down_price)
             if min_price > 0:
                 min_shares_for_dollar = math.ceil(MIN_ORDER_USD / min_price)
@@ -316,7 +311,6 @@ class ArbitrageEngine:
         """
         FOK only — 加滑價容忍度讓 FOK 能掃更深的訂單簿
         嘗試 3 個價格層級: 原價, +0.01, +0.02
-        返回 {success, response, shares_bought}
         """
         from py_clob_client.clob_types import MarketOrderArgs, OrderType
         from py_clob_client.order_builder.constants import BUY
@@ -360,11 +354,7 @@ class ArbitrageEngine:
 
     def _try_unwind_position(self, clob_client, token_id: str, shares: float,
                              buy_price: float, side_label: str):
-        """
-        緊急平倉：賣出已買入的一側代幣以避免單邊風險
-        SELL amount = 股數 (不是 USD)
-        先嘗試 FOK（快速），失敗再嘗試 GTC（掛單等成交）
-        """
+        """緊急平倉：賣出已買入的一側代幣以避免單邊風險"""
         from py_clob_client.clob_types import MarketOrderArgs, OrderType
         from py_clob_client.order_builder.constants import SELL
 
@@ -374,7 +364,7 @@ class ArbitrageEngine:
             try:
                 order = MarketOrderArgs(
                     token_id=token_id,
-                    amount=shares,  # SELL: amount = 股數
+                    amount=shares,
                     side=SELL,
                     order_type=otype,
                 )
@@ -390,19 +380,11 @@ class ArbitrageEngine:
         return False
 
     async def execute_trade(self, opportunity: ArbitrageOpportunity) -> TradeRecord:
-        """
-        執行套利交易 — 安全版本
-        1. 自適應下單量（根據訂單簿深度，只買 book 上有的量）
-        2. FOK 下單（全部成交或取消，不留掛單）
-        3. 買流動性較低的一側先（更可能失敗的先買，失敗無風險）
-        4. 如果第二側失敗，立即 FOK 賣回第一側（防止單邊風險）
-        5. 失敗後嘗試半量重試
-        """
+        """執行套利交易 — 安全版本"""
         market = opportunity.market
         price_info = opportunity.price_info
         desired_size = self.config.order_size
 
-        # 自適應下單量
         safe_size = self._calculate_safe_order_size(price_info, desired_size)
         if safe_size < 1.0:
             self.status.add_log(
@@ -442,7 +424,6 @@ class ArbitrageEngine:
         )
 
         if self.config.dry_run:
-            # 模擬模式
             record.status = "simulated"
             record.details = "🔸 模擬交易 - 未使用真實資金"
             self.status.add_log(
@@ -451,7 +432,6 @@ class ArbitrageEngine:
                 f"預期利潤: ${record.expected_profit:.4f}"
             )
         else:
-            # 真實交易 — 安全執行
             try:
                 clob_client = self._get_clob_client()
 
@@ -463,7 +443,7 @@ class ArbitrageEngine:
                     f"UP: ${up_amount_usd:.4f} DOWN: ${down_amount_usd:.4f}"
                 )
 
-                # ── 第一步: 買入流動性較低的一側（更可能失敗的先買）──
+                # 買入流動性較低的一側先
                 if price_info.up_liquidity <= price_info.down_liquidity:
                     first_token, first_amt, first_price, first_label = (
                         market.up_token_id, up_amount_usd, price_info.up_price, "UP")
@@ -475,14 +455,13 @@ class ArbitrageEngine:
                     second_token, second_amt, second_price, second_label = (
                         market.up_token_id, up_amount_usd, price_info.up_price, "UP")
 
-                # 買入第一側 (FOK)
                 first_result = self._try_buy_one_side(
                     clob_client, first_token, first_amt, first_price, first_label
                 )
 
                 if not first_result["success"]:
-                    # 第一側就失敗了，沒有風險，直接嘗試更小的量
                     import math
+                    # 計算滿足 $1 最低限制的最小股數
                     min_price = min(price_info.up_price, price_info.down_price)
                     min_shares = math.ceil(1.0 / min_price) if min_price > 0 else order_size
                     half_size = max(round(order_size * 0.5, 2), float(min_shares))
@@ -510,17 +489,14 @@ class ArbitrageEngine:
                         await self._update_trade_stats(record, opportunity, order_size, market, price_info)
                         return record
 
-                # ── 第二步: 買入另一側 ──
                 second_result = self._try_buy_one_side(
                     clob_client, second_token, second_amt, second_price, second_label
                 )
 
                 if not second_result["success"]:
-                    # 第二側失敗！第一側已成交 → 必須平倉第一側
                     self.status.add_log(
                         f"  ⚠️ {second_label} 失敗，需要平倉 {first_label} 以避免單邊風險"
                     )
-                    # SELL amount = 股數，不是 USD
                     unwind_shares = first_result.get("shares", order_size)
                     unwind_ok = self._try_unwind_position(
                         clob_client, first_token, unwind_shares,
@@ -541,7 +517,6 @@ class ArbitrageEngine:
                             f"Token: {first_token[:16]}... 數量: {unwind_shares}"
                         )
                 else:
-                    # 兩側都成功！
                     record.status = "executed"
                     record.order_size = order_size
                     record.details = (
@@ -573,7 +548,6 @@ class ArbitrageEngine:
             self.status.total_profit += record.expected_profit
         self.status.trade_history.append(record)
 
-        # 追蹤持倉並自動合併
         if record.status in ("executed", "simulated") and market.condition_id:
             self.merger.track_trade(
                 market_slug=market.slug,
@@ -583,7 +557,6 @@ class ArbitrageEngine:
                 amount=order_size,
                 total_cost=price_info.total_cost,
             )
-            # 自動合併
             if self.merger.auto_merge_enabled:
                 merge_results = await self.merger.auto_merge_all()
                 for mr in merge_results:

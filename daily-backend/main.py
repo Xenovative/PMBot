@@ -1,5 +1,5 @@
 """
-Polymarket 套利機器人 - FastAPI 後端
+Polymarket 套利機器人 - 每日 Up or Down 市場版本 - FastAPI 後端
 """
 import asyncio
 import json
@@ -15,7 +15,7 @@ from market_finder import MarketFinder, MarketInfo
 from arbitrage_engine import ArbitrageEngine
 from position_merger import PositionMerger
 
-app = FastAPI(title="Polymarket 套利機器人")
+app = FastAPI(title="Polymarket 每日套利機器人")
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,7 +51,7 @@ async def bot_loop():
     engine.status.running = True
     engine.status.start_time = datetime.now(timezone.utc).isoformat()
     engine.status.mode = "模擬" if config.dry_run else "🔴 真實交易"
-    engine.status.add_log(f"🚀 機器人啟動 | 模式: {engine.status.mode}")
+    engine.status.add_log(f"🚀 每日套利機器人啟動 | 模式: {engine.status.mode}")
     engine.status.add_log(f"⚙️ 目標成本: {config.target_pair_cost} | 每筆數量: {config.order_size}")
     engine.status.add_log(f"🔍 監控幣種: {', '.join(config.crypto_symbols)}")
 
@@ -60,7 +60,7 @@ async def bot_loop():
     try:
         while engine.status.running:
             # 搜尋市場
-            engine.status.add_log("🔍 搜尋 15 分鐘加密貨幣市場...")
+            engine.status.add_log("🔍 搜尋每日加密貨幣 Up or Down 市場...")
             await broadcast({"type": "status", "data": engine.status.to_dict()})
 
             all_markets = await market_finder.find_all_crypto_markets()
@@ -88,7 +88,6 @@ async def bot_loop():
                 if not engine.status.running:
                     break
 
-                # 跳過剩餘時間不足的市場
                 if market.time_remaining_seconds < config.min_time_remaining_seconds:
                     continue
 
@@ -100,9 +99,9 @@ async def bot_loop():
                     f"📈 監控市場: {market.question} | 剩餘: {market.time_remaining_display}"
                 )
 
-                # 在此市場上持續監控直到市場關閉或機器人停止
                 engine.status.trades_this_market = 0
 
+                # 每日市場持續時間長，掃描間隔可以更長
                 while engine.status.running and market.time_remaining_seconds > config.min_time_remaining_seconds:
                     opportunity = await engine.scan_market(market)
 
@@ -119,7 +118,7 @@ async def bot_loop():
                     await broadcast({"type": "status", "data": engine.status.to_dict()})
                     await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
 
-                    # 等待掃描間隔
+                    # 掃描間隔
                     scan_interval = 5
                     for _ in range(scan_interval):
                         if not engine.status.running:
@@ -192,7 +191,6 @@ class ConfigUpdate(BaseModel):
 async def update_config(update: ConfigUpdate):
     updates = {k: v for k, v in update.model_dump().items() if v is not None}
     engine.update_config(updates)
-    # Also update the module-level config
     for k, v in updates.items():
         if hasattr(config, k):
             setattr(config, k, v)
@@ -205,7 +203,7 @@ async def start_bot():
     if engine.status.running:
         return {"status": "already_running"}
 
-    engine.status = type(engine.status)()  # Reset status
+    engine.status = type(engine.status)()
     bot_task = asyncio.create_task(bot_loop())
     return {"status": "started"}
 
@@ -289,7 +287,6 @@ async def websocket_endpoint(websocket: WebSocket):
     engine.status.add_log("🔗 新的 WebSocket 連接")
 
     try:
-        # 發送當前狀態
         await websocket.send_text(json.dumps(
             {"type": "status", "data": engine.status.to_dict()},
             ensure_ascii=False
@@ -316,4 +313,4 @@ async def websocket_endpoint(websocket: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8888)
+    uvicorn.run(app, host="0.0.0.0", port=8889)
