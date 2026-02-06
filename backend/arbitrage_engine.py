@@ -201,9 +201,10 @@ class ArbitrageEngine:
                             for a in asks[:10]
                         ]
 
-                # /price?side=buy 返回的是市價買入價（即實際成交價）
-                # best_ask 是訂單簿最低賣價，用於流動性參考
-                price_info.total_cost = price_info.up_price + price_info.down_price
+                # 用訂單簿 best ask 作為實際買入成本（比 /price 端點更準確）
+                up_cost = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
+                down_cost = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
+                price_info.total_cost = up_cost + down_cost
                 price_info.spread = 1.0 - price_info.total_cost
 
                 return price_info
@@ -506,7 +507,7 @@ class ArbitrageEngine:
                 actual_cost = (up_amount_usd + down_amount_usd) / order_size
                 if actual_cost >= 1.0:
                     self.status.add_log(
-                        f"⛔ 掃單價格無利潤 | UP sweep: {up_sweep:.4f} + DOWN sweep: {down_sweep:.4f} = {actual_cost:.4f} >= 1.0"
+                        f"⛔ 掃單價格無利潤 | VWAP/share: {actual_cost:.4f} >= 1.0 (UP sweep: {up_sweep:.4f}, ${up_amount_usd:.2f} | DOWN sweep: {down_sweep:.4f}, ${down_amount_usd:.2f})"
                     )
                     record.status = "failed"
                     record.details = f"掃單價格無利潤 ({actual_cost:.4f})"
