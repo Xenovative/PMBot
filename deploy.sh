@@ -71,6 +71,12 @@ fi
 echo "[4/7] Setting up backend..."
 cd "$APP_DIR/backend"
 
+# Recreate venv if wrong Python version
+CURRENT_PY=$("$APP_DIR/venv/bin/python" --version 2>/dev/null || echo "none")
+if [[ "$CURRENT_PY" != *"3.12"* ]]; then
+    echo "  Recreating venv with Python 3.12 (was: $CURRENT_PY)..."
+    rm -rf "$APP_DIR/venv"
+fi
 sudo -u "$APP_USER" $PYTHON_BIN -m venv "$APP_DIR/venv"
 sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install -q --upgrade pip
 sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install -q -r requirements.txt
