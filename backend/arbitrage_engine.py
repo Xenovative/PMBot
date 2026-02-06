@@ -530,7 +530,9 @@ class ArbitrageEngine:
                         if try_size >= order_size:
                             continue
                         retry_usd = try_size * first_price
-                        if retry_usd < 1.0:
+                        other_usd = try_size * second_price
+                        if retry_usd < 1.0 or other_usd < 1.0:
+                            self.status.add_log(f"  ⏭️ 跳過 {try_size} 股: 某側 < $1 (${retry_usd:.2f} / ${other_usd:.2f})")
                             continue
                         self.status.add_log(f"  🔄 重試較小數量: {try_size} (${retry_usd:.2f} @ {first_price:.4f})")
                         first_result = self._try_buy_one_side(
@@ -540,7 +542,7 @@ class ArbitrageEngine:
                         )
                         if first_result["success"]:
                             order_size = try_size
-                            second_amt = try_size * second_price
+                            second_amt = other_usd
                             break
 
                     if not first_result["success"]:
