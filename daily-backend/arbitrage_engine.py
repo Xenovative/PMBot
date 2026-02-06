@@ -274,18 +274,16 @@ class ArbitrageEngine:
         )
 
     def _get_sweep_price(self, asks: List[Dict[str, float]], shares_needed: float) -> float:
-        """計算能填滿指定股數的掃單價格（遍歷訂單簿深度）"""
+        """計算能填滿指定股數的掃單價格（遍歷訂單簿深度，從最低價開始）"""
+        sorted_asks = sorted(asks, key=lambda x: x["price"])
         remaining = shares_needed
         sweep_price = 0.0
-        for level in asks:
-            level_size = level["size"]
-            level_price = level["price"]
+        for level in sorted_asks:
             if remaining <= 0:
                 break
-            remaining -= level_size
-            sweep_price = level_price
+            remaining -= level["size"]
+            sweep_price = level["price"]
         if remaining > 0:
-            # 訂單簿深度不夠，返回 0 表示無法填滿
             return 0.0
         return sweep_price
 
@@ -464,6 +462,12 @@ class ArbitrageEngine:
                 # 計算掃單價格（遍歷訂單簿找到能填滿的價格）
                 up_sweep = self._get_sweep_price(price_info.up_asks, order_size)
                 down_sweep = self._get_sweep_price(price_info.down_asks, order_size)
+
+                self.status.add_log(
+                    f"📊 訂單簿 | UP asks(top3): {sorted(price_info.up_asks, key=lambda x: x['price'])[:3]} | "
+                    f"DOWN asks(top3): {sorted(price_info.down_asks, key=lambda x: x['price'])[:3]} | "
+                    f"sweep: UP={up_sweep:.4f} DOWN={down_sweep:.4f}"
+                )
 
                 if up_sweep == 0 or down_sweep == 0:
                     # 訂單簿深度不夠

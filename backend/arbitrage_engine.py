@@ -276,16 +276,15 @@ class ArbitrageEngine:
         )
 
     def _get_sweep_price(self, asks: List[Dict[str, float]], shares_needed: float) -> float:
-        """計算能填滿指定股數的掃單價格（遍歷訂單簿深度）"""
+        """計算能填滿指定股數的掃單價格（遍歷訂單簿深度，從最低價開始）"""
+        sorted_asks = sorted(asks, key=lambda x: x["price"])
         remaining = shares_needed
         sweep_price = 0.0
-        for level in asks:
-            level_size = level["size"]
-            level_price = level["price"]
+        for level in sorted_asks:
             if remaining <= 0:
                 break
-            remaining -= level_size
-            sweep_price = level_price
+            remaining -= level["size"]
+            sweep_price = level["price"]
         if remaining > 0:
             return 0.0
         return sweep_price
