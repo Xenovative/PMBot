@@ -58,8 +58,8 @@ fi
 # ── 3. Deploy code ──
 echo "[3/7] Deploying application..."
 if [ -d "$APP_DIR/.git" ]; then
-    echo "  Pulling latest changes..."
-    cd "$APP_DIR" && sudo -u "$APP_USER" git pull
+    echo "  Existing install found, skipping copy."
+    cd "$APP_DIR"
 else
     echo "  Copying files to $APP_DIR..."
     mkdir -p "$APP_DIR"
