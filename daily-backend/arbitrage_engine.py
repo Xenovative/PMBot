@@ -201,10 +201,7 @@ class ArbitrageEngine:
                             for a in asks[:10]
                         ]
 
-                # 用訂單簿 best ask 作為實際買入成本（比 /price 端點更準確）
-                up_cost = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
-                down_cost = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
-                price_info.total_cost = up_cost + down_cost
+                price_info.total_cost = price_info.up_price + price_info.down_price
                 price_info.spread = 1.0 - price_info.total_cost
 
                 return price_info
@@ -471,58 +468,46 @@ class ArbitrageEngine:
             try:
                 clob_client = self._get_clob_client()
 
-                # 計算掃單價格（遍歷訂單簿找到能填滿的價格）
-                up_sweep, up_amount_usd = self._get_sweep_price(price_info.up_asks, order_size)
-                down_sweep, down_amount_usd = self._get_sweep_price(price_info.down_asks, order_size)
+                # 使用 /price?side=buy 的價格（正確處理 neg_risk 市場）
+                # 不使用原始訂單簿 asks（neg_risk 市場中 asks 會接近 0.999）
+                up_price = price_info.up_price
+                down_price = price_info.down_price
+                up_amount_usd = order_size * up_price
+                down_amount_usd = order_size * down_price
 
+                actual_cost = up_price + down_price
                 self.status.add_log(
-                    f"📊 訂單簿 | UP asks(top3): {sorted(price_info.up_asks, key=lambda x: x['price'])[:3]} | "
-                    f"DOWN asks(top3): {sorted(price_info.down_asks, key=lambda x: x['price'])[:3]} | "
-                    f"sweep: UP={up_sweep:.4f} DOWN={down_sweep:.4f}"
+                    f"� 價格 | UP: {up_price:.4f} DOWN: {down_price:.4f} | "
+                    f"總成本/share: {actual_cost:.4f} | "
+                    f"UP ${up_amount_usd:.2f} DOWN ${down_amount_usd:.2f}"
                 )
 
-                if up_sweep == 0 or down_sweep == 0:
-                    # 訂單簿深度不夠
-                    no_depth_side = "UP" if up_sweep == 0 else "DOWN"
-                    self.status.add_log(
-                        f"📕 {no_depth_side} 訂單簿深度不足 {order_size} 股 | "
-                        f"UP asks: {price_info.up_asks[:3]} | DOWN asks: {price_info.down_asks[:3]}"
-                    )
-                    record.status = "failed"
-                    record.details = f"訂單簿深度不足 ({no_depth_side})"
-                    await self._update_trade_stats(record, opportunity, order_size, market, price_info)
-                    return record
-
-                # 驗證掃單後總成本仍有利潤
-                actual_cost = (up_amount_usd + down_amount_usd) / order_size
                 if actual_cost >= 1.0:
                     self.status.add_log(
-                        f"⛔ 掃單價格無利潤 | VWAP/share: {actual_cost:.4f} >= 1.0 (UP sweep: {up_sweep:.4f}, ${up_amount_usd:.2f} | DOWN sweep: {down_sweep:.4f}, ${down_amount_usd:.2f})"
+                        f"⛔ 無利潤 | UP: {up_price:.4f} + DOWN: {down_price:.4f} = {actual_cost:.4f} >= 1.0"
                     )
                     record.status = "failed"
-                    record.details = f"掃單價格無利潤 ({actual_cost:.4f})"
+                    record.details = f"無利潤 ({actual_cost:.4f})"
                     await self._update_trade_stats(record, opportunity, order_size, market, price_info)
                     return record
 
                 self.status.add_log(
                     f"🔴 [真實] 開始配對交易 | {order_size} 股 | "
-                    f"UP: ${up_amount_usd:.4f} (sweep@{up_sweep:.4f}) "
-                    f"DOWN: ${down_amount_usd:.4f} (sweep@{down_sweep:.4f})"
+                    f"UP: ${up_amount_usd:.4f} (@{up_price:.4f}) "
+                    f"DOWN: ${down_amount_usd:.4f} (@{down_price:.4f})"
                 )
 
                 # 買入流動性較低的一側先
                 if price_info.up_liquidity <= price_info.down_liquidity:
                     first_token, first_amt, first_price, first_label = (
-                        market.up_token_id, up_amount_usd, up_sweep, "UP")
+                        market.up_token_id, up_amount_usd, up_price, "UP")
                     second_token, second_amt, second_price, second_label = (
-                        market.down_token_id, down_amount_usd, down_sweep, "DOWN")
-                    first_asks, second_asks = price_info.up_asks, price_info.down_asks
+                        market.down_token_id, down_amount_usd, down_price, "DOWN")
                 else:
                     first_token, first_amt, first_price, first_label = (
-                        market.down_token_id, down_amount_usd, down_sweep, "DOWN")
+                        market.down_token_id, down_amount_usd, down_price, "DOWN")
                     second_token, second_amt, second_price, second_label = (
-                        market.up_token_id, up_amount_usd, up_sweep, "UP")
-                    first_asks, second_asks = price_info.down_asks, price_info.up_asks
+                        market.up_token_id, up_amount_usd, up_price, "UP")
 
                 first_result = self._try_buy_one_side(
                     clob_client, first_token, first_amt, first_price, first_label
@@ -531,7 +516,7 @@ class ArbitrageEngine:
                 if not first_result["success"]:
                     import math
                     # 逐步縮小數量重試: 50%, 25%, 最小可行量
-                    min_price = min(price_info.up_price, price_info.down_price)
+                    min_price = min(up_price, down_price)
                     min_shares = math.ceil(1.0 / min_price) if min_price > 0 else order_size
                     retry_sizes = sorted(set([
                         max(round(order_size * 0.5, 2), float(min_shares)),
@@ -542,30 +527,18 @@ class ArbitrageEngine:
                     for try_size in retry_sizes:
                         if try_size >= order_size:
                             continue
-                        # 重新計算掃單價格
-                        retry_sweep, retry_usd = self._get_sweep_price(first_asks, try_size)
-                        if retry_sweep == 0:
-                            continue
+                        retry_usd = try_size * first_price
                         if retry_usd < 1.0:
                             continue
-                        self.status.add_log(f"  🔄 重試較小數量: {try_size} (${retry_usd:.2f} @ sweep {retry_sweep:.4f})")
+                        self.status.add_log(f"  🔄 重試較小數量: {try_size} (${retry_usd:.2f} @ {first_price:.4f})")
                         first_result = self._try_buy_one_side(
                             clob_client, first_token,
                             retry_usd,
-                            retry_sweep, first_label
+                            first_price, first_label
                         )
                         if first_result["success"]:
                             order_size = try_size
-                            # 重新計算第二側的掃單價格
-                            new_second_sweep, new_second_usd = self._get_sweep_price(second_asks, try_size)
-                            if new_second_sweep > 0:
-                                second_amt = new_second_usd
-                                second_price = new_second_sweep
-                            else:
-                                if first_label == "UP":
-                                    second_amt = try_size * down_sweep
-                                else:
-                                    second_amt = try_size * up_sweep
+                            second_amt = try_size * second_price
                             break
 
                     if not first_result["success"]:
