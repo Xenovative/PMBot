@@ -479,6 +479,25 @@ class ArbitrageEngine:
                     await self._update_trade_stats(record, opportunity, order_size, market, price_info)
                     return record
 
+                # ── 預檢: 驗證兩側訂單簿都能填滿 ──
+                from py_clob_client.clob_types import OrderType
+                try:
+                    up_market_price = clob_client.calculate_market_price(
+                        market.up_token_id, "BUY", up_amount_usd, OrderType.FOK
+                    )
+                    down_market_price = clob_client.calculate_market_price(
+                        market.down_token_id, "BUY", down_amount_usd, OrderType.FOK
+                    )
+                    self.status.add_log(
+                        f"📋 預檢通過 | UP 訂單簿價格: {up_market_price:.4f} DOWN: {down_market_price:.4f}"
+                    )
+                except Exception as e:
+                    self.status.add_log(f"⛔ 預檢失敗: 訂單簿無法填滿 | {str(e)[:120]}")
+                    record.status = "failed"
+                    record.details = f"預檢失敗: 訂單簿深度不足"
+                    await self._update_trade_stats(record, opportunity, order_size, market, price_info)
+                    return record
+
                 self.status.add_log(
                     f"🔴 [真實] 開始配對交易 | {order_size} 股 | "
                     f"UP: ${up_amount_usd:.4f} (@{up_price:.4f}) "
@@ -543,10 +562,18 @@ class ArbitrageEngine:
                         f"  ⚠️ {second_label} 失敗，需要平倉 {first_label} 以避免單邊風險"
                     )
                     unwind_shares = first_result.get("shares", order_size)
-                    unwind_ok = self._try_unwind_position(
-                        clob_client, first_token, unwind_shares,
-                        first_result.get("price", first_price), first_label
-                    )
+                    # 等待鏈上結算後再嘗試平倉（重試 3 次，間隔遞增）
+                    unwind_ok = False
+                    for attempt in range(3):
+                        wait_secs = 5 * (attempt + 1)
+                        self.status.add_log(f"  ⏳ 等待 {wait_secs}s 鏈上結算後平倉 (第 {attempt+1}/3 次)")
+                        await asyncio.sleep(wait_secs)
+                        unwind_ok = self._try_unwind_position(
+                            clob_client, first_token, unwind_shares,
+                            first_result.get("price", first_price), first_label
+                        )
+                        if unwind_ok:
+                            break
 
                     record.status = "failed"
                     unwind_status = "已平倉" if unwind_ok else "⚠️ 平倉失敗，需手動處理!"
