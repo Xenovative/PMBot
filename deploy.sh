@@ -21,7 +21,16 @@ echo "========================================"
 # ── 1. System dependencies ──
 echo "[1/7] Installing system dependencies..."
 apt-get update -qq
-apt-get install -y -qq python3 python3-pip python3-venv nginx curl git
+apt-get install -y -qq software-properties-common nginx curl git
+
+# Python 3.12 (required by web3 and py-clob-client)
+if ! python3.12 --version &>/dev/null; then
+    echo "  Installing Python 3.12..."
+    add-apt-repository -y ppa:deadsnakes/ppa
+    apt-get update -qq
+    apt-get install -y -qq python3.12 python3.12-venv python3.12-dev
+fi
+PYTHON_BIN=$(command -v python3.12)
 
 # Node.js via NodeSource
 if ! command -v node &>/dev/null; then
@@ -36,7 +45,7 @@ if ! command -v pm2 &>/dev/null; then
     npm install -g pm2
 fi
 
-echo "  Python: $(python3 --version)"
+echo "  Python: $($PYTHON_BIN --version)"
 echo "  Node:   $(node --version)"
 echo "  npm:    $(npm --version)"
 
@@ -62,7 +71,7 @@ fi
 echo "[4/7] Setting up backend..."
 cd "$APP_DIR/backend"
 
-sudo -u "$APP_USER" python3 -m venv "$APP_DIR/venv"
+sudo -u "$APP_USER" $PYTHON_BIN -m venv "$APP_DIR/venv"
 sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install -q --upgrade pip
 sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install -q -r requirements.txt
 
