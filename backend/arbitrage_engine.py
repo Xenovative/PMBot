@@ -212,7 +212,7 @@ class ArbitrageEngine:
 
     def check_arbitrage(self, market: MarketInfo, price_info: PriceInfo) -> ArbitrageOpportunity:
         """檢查是否存在套利機會（含滑價容忍度）"""
-        MAX_SLIPPAGE = 0.02  # 兩側各 +0.01 最大滑價
+        MAX_SLIPPAGE = 0.05  # 滑價容忍度（neg_risk 市場價格波動較大）
         order_size = self.config.order_size
         total_cost = price_info.total_cost
         target = self.config.target_pair_cost
@@ -343,8 +343,8 @@ class ArbitrageEngine:
     def _try_buy_one_side(self, clob_client, token_id: str, amount_usd: float,
                           price: float, side_label: str) -> dict:
         """
-        FOK 買入 — 傳入 price 確保 CLOB 計算正確股數 (shares = amount_usd / price)
-        price 應為原始訂單簿 best ask（neg_risk 市場中 ~0.999）
+        FOK 買入 — 傳入 effective price (/price?side=buy)
+        CLOB 計算 shares = amount_usd / price = order_size（確保兩側股數相同）
         """
         from py_clob_client.clob_types import MarketOrderArgs, OrderType
         from py_clob_client.order_builder.constants import BUY
@@ -473,21 +473,19 @@ class ArbitrageEngine:
             try:
                 clob_client = self._get_clob_client()
 
-                # /price?side=buy 的有效價格（用於利潤計算）
+                # /price?side=buy 的有效價格（用於利潤計算和下單）
                 up_price = price_info.up_price
                 down_price = price_info.down_price
                 actual_cost = up_price + down_price
 
-                # 用原始訂單簿 best ask 計算 USD 金額（neg_risk 市場中 ~0.999）
-                # 這確保兩側買到相同股數（amount_usd / raw_ask = shares）
-                up_raw_ask = price_info.up_best_ask if price_info.up_best_ask > 0 else up_price
-                down_raw_ask = price_info.down_best_ask if price_info.down_best_ask > 0 else down_price
-                up_amount_usd = round(order_size * up_raw_ask, 2)
-                down_amount_usd = round(order_size * down_raw_ask, 2)
+                # USD 金額 = order_size * effective_price
+                # 傳入 effective_price 作為 MarketOrderArgs.price
+                # → CLOB 計算 shares = amount_usd / price = order_size（兩側相同）
+                up_amount_usd = round(order_size * up_price, 2)
+                down_amount_usd = round(order_size * down_price, 2)
 
                 self.status.add_log(
-                    f"📊 價格 | 有效: UP={up_price:.4f} DOWN={down_price:.4f} | "
-                    f"訂單簿: UP={up_raw_ask:.4f} DOWN={down_raw_ask:.4f} | "
+                    f"📊 價格 | UP={up_price:.4f} DOWN={down_price:.4f} | "
                     f"總成本/share: {actual_cost:.4f} | "
                     f"UP ${up_amount_usd:.2f} DOWN ${down_amount_usd:.2f}"
                 )
@@ -529,14 +527,14 @@ class ArbitrageEngine:
                 # ── 第一步: 買入流動性較低的一側（更可能失敗的先買）──
                 if price_info.up_liquidity <= price_info.down_liquidity:
                     first_token, first_amt, first_price, first_label = (
-                        market.up_token_id, up_amount_usd, up_raw_ask, "UP")
+                        market.up_token_id, up_amount_usd, up_price, "UP")
                     second_token, second_amt, second_price, second_label = (
-                        market.down_token_id, down_amount_usd, down_raw_ask, "DOWN")
+                        market.down_token_id, down_amount_usd, down_price, "DOWN")
                 else:
                     first_token, first_amt, first_price, first_label = (
-                        market.down_token_id, down_amount_usd, down_raw_ask, "DOWN")
+                        market.down_token_id, down_amount_usd, down_price, "DOWN")
                     second_token, second_amt, second_price, second_label = (
-                        market.up_token_id, up_amount_usd, up_raw_ask, "UP")
+                        market.up_token_id, up_amount_usd, up_price, "UP")
 
                 # 買入第一側 (FOK)
                 first_result = self._try_buy_one_side(
@@ -576,7 +574,47 @@ class ArbitrageEngine:
                         await self._update_trade_stats(record, opportunity, order_size, market, price_info)
                         return record
 
-                # ── 第二步: 買入另一側 ──
+                # ── 第二步: 重新檢查價格，確認仍有利潤再買另一側 ──
+                import httpx
+                try:
+                    recheck_up = float(httpx.get(
+                        f"{self.config.CLOB_HOST}/price?token_id={market.up_token_id}&side=buy"
+                    ).json().get("price", 0))
+                    recheck_down = float(httpx.get(
+                        f"{self.config.CLOB_HOST}/price?token_id={market.down_token_id}&side=buy"
+                    ).json().get("price", 0))
+                    recheck_cost = recheck_up + recheck_down
+                    if recheck_cost >= 1.0:
+                        self.status.add_log(
+                            f"⛔ 二次檢查: 價格已變動 UP={recheck_up:.4f}+DOWN={recheck_down:.4f}={recheck_cost:.4f} >= 1.0，放棄第二側"
+                        )
+                        # 平倉第一側
+                        unwind_shares = first_result.get("shares", order_size)
+                        unwind_ok = False
+                        for attempt in range(3):
+                            wait_secs = 5 * (attempt + 1)
+                            self.status.add_log(f"  ⏳ 等待 {wait_secs}s 鏈上結算後平倉 (第 {attempt+1}/3 次)")
+                            await asyncio.sleep(wait_secs)
+                            unwind_ok = self._try_unwind_position(
+                                clob_client, first_token, unwind_shares,
+                                first_result.get("price", first_price), first_label
+                            )
+                            if unwind_ok:
+                                break
+                        record.status = "failed"
+                        unwind_status = "已平倉" if unwind_ok else "⚠️ 平倉失敗，需手動處理!"
+                        record.details = f"二次檢查無利潤 ({recheck_cost:.4f}) | {first_label}: {unwind_status}"
+                        self.status.add_log(f"❌ 二次檢查放棄交易 | {first_label}: {unwind_status}")
+                        await self._update_trade_stats(record, opportunity, order_size, market, price_info)
+                        return record
+                    # 用最新價格更新第二側金額
+                    new_second_price = recheck_up if second_label == "UP" else recheck_down
+                    second_amt = round(order_size * new_second_price, 2)
+                    second_price = new_second_price
+                    self.status.add_log(f"📋 二次檢查通過 | {recheck_cost:.4f} < 1.0 | {second_label} 更新: ${second_amt:.2f} @ {second_price:.4f}")
+                except Exception as e:
+                    self.status.add_log(f"⚠️ 二次檢查失敗 (繼續執行): {str(e)[:80]}")
+
                 second_result = self._try_buy_one_side(
                     clob_client, second_token, second_amt, second_price, second_label
                 )
