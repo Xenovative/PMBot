@@ -261,6 +261,13 @@ class ArbitrageEngine:
             is_viable = False
             reason = f"流動性不足 (UP: {price_info.up_liquidity:.0f}, DOWN: {price_info.down_liquidity:.0f})"
 
+        # 檢查 7: 兩側 USD 金額都必須 >= $1（Polymarket 最低限制）
+        elif order_size * min(price_info.up_price, price_info.down_price) < 1.0:
+            is_viable = False
+            low_side = "DOWN" if price_info.down_price < price_info.up_price else "UP"
+            low_price = min(price_info.up_price, price_info.down_price)
+            reason = f"{low_side} 金額不足 $1 ({order_size} × {low_price:.4f} = ${order_size * low_price:.2f})"
+
         else:
             reason = f"✅ 套利機會! 利潤: ${profit:.4f} ({profit_pct:.2f}%)"
 
@@ -314,7 +321,6 @@ class ArbitrageEngine:
 
     def _calculate_safe_order_size(self, price_info: PriceInfo, desired_size: float) -> float:
         """根據訂單簿深度計算安全的下單數量，確保兩側 USD 金額都 >= $1"""
-        import math
         MIN_ORDER_USD = 1.0
 
         available_up = price_info.up_liquidity * 0.8
@@ -322,16 +328,8 @@ class ArbitrageEngine:
         safe_size = min(desired_size, available_up, available_down)
         safe_size = max(round(safe_size, 2), 1.0) if safe_size >= 1.0 else 0.0
 
+        # 確保兩側 USD 金額都 >= $1，不超過 desired_size
         if safe_size > 0:
-            # 確保兩側 USD 金額都 >= $1
-            min_price = min(price_info.up_price, price_info.down_price)
-            if min_price > 0:
-                min_shares_for_dollar = math.ceil(MIN_ORDER_USD / min_price)
-                if safe_size < min_shares_for_dollar:
-                    safe_size = float(min_shares_for_dollar)
-                # 再次檢查是否超過流動性
-                if safe_size > min(available_up, available_down) and safe_size > desired_size:
-                    return 0.0
             up_usd = safe_size * price_info.up_price
             down_usd = safe_size * price_info.down_price
             if up_usd < MIN_ORDER_USD or down_usd < MIN_ORDER_USD:
@@ -504,14 +502,10 @@ class ArbitrageEngine:
                 )
 
                 if not first_result["success"]:
-                    import math
-                    # 逐步縮小數量重試: 50%, 25%, 最小可行量
-                    min_price = min(up_price, down_price)
-                    min_shares = math.ceil(1.0 / min_price) if min_price > 0 else order_size
+                    # 逐步縮小數量重試: 50%, 25%
                     retry_sizes = sorted(set([
-                        max(round(order_size * 0.5, 2), float(min_shares)),
-                        max(round(order_size * 0.25, 2), float(min_shares)),
-                        float(min_shares),
+                        round(order_size * 0.5, 2),
+                        round(order_size * 0.25, 2),
                     ]))
 
                     for try_size in retry_sizes:
