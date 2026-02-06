@@ -340,8 +340,8 @@ class ArbitrageEngine:
     def _try_buy_one_side(self, clob_client, token_id: str, amount_usd: float,
                           price: float, side_label: str) -> dict:
         """
-        FOK 買入 — 讓 CLOB client 自動計算訂單簿匹配價格
-        price 參數僅用於日誌和估算，不傳給 MarketOrderArgs（避免 neg_risk 價格不匹配）
+        FOK 買入 — 傳入 price 確保 CLOB 計算正確股數 (shares = amount_usd / price)
+        price 應為原始訂單簿 best ask（neg_risk 市場中 ~0.999）
         """
         from py_clob_client.clob_types import MarketOrderArgs, OrderType
         from py_clob_client.order_builder.constants import BUY
@@ -354,17 +354,17 @@ class ArbitrageEngine:
             return {"success": False, "error": "amount below $1 minimum", "shares": 0, "price": price}
 
         try:
-            # 不傳 price — 讓 CLOB client 從訂單簿計算正確的匹配價格
             order = MarketOrderArgs(
                 token_id=token_id,
                 amount=amount_usd,
                 side=BUY,
+                price=price,
                 order_type=OrderType.FOK,
             )
             signed = clob_client.create_market_order(order)
             resp = clob_client.post_order(signed, OrderType.FOK)
             self.status.add_log(
-                f"  ✅ {side_label} FOK 成交 | ${amount_usd:.4f} ≈ {estimated_shares:.1f} 股"
+                f"  ✅ {side_label} FOK 成交 | ${amount_usd:.4f} @ {price:.4f} ≈ {estimated_shares:.1f} 股"
             )
             return {"success": True, "response": resp, "shares": estimated_shares, "price": price}
         except Exception as e:
@@ -456,16 +456,21 @@ class ArbitrageEngine:
             try:
                 clob_client = self._get_clob_client()
 
-                # 使用 /price?side=buy 的價格（正確處理 neg_risk 市場）
-                # 不使用原始訂單簿 asks（neg_risk 市場中 asks 會接近 0.999）
+                # /price?side=buy 的有效價格（用於利潤計算）
                 up_price = price_info.up_price
                 down_price = price_info.down_price
-                up_amount_usd = order_size * up_price
-                down_amount_usd = order_size * down_price
-
                 actual_cost = up_price + down_price
+
+                # 用原始訂單簿 best ask 計算 USD 金額（neg_risk 市場中 ~0.999）
+                # 這確保兩側買到相同股數（amount_usd / raw_ask = shares）
+                up_raw_ask = price_info.up_best_ask if price_info.up_best_ask > 0 else up_price
+                down_raw_ask = price_info.down_best_ask if price_info.down_best_ask > 0 else down_price
+                up_amount_usd = round(order_size * up_raw_ask, 2)
+                down_amount_usd = round(order_size * down_raw_ask, 2)
+
                 self.status.add_log(
-                    f"� 價格 | UP: {up_price:.4f} DOWN: {down_price:.4f} | "
+                    f"📊 價格 | 有效: UP={up_price:.4f} DOWN={down_price:.4f} | "
+                    f"訂單簿: UP={up_raw_ask:.4f} DOWN={down_raw_ask:.4f} | "
                     f"總成本/share: {actual_cost:.4f} | "
                     f"UP ${up_amount_usd:.2f} DOWN ${down_amount_usd:.2f}"
                 )
@@ -507,14 +512,14 @@ class ArbitrageEngine:
                 # 買入流動性較低的一側先
                 if price_info.up_liquidity <= price_info.down_liquidity:
                     first_token, first_amt, first_price, first_label = (
-                        market.up_token_id, up_amount_usd, up_price, "UP")
+                        market.up_token_id, up_amount_usd, up_raw_ask, "UP")
                     second_token, second_amt, second_price, second_label = (
-                        market.down_token_id, down_amount_usd, down_price, "DOWN")
+                        market.down_token_id, down_amount_usd, down_raw_ask, "DOWN")
                 else:
                     first_token, first_amt, first_price, first_label = (
-                        market.down_token_id, down_amount_usd, down_price, "DOWN")
+                        market.down_token_id, down_amount_usd, down_raw_ask, "DOWN")
                     second_token, second_amt, second_price, second_label = (
-                        market.up_token_id, up_amount_usd, up_price, "UP")
+                        market.up_token_id, up_amount_usd, up_raw_ask, "UP")
 
                 first_result = self._try_buy_one_side(
                     clob_client, first_token, first_amt, first_price, first_label
