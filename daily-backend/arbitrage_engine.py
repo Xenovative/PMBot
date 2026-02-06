@@ -273,19 +273,28 @@ class ArbitrageEngine:
             reason=reason,
         )
 
-    def _get_sweep_price(self, asks: List[Dict[str, float]], shares_needed: float) -> float:
-        """計算能填滿指定股數的掃單價格（遍歷訂單簿深度，從最低價開始）"""
+    def _get_sweep_price(self, asks: List[Dict[str, float]], shares_needed: float) -> tuple:
+        """
+        計算能填滿指定股數的掃單價格和實際 USD 成本（VWAP）
+        返回 (worst_price, actual_usd_cost)
+        - worst_price: FOK 限價（訂單簿中最差的成交價格層級）
+        - actual_usd_cost: 實際需要的 USD（按每層 size*price 加總）
+        如果深度不足，返回 (0.0, 0.0)
+        """
         sorted_asks = sorted(asks, key=lambda x: x["price"])
         remaining = shares_needed
         sweep_price = 0.0
+        total_cost = 0.0
         for level in sorted_asks:
             if remaining <= 0:
                 break
+            filled = min(remaining, level["size"])
+            total_cost += filled * level["price"]
             remaining -= level["size"]
             sweep_price = level["price"]
         if remaining > 0:
-            return 0.0
-        return sweep_price
+            return (0.0, 0.0)
+        return (sweep_price, total_cost)
 
     def _get_clob_client(self):
         """建立並返回 CLOB 客戶端"""
@@ -460,8 +469,8 @@ class ArbitrageEngine:
                 clob_client = self._get_clob_client()
 
                 # 計算掃單價格（遍歷訂單簿找到能填滿的價格）
-                up_sweep = self._get_sweep_price(price_info.up_asks, order_size)
-                down_sweep = self._get_sweep_price(price_info.down_asks, order_size)
+                up_sweep, up_amount_usd = self._get_sweep_price(price_info.up_asks, order_size)
+                down_sweep, down_amount_usd = self._get_sweep_price(price_info.down_asks, order_size)
 
                 self.status.add_log(
                     f"📊 訂單簿 | UP asks(top3): {sorted(price_info.up_asks, key=lambda x: x['price'])[:3]} | "
@@ -481,12 +490,8 @@ class ArbitrageEngine:
                     await self._update_trade_stats(record, opportunity, order_size, market, price_info)
                     return record
 
-                # 用掃單價格計算 USD 金額
-                up_amount_usd = order_size * up_sweep
-                down_amount_usd = order_size * down_sweep
-
                 # 驗證掃單後總成本仍有利潤
-                actual_cost = up_sweep + down_sweep
+                actual_cost = (up_amount_usd + down_amount_usd) / order_size
                 if actual_cost >= 1.0:
                     self.status.add_log(
                         f"⛔ 掃單價格無利潤 | UP sweep: {up_sweep:.4f} + DOWN sweep: {down_sweep:.4f} = {actual_cost:.4f} >= 1.0"
@@ -535,10 +540,9 @@ class ArbitrageEngine:
                         if try_size >= order_size:
                             continue
                         # 重新計算掃單價格
-                        retry_sweep = self._get_sweep_price(first_asks, try_size)
+                        retry_sweep, retry_usd = self._get_sweep_price(first_asks, try_size)
                         if retry_sweep == 0:
                             continue
-                        retry_usd = try_size * retry_sweep
                         if retry_usd < 1.0:
                             continue
                         self.status.add_log(f"  🔄 重試較小數量: {try_size} (${retry_usd:.2f} @ sweep {retry_sweep:.4f})")
@@ -550,9 +554,9 @@ class ArbitrageEngine:
                         if first_result["success"]:
                             order_size = try_size
                             # 重新計算第二側的掃單價格
-                            new_second_sweep = self._get_sweep_price(second_asks, try_size)
+                            new_second_sweep, new_second_usd = self._get_sweep_price(second_asks, try_size)
                             if new_second_sweep > 0:
-                                second_amt = try_size * new_second_sweep
+                                second_amt = new_second_usd
                                 second_price = new_second_sweep
                             else:
                                 if first_label == "UP":
