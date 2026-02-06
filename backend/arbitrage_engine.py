@@ -345,9 +345,8 @@ class ArbitrageEngine:
     def _try_buy_one_side(self, clob_client, token_id: str, amount_usd: float,
                           price: float, side_label: str) -> dict:
         """
-        FOK only — 加滑價容忍度讓 FOK 能掃更深的訂單簿
-        嘗試 3 個價格層級: 原價, +0.01, +0.02
-        返回 {success, response, shares_bought}
+        FOK 買入 — 讓 CLOB client 自動計算訂單簿匹配價格
+        price 參數僅用於日誌和估算，不傳給 MarketOrderArgs（避免 neg_risk 價格不匹配）
         """
         from py_clob_client.clob_types import MarketOrderArgs, OrderType
         from py_clob_client.order_builder.constants import BUY
@@ -359,33 +358,23 @@ class ArbitrageEngine:
             self.status.add_log(f"  ⚠️ {side_label} 金額 ${amount_usd:.2f} < $1 最低限制，跳過")
             return {"success": False, "error": "amount below $1 minimum", "shares": 0, "price": price}
 
-        # 嘗試 FOK: 原價 和 +0.01 滑價（最多 +1分）
-        slippage_steps = [0.00, 0.01]
-        last_error = ""
-
-        for slip in slippage_steps:
-            try_price = min(round(price + slip, 2), 0.99)
-            try:
-                order = MarketOrderArgs(
-                    token_id=token_id,
-                    amount=amount_usd,
-                    side=BUY,
-                    price=try_price,
-                    order_type=OrderType.FOK,
-                )
-                signed = clob_client.create_market_order(order)
-                resp = clob_client.post_order(signed, OrderType.FOK)
-                slip_label = f" (滑價 +{slip})" if slip > 0 else ""
-                self.status.add_log(
-                    f"  ✅ {side_label} FOK 成交{slip_label} | ${amount_usd:.4f} @ {try_price:.4f} ≈ {estimated_shares:.1f} 股"
-                )
-                return {"success": True, "response": resp, "shares": estimated_shares, "price": try_price}
-            except Exception as e:
-                last_error = str(e)
-                if slip == 0:
-                    self.status.add_log(f"  ⚠️ {side_label} FOK @ {try_price:.4f} 失敗: {last_error[:100]}")
-                else:
-                    self.status.add_log(f"  ⚠️ {side_label} FOK @ {try_price:.4f} (+{slip}) 也失敗")
+        try:
+            # 不傳 price — 讓 CLOB client 從訂單簿計算正確的匹配價格
+            order = MarketOrderArgs(
+                token_id=token_id,
+                amount=amount_usd,
+                side=BUY,
+                order_type=OrderType.FOK,
+            )
+            signed = clob_client.create_market_order(order)
+            resp = clob_client.post_order(signed, OrderType.FOK)
+            self.status.add_log(
+                f"  ✅ {side_label} FOK 成交 | ${amount_usd:.4f} ≈ {estimated_shares:.1f} 股"
+            )
+            return {"success": True, "response": resp, "shares": estimated_shares, "price": price}
+        except Exception as e:
+            last_error = str(e)
+            self.status.add_log(f"  ⚠️ {side_label} FOK 失敗: {last_error[:120]}")
 
         return {"success": False, "error": last_error[:120], "shares": 0, "price": price}
 
