@@ -57,17 +57,33 @@ fi
 
 # ── 3. Deploy code ──
 echo "[3/7] Deploying application..."
-if [ -d "$APP_DIR/.git" ]; then
-    echo "  Existing install found, skipping copy."
-    cd "$APP_DIR"
+mkdir -p "$APP_DIR"
+
+IS_UPDATE=false
+if [ -d "$APP_DIR/backend" ]; then
+    IS_UPDATE=true
+    echo "  Existing install detected — updating code..."
+    # Stop services before updating
+    systemctl stop pmbot-daily-backend 2>/dev/null || true
+    sudo -u "$APP_USER" pm2 stop pmbot-daily-frontend 2>/dev/null || true
 else
-    echo "  Copying files to $APP_DIR..."
-    mkdir -p "$APP_DIR"
-    # Copy daily-specific directories
-    cp -r daily-backend "$APP_DIR/backend"
-    cp -r daily-frontend "$APP_DIR/frontend"
-    chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+    echo "  Fresh install — copying files..."
 fi
+
+# Sync backend (preserve .env)
+rsync -a --delete \
+    --exclude '.env' \
+    --exclude '__pycache__' \
+    --exclude '*.pyc' \
+    daily-backend/ "$APP_DIR/backend/"
+
+# Sync frontend (preserve node_modules, dist will be rebuilt)
+rsync -a --delete \
+    --exclude 'node_modules' \
+    --exclude 'dist' \
+    daily-frontend/ "$APP_DIR/frontend/"
+
+chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 
 # ── 4. Backend setup ──
 echo "[4/7] Setting up backend..."

@@ -22,6 +22,8 @@ class PriceInfo:
     down_best_ask: float = 0.0
     up_liquidity: float = 0.0
     down_liquidity: float = 0.0
+    up_asks: List[Dict[str, float]] = field(default_factory=list)
+    down_asks: List[Dict[str, float]] = field(default_factory=list)
     timestamp: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
@@ -177,6 +179,10 @@ class ArbitrageEngine:
                         price_info.up_liquidity = sum(
                             float(a.get("size", 0)) for a in asks[:5]
                         )
+                        price_info.up_asks = [
+                            {"price": float(a.get("price", 0)), "size": float(a.get("size", 0))}
+                            for a in asks[:10]
+                        ]
 
                 down_book_resp = await client.get(
                     f"{self.config.CLOB_HOST}/book",
@@ -190,6 +196,10 @@ class ArbitrageEngine:
                         price_info.down_liquidity = sum(
                             float(a.get("size", 0)) for a in asks[:5]
                         )
+                        price_info.down_asks = [
+                            {"price": float(a.get("price", 0)), "size": float(a.get("size", 0))}
+                            for a in asks[:10]
+                        ]
 
                 price_info.total_cost = price_info.up_price + price_info.down_price
                 price_info.spread = 1.0 - price_info.total_cost
@@ -262,6 +272,22 @@ class ArbitrageEngine:
             is_viable=is_viable,
             reason=reason,
         )
+
+    def _get_sweep_price(self, asks: List[Dict[str, float]], shares_needed: float) -> float:
+        """計算能填滿指定股數的掃單價格（遍歷訂單簿深度）"""
+        remaining = shares_needed
+        sweep_price = 0.0
+        for level in asks:
+            level_size = level["size"]
+            level_price = level["price"]
+            if remaining <= 0:
+                break
+            remaining -= level_size
+            sweep_price = level_price
+        if remaining > 0:
+            # 訂單簿深度不夠，返回 0 表示無法填滿
+            return 0.0
+        return sweep_price
 
     def _get_clob_client(self):
         """建立並返回 CLOB 客戶端"""
@@ -435,25 +461,56 @@ class ArbitrageEngine:
             try:
                 clob_client = self._get_clob_client()
 
-                up_amount_usd = order_size * price_info.up_price
-                down_amount_usd = order_size * price_info.down_price
+                # 計算掃單價格（遍歷訂單簿找到能填滿的價格）
+                up_sweep = self._get_sweep_price(price_info.up_asks, order_size)
+                down_sweep = self._get_sweep_price(price_info.down_asks, order_size)
+
+                if up_sweep == 0 or down_sweep == 0:
+                    # 訂單簿深度不夠
+                    no_depth_side = "UP" if up_sweep == 0 else "DOWN"
+                    self.status.add_log(
+                        f"📕 {no_depth_side} 訂單簿深度不足 {order_size} 股 | "
+                        f"UP asks: {price_info.up_asks[:3]} | DOWN asks: {price_info.down_asks[:3]}"
+                    )
+                    record.status = "failed"
+                    record.details = f"訂單簿深度不足 ({no_depth_side})"
+                    await self._update_trade_stats(record, opportunity, order_size, market, price_info)
+                    return record
+
+                # 用掃單價格計算 USD 金額
+                up_amount_usd = order_size * up_sweep
+                down_amount_usd = order_size * down_sweep
+
+                # 驗證掃單後總成本仍有利潤
+                actual_cost = up_sweep + down_sweep
+                if actual_cost >= 1.0:
+                    self.status.add_log(
+                        f"⛔ 掃單價格無利潤 | UP sweep: {up_sweep:.4f} + DOWN sweep: {down_sweep:.4f} = {actual_cost:.4f} >= 1.0"
+                    )
+                    record.status = "failed"
+                    record.details = f"掃單價格無利潤 ({actual_cost:.4f})"
+                    await self._update_trade_stats(record, opportunity, order_size, market, price_info)
+                    return record
 
                 self.status.add_log(
                     f"🔴 [真實] 開始配對交易 | {order_size} 股 | "
-                    f"UP: ${up_amount_usd:.4f} DOWN: ${down_amount_usd:.4f}"
+                    f"UP: ${up_amount_usd:.4f} (sweep@{up_sweep:.4f}) "
+                    f"DOWN: ${down_amount_usd:.4f} (sweep@{down_sweep:.4f})"
                 )
 
                 # 買入流動性較低的一側先
                 if price_info.up_liquidity <= price_info.down_liquidity:
                     first_token, first_amt, first_price, first_label = (
-                        market.up_token_id, up_amount_usd, price_info.up_price, "UP")
+                        market.up_token_id, up_amount_usd, up_sweep, "UP")
                     second_token, second_amt, second_price, second_label = (
-                        market.down_token_id, down_amount_usd, price_info.down_price, "DOWN")
+                        market.down_token_id, down_amount_usd, down_sweep, "DOWN")
+                    first_asks, second_asks = price_info.up_asks, price_info.down_asks
                 else:
                     first_token, first_amt, first_price, first_label = (
-                        market.down_token_id, down_amount_usd, price_info.down_price, "DOWN")
+                        market.down_token_id, down_amount_usd, down_sweep, "DOWN")
                     second_token, second_amt, second_price, second_label = (
-                        market.up_token_id, up_amount_usd, price_info.up_price, "UP")
+                        market.up_token_id, up_amount_usd, up_sweep, "UP")
+                    first_asks, second_asks = price_info.down_asks, price_info.up_asks
 
                 first_result = self._try_buy_one_side(
                     clob_client, first_token, first_amt, first_price, first_label
@@ -461,26 +518,44 @@ class ArbitrageEngine:
 
                 if not first_result["success"]:
                     import math
-                    # 計算滿足 $1 最低限制的最小股數
+                    # 逐步縮小數量重試: 50%, 25%, 最小可行量
                     min_price = min(price_info.up_price, price_info.down_price)
                     min_shares = math.ceil(1.0 / min_price) if min_price > 0 else order_size
-                    half_size = max(round(order_size * 0.5, 2), float(min_shares))
-                    retry_usd = half_size * first_price
-                    if half_size < order_size and retry_usd >= 1.0:
-                        self.status.add_log(f"  🔄 重試較小數量: {half_size} (${retry_usd:.2f})")
+                    retry_sizes = sorted(set([
+                        max(round(order_size * 0.5, 2), float(min_shares)),
+                        max(round(order_size * 0.25, 2), float(min_shares)),
+                        float(min_shares),
+                    ]))
+
+                    for try_size in retry_sizes:
+                        if try_size >= order_size:
+                            continue
+                        # 重新計算掃單價格
+                        retry_sweep = self._get_sweep_price(first_asks, try_size)
+                        if retry_sweep == 0:
+                            continue
+                        retry_usd = try_size * retry_sweep
+                        if retry_usd < 1.0:
+                            continue
+                        self.status.add_log(f"  🔄 重試較小數量: {try_size} (${retry_usd:.2f} @ sweep {retry_sweep:.4f})")
                         first_result = self._try_buy_one_side(
                             clob_client, first_token,
                             retry_usd,
-                            first_price, first_label
+                            retry_sweep, first_label
                         )
                         if first_result["success"]:
-                            order_size = half_size
-                            up_amount_usd = order_size * price_info.up_price
-                            down_amount_usd = order_size * price_info.down_price
-                            if first_label == "UP":
-                                second_amt = down_amount_usd
+                            order_size = try_size
+                            # 重新計算第二側的掃單價格
+                            new_second_sweep = self._get_sweep_price(second_asks, try_size)
+                            if new_second_sweep > 0:
+                                second_amt = try_size * new_second_sweep
+                                second_price = new_second_sweep
                             else:
-                                second_amt = up_amount_usd
+                                if first_label == "UP":
+                                    second_amt = try_size * down_sweep
+                                else:
+                                    second_amt = try_size * up_sweep
+                            break
 
                     if not first_result["success"]:
                         record.status = "failed"
