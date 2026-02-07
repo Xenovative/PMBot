@@ -929,7 +929,6 @@ class ArbitrageEngine:
         self.status.bargain_holdings.append(holding)
         self.status.total_trades += 1
         self.status.increment_trades_for_market(market.slug)
-        self.status.last_trade_time = time.time()
         return holding
 
     async def scan_bargain_holdings(self):
@@ -989,7 +988,6 @@ class ArbitrageEngine:
 
                 self.status.total_trades += 1
                 self.status.increment_trades_for_market(holding.market_slug)
-                self.status.last_trade_time = time.time()
 
                 record = TradeRecord(
                     timestamp=datetime.now(timezone.utc).isoformat(),
@@ -1072,7 +1070,6 @@ class ArbitrageEngine:
 
                 self.status.total_trades += 1
                 self.status.increment_trades_for_market(holding.market_slug)
-                self.status.last_trade_time = time.time()
 
                 record = TradeRecord(
                     timestamp=datetime.now(timezone.utc).isoformat(),

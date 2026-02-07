@@ -135,7 +135,7 @@ async def bot_loop():
 
             # ─── 撿便宜策略: 掃描未來市場低價機會 ───
             if engine.status.running and config.bargain_enabled:
-                bargain_opps = await engine.check_bargain_opportunities(valid_markets)
+                bargain_opps = await engine.check_bargain_opportunities(all_markets)
                 for opp in bargain_opps:
                     if not engine.status.running:
                         break
