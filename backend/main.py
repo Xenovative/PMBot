@@ -90,9 +90,13 @@ async def bot_loop():
                     await asyncio.sleep(1)
                 continue
 
-            # 更新活躍市場列表
-            engine.status.active_markets = [m.slug for m in valid_markets]
+            # 更新活躍市場列表，清除過期市場價格
+            valid_slugs = {m.slug for m in valid_markets}
+            engine.status.active_markets = list(valid_slugs)
             engine.status.current_market = f"{len(valid_markets)} 個市場"
+            stale = [s for s in engine.status.market_prices if s not in valid_slugs]
+            for s in stale:
+                del engine.status.market_prices[s]
 
             # 廣播找到的市場
             await broadcast({

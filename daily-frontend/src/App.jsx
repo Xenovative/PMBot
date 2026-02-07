@@ -325,36 +325,61 @@ function App() {
           />
         </div>
 
-        {/* Price Display */}
-        {status?.last_price && (
+        {/* Multi-Market Price Display */}
+        {status?.market_prices && Object.keys(status.market_prices).length > 0 && (
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
             <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center gap-2">
               <TrendingUp className="w-4 h-4" />
-              當前價格 — {status.current_market || ''}
+              即時價格監控 — {Object.keys(status.market_prices).length} 個市場
             </h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <PriceBox
-                label="UP 價格"
-                value={status.last_price.up_price}
-                icon={<TrendingUp className="w-4 h-4 text-emerald-400" />}
-              />
-              <PriceBox
-                label="DOWN 價格"
-                value={status.last_price.down_price}
-                icon={<TrendingDown className="w-4 h-4 text-red-400" />}
-              />
-              <PriceBox
-                label="總成本"
-                value={status.last_price.total_cost}
-                highlight={status.last_price.total_cost < (config?.target_pair_cost ?? 0.99)}
-                icon={<DollarSign className="w-4 h-4 text-amber-400" />}
-              />
-              <PriceBox
-                label="價差 (利潤空間)"
-                value={status.last_price.spread}
-                highlight={status.last_price.spread > 0.01}
-                icon={<Zap className="w-4 h-4 text-orange-400" />}
-              />
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-500 border-b border-gray-800">
+                    <th className="text-left py-2 pr-4 font-medium">市場</th>
+                    <th className="text-right py-2 px-3 font-medium">
+                      <span className="flex items-center justify-end gap-1"><TrendingUp className="w-3 h-3 text-emerald-400" />UP</span>
+                    </th>
+                    <th className="text-right py-2 px-3 font-medium">
+                      <span className="flex items-center justify-end gap-1"><TrendingDown className="w-3 h-3 text-red-400" />DOWN</span>
+                    </th>
+                    <th className="text-right py-2 px-3 font-medium">
+                      <span className="flex items-center justify-end gap-1"><DollarSign className="w-3 h-3 text-amber-400" />總成本</span>
+                    </th>
+                    <th className="text-right py-2 pl-3 font-medium">
+                      <span className="flex items-center justify-end gap-1"><Zap className="w-3 h-3 text-orange-400" />價差</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(status.market_prices)
+                    .sort(([,a], [,b]) => a.total_cost - b.total_cost)
+                    .map(([slug, price]) => {
+                      const profitable = price.total_cost < (config?.target_pair_cost ?? 0.99);
+                      return (
+                        <tr key={slug} className={`border-b border-gray-800/50 ${profitable ? 'bg-emerald-500/5' : ''}`}>
+                          <td className="py-2.5 pr-4">
+                            <span className="text-xs font-mono text-gray-300 truncate block max-w-[200px]" title={slug}>
+                              {slug}
+                            </span>
+                          </td>
+                          <td className="text-right py-2.5 px-3 font-mono text-white">
+                            {price.up_best_ask > 0 ? price.up_best_ask.toFixed(4) : price.up_price.toFixed(4)}
+                          </td>
+                          <td className="text-right py-2.5 px-3 font-mono text-white">
+                            {price.down_best_ask > 0 ? price.down_best_ask.toFixed(4) : price.down_price.toFixed(4)}
+                          </td>
+                          <td className={`text-right py-2.5 px-3 font-mono font-bold ${profitable ? 'text-emerald-400' : 'text-white'}`}>
+                            {price.total_cost.toFixed(4)}
+                          </td>
+                          <td className={`text-right py-2.5 pl-3 font-mono ${price.spread > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {price.spread > 0 ? '+' : ''}{price.spread.toFixed(4)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

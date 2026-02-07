@@ -99,6 +99,7 @@ class BotStatus:
     trades_per_market: Dict[str, int] = field(default_factory=dict)
     last_trade_time: float = 0.0
     last_price: Optional[PriceInfo] = None
+    market_prices: Dict[str, PriceInfo] = field(default_factory=dict)
     opportunities_found: int = 0
     scan_count: int = 0
     start_time: Optional[str] = None
@@ -129,6 +130,7 @@ class BotStatus:
             "total_profit": round(self.total_profit, 4),
             "trades_per_market": self.trades_per_market,
             "last_price": self.last_price.to_dict() if self.last_price else None,
+            "market_prices": {slug: p.to_dict() for slug, p in self.market_prices.items()},
             "opportunities_found": self.opportunities_found,
             "scan_count": self.scan_count,
             "start_time": self.start_time,
@@ -755,6 +757,7 @@ class ArbitrageEngine:
             return None
 
         self.status.last_price = price_info
+        self.status.market_prices[market.slug] = price_info
         self.status.scan_count += 1
 
         opportunity = self.check_arbitrage(market, price_info)
