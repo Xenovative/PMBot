@@ -2,6 +2,7 @@
 套利引擎 - 核心套利邏輯、風險控制、交易執行（每日 Up or Down 市場版本）
 """
 import asyncio
+import math
 import time
 import httpx
 from datetime import datetime, timezone
@@ -439,46 +440,50 @@ class ArbitrageEngine:
                              buy_price: float, side_label: str):
         """
         緊急平倉：賣出已買入的一側代幣以避免單邊風險
-        SELL amount = 股數 (不是 USD)
-        嘗試順序: FOK → GTC → Market Sell (price=None, 掃簿任意價成交)
+        注意: MarketOrderArgs + create_market_order 對 SELL 有 bug（price 驗證失敗）
+        改用 OrderArgs + create_order 限價賣單
+        嘗試順序: 買入價賣出 → 低價賣出 (0.01) → GTC 掛單
         """
-        from py_clob_client.clob_types import MarketOrderArgs, OrderType
+        from py_clob_client.clob_types import OrderArgs, OrderType
         from py_clob_client.order_builder.constants import SELL
+
+        # 將股數截斷到 2 位小數（CLOB 精度限制）
+        shares = math.floor(shares * 100) / 100
+        if shares <= 0:
+            self.status.add_log(f"  ⚠️ {side_label} 股數過小，無法平倉")
+            return False
 
         self.status.add_log(f"  🔥 緊急平倉 {side_label} | 賣出 {shares:.2f} 股 @ ~{buy_price:.4f}")
 
-        for otype in [OrderType.FOK, OrderType.GTC]:
-            try:
-                order = MarketOrderArgs(
-                    token_id=token_id,
-                    amount=shares,
-                    side=SELL,
-                    order_type=otype,
-                )
-                signed = clob_client.create_market_order(order)
-                resp = clob_client.post_order(signed, otype)
-                self.status.add_log(f"  ✅ {side_label} 平倉成功 ({otype}): {resp}")
-                return True
-            except Exception as e:
-                self.status.add_log(f"  ⚠️ {side_label} 平倉 {otype} 失敗: {str(e)[:150]}")
-                continue
+        # 嘗試不同價格賣出: 買入價 → 略低於買入價 → 最低價 0.01
+        sell_prices = [
+            round(buy_price, 2),
+            round(max(buy_price - 0.05, 0.01), 2),
+            0.01,
+        ]
+        # 去重
+        sell_prices = list(dict.fromkeys(sell_prices))
 
-        # 最後手段: Market Sell — price=None 讓 CLOB 自動掃簿，任意價成交
-        try:
-            self.status.add_log(f"  🔥 {side_label} 嘗試 Market Sell (任意價)")
-            order = MarketOrderArgs(
-                token_id=token_id,
-                amount=shares,
-                side=SELL,
-                price=None,
-                order_type=OrderType.FOK,
-            )
-            signed = clob_client.create_market_order(order)
-            resp = clob_client.post_order(signed, OrderType.FOK)
-            self.status.add_log(f"  ✅ {side_label} Market Sell 成功: {resp}")
-            return True
-        except Exception as e:
-            self.status.add_log(f"  ⚠️ {side_label} Market Sell 失敗: {str(e)[:150]}")
+        for sell_price in sell_prices:
+            for otype in [OrderType.FOK, OrderType.GTC]:
+                try:
+                    order = OrderArgs(
+                        token_id=token_id,
+                        price=sell_price,
+                        size=shares,
+                        side=SELL,
+                    )
+                    signed = clob_client.create_order(order)
+                    resp = clob_client.post_order(signed, otype)
+                    self.status.add_log(
+                        f"  ✅ {side_label} 平倉成功 ({otype}) @ {sell_price:.2f}: {resp}"
+                    )
+                    return True
+                except Exception as e:
+                    self.status.add_log(
+                        f"  ⚠️ {side_label} 平倉 {otype} @ {sell_price:.2f} 失敗: {str(e)[:150]}"
+                    )
+                    continue
 
         self.status.add_log(f"  ❌ {side_label} 所有平倉方式均失敗!")
         return False
@@ -1015,6 +1020,16 @@ class ArbitrageEngine:
         buy_round: int = opp.get("round", 1)
         is_pairing: bool = opp.get("is_pairing", False)
         pair_with: Optional[BargainHolding] = opp.get("pair_with")
+
+        # 即時檢查: 非配對開倉時，若已有任何未配對持倉則跳過（防止批次內重複開倉）
+        if not is_pairing:
+            has_unpaired = any(h.status == "holding" for h in self.status.bargain_holdings)
+            if has_unpaired:
+                self.status.add_log(
+                    f"🏷️ [撿便宜] 跳過 {market.slug} {side} — 已有未配對持倉待完成"
+                )
+                return None
+
         order_size = self.config.order_size
         amount_usd = round(order_size * price, 2)
 
