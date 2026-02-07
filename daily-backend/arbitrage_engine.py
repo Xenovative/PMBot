@@ -216,7 +216,7 @@ class ArbitrageEngine:
 
     def check_arbitrage(self, market: MarketInfo, price_info: PriceInfo) -> ArbitrageOpportunity:
         """檢查是否存在套利機會（含滑價容忍度）"""
-        MAX_SLIPPAGE = 0.05  # 滑價容忍度（neg_risk 市場價格波動較大）
+        MAX_SLIPPAGE = 0.005  # 滑價容忍度（total_cost 已用 best_ask，僅需覆蓋市場衝擊）
         order_size = self.config.order_size
         total_cost = price_info.total_cost
         target = self.config.target_pair_cost
