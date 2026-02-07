@@ -201,7 +201,11 @@ class ArbitrageEngine:
                             for a in asks[:10]
                         ]
 
-                price_info.total_cost = price_info.up_price + price_info.down_price
+                # Use best_ask for cost calculation — that's the actual price we pay
+                if price_info.up_best_ask > 0 and price_info.down_best_ask > 0:
+                    price_info.total_cost = price_info.up_best_ask + price_info.down_best_ask
+                else:
+                    price_info.total_cost = price_info.up_price + price_info.down_price
                 price_info.spread = 1.0 - price_info.total_cost
 
                 return price_info
@@ -472,25 +476,29 @@ class ArbitrageEngine:
             try:
                 clob_client = self._get_clob_client()
 
-                # 重新獲取最新 /price（price_info 可能已過時）
+                # 重新獲取最新 best_ask（從訂單簿，而非 /price 參考價）
                 import httpx
                 try:
-                    fresh_up = float(httpx.get(
-                        f"{self.config.CLOB_HOST}/price?token_id={market.up_token_id}&side=buy"
-                    ).json().get("price", 0))
-                    fresh_down = float(httpx.get(
-                        f"{self.config.CLOB_HOST}/price?token_id={market.down_token_id}&side=buy"
-                    ).json().get("price", 0))
-                    up_price = fresh_up
-                    down_price = fresh_down
+                    up_book = httpx.get(
+                        f"{self.config.CLOB_HOST}/book",
+                        params={"token_id": market.up_token_id}
+                    ).json()
+                    down_book = httpx.get(
+                        f"{self.config.CLOB_HOST}/book",
+                        params={"token_id": market.down_token_id}
+                    ).json()
+                    up_asks = up_book.get("asks", [])
+                    down_asks = down_book.get("asks", [])
+                    up_price = float(up_asks[0]["price"]) if up_asks else price_info.up_best_ask
+                    down_price = float(down_asks[0]["price"]) if down_asks else price_info.down_best_ask
                     self.status.add_log(
-                        f"🔄 最新價格 | UP={up_price:.4f} DOWN={down_price:.4f} "
-                        f"(舊: UP={price_info.up_price:.4f} DOWN={price_info.down_price:.4f})"
+                        f"🔄 最新 best_ask | UP={up_price:.4f} DOWN={down_price:.4f} "
+                        f"(舊: UP={price_info.up_best_ask:.4f} DOWN={price_info.down_best_ask:.4f})"
                     )
                 except Exception as e:
-                    self.status.add_log(f"⚠️ 重新獲取價格失敗，使用舊價格: {str(e)[:60]}")
-                    up_price = price_info.up_price
-                    down_price = price_info.down_price
+                    self.status.add_log(f"⚠️ 重新獲取價格失敗，使用舊 best_ask: {str(e)[:60]}")
+                    up_price = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
+                    down_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
 
                 actual_cost = up_price + down_price
 
@@ -568,19 +576,25 @@ class ArbitrageEngine:
                         await self._update_trade_stats(record, opportunity, order_size, market, price_info)
                         return record
 
-                # ── 第二步: 重新查詢 /price 確認仍有利潤再買另一側 ──
+                # ── 第二步: 重新查詢訂單簿 best_ask 確認仍有利潤再買另一側 ──
                 import httpx
                 try:
-                    re_up = float(httpx.get(
-                        f"{self.config.CLOB_HOST}/price?token_id={market.up_token_id}&side=buy"
-                    ).json().get("price", 0))
-                    re_down = float(httpx.get(
-                        f"{self.config.CLOB_HOST}/price?token_id={market.down_token_id}&side=buy"
-                    ).json().get("price", 0))
+                    re_up_book = httpx.get(
+                        f"{self.config.CLOB_HOST}/book",
+                        params={"token_id": market.up_token_id}
+                    ).json()
+                    re_down_book = httpx.get(
+                        f"{self.config.CLOB_HOST}/book",
+                        params={"token_id": market.down_token_id}
+                    ).json()
+                    re_up_asks = re_up_book.get("asks", [])
+                    re_down_asks = re_down_book.get("asks", [])
+                    re_up = float(re_up_asks[0]["price"]) if re_up_asks else up_price
+                    re_down = float(re_down_asks[0]["price"]) if re_down_asks else down_price
                     recheck_cost = re_up + re_down
                     if recheck_cost >= 1.0:
                         self.status.add_log(
-                            f"⛔ 二次檢查: 價格已變動 UP={re_up:.4f}+DOWN={re_down:.4f}={recheck_cost:.4f} >= 1.0，放棄第二側"
+                            f"⛔ 二次檢查: best_ask 已變動 UP={re_up:.4f}+DOWN={re_down:.4f}={recheck_cost:.4f} >= 1.0，放棄第二側"
                         )
                         # 平倉第一側
                         unwind_shares = first_result.get("shares", order_size)
@@ -601,7 +615,7 @@ class ArbitrageEngine:
                         self.status.add_log(f"❌ 二次檢查放棄交易 | {first_label}: {unwind_status}")
                         await self._update_trade_stats(record, opportunity, order_size, market, price_info)
                         return record
-                    # 用最新真實價格更新第二側金額
+                    # 用最新 best_ask 更新第二側金額
                     new_second_price = re_up if second_label == "UP" else re_down
                     second_amt = round(order_size * new_second_price, 2)
                     second_price = new_second_price
@@ -645,17 +659,28 @@ class ArbitrageEngine:
                             f"Token: {first_token[:16]}... 數量: {unwind_shares}"
                         )
                 else:
+                    # Update record with actual fill prices
+                    actual_up = first_result["price"] if first_label == "UP" else second_result["price"]
+                    actual_down = first_result["price"] if first_label == "DOWN" else second_result["price"]
+                    actual_total = actual_up + actual_down
+                    actual_profit = (1.0 - actual_total) * order_size
+
                     record.status = "executed"
                     record.order_size = order_size
+                    record.up_price = actual_up
+                    record.down_price = actual_down
+                    record.total_cost = actual_total
+                    record.expected_profit = actual_profit
+                    record.profit_pct = (actual_profit / (actual_total * order_size) * 100) if actual_total > 0 else 0
                     record.details = (
                         f"🔴 配對交易成功 | {order_size} 股 | "
                         f"UP: {first_result['response'] if first_label == 'UP' else second_result['response']} | "
                         f"DOWN: {first_result['response'] if first_label == 'DOWN' else second_result['response']}"
                     )
                     self.status.add_log(
-                        f"🔴 [真實] 配對成功 {order_size} 股 UP@{price_info.up_price:.4f} + "
-                        f"DOWN@{price_info.down_price:.4f} | "
-                        f"預期利潤: ${record.expected_profit:.4f}"
+                        f"🔴 [真實] 配對成功 {order_size} 股 UP@{actual_up:.4f} + "
+                        f"DOWN@{actual_down:.4f} | 總成本: {actual_total:.4f} | "
+                        f"實際利潤: ${actual_profit:.4f}"
                     )
 
             except Exception as e:
@@ -683,7 +708,7 @@ class ArbitrageEngine:
                 up_token_id=market.up_token_id or "",
                 down_token_id=market.down_token_id or "",
                 amount=order_size,
-                total_cost=price_info.total_cost,
+                total_cost=record.total_cost,
             )
             if self.merger.auto_merge_enabled:
                 merge_results = await self.merger.auto_merge_all()
