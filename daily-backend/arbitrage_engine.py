@@ -175,7 +175,7 @@ class ArbitrageEngine:
                     book = up_book_resp.json()
                     asks = book.get("asks", [])
                     if asks:
-                        price_info.up_best_ask = float(asks[0].get("price", 0))
+                        price_info.up_best_ask = min(float(a.get("price", 0)) for a in asks)
                         price_info.up_liquidity = sum(
                             float(a.get("size", 0)) for a in asks[:5]
                         )
@@ -192,7 +192,7 @@ class ArbitrageEngine:
                     book = down_book_resp.json()
                     asks = book.get("asks", [])
                     if asks:
-                        price_info.down_best_ask = float(asks[0].get("price", 0))
+                        price_info.down_best_ask = min(float(a.get("price", 0)) for a in asks)
                         price_info.down_liquidity = sum(
                             float(a.get("size", 0)) for a in asks[:5]
                         )
@@ -216,7 +216,7 @@ class ArbitrageEngine:
 
     def check_arbitrage(self, market: MarketInfo, price_info: PriceInfo) -> ArbitrageOpportunity:
         """檢查是否存在套利機會（含滑價容忍度）"""
-        MAX_SLIPPAGE = 0.005  # 滑價容忍度（total_cost 已用 best_ask，execute_trade 有即時二次檢查）
+        MAX_SLIPPAGE = 0.05  # 滑價容忍度（neg_risk 市場價格波動較大）
         order_size = self.config.order_size
         total_cost = price_info.total_cost
         target = self.config.target_pair_cost
@@ -489,8 +489,8 @@ class ArbitrageEngine:
                     ).json()
                     up_asks = up_book.get("asks", [])
                     down_asks = down_book.get("asks", [])
-                    up_price = float(up_asks[0]["price"]) if up_asks else price_info.up_best_ask
-                    down_price = float(down_asks[0]["price"]) if down_asks else price_info.down_best_ask
+                    up_price = min(float(a["price"]) for a in up_asks) if up_asks else price_info.up_best_ask
+                    down_price = min(float(a["price"]) for a in down_asks) if down_asks else price_info.down_best_ask
                     self.status.add_log(
                         f"🔄 最新 best_ask | UP={up_price:.4f} DOWN={down_price:.4f} "
                         f"(舊: UP={price_info.up_best_ask:.4f} DOWN={price_info.down_best_ask:.4f})"
@@ -589,8 +589,8 @@ class ArbitrageEngine:
                     ).json()
                     re_up_asks = re_up_book.get("asks", [])
                     re_down_asks = re_down_book.get("asks", [])
-                    re_up = float(re_up_asks[0]["price"]) if re_up_asks else up_price
-                    re_down = float(re_down_asks[0]["price"]) if re_down_asks else down_price
+                    re_up = min(float(a["price"]) for a in re_up_asks) if re_up_asks else up_price
+                    re_down = min(float(a["price"]) for a in re_down_asks) if re_down_asks else down_price
                     recheck_cost = re_up + re_down
                     if recheck_cost >= 1.0:
                         self.status.add_log(
