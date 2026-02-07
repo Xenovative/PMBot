@@ -280,6 +280,63 @@ function App() {
               </div>
             </div>
 
+            {/* Bargain Hunter Settings */}
+            <div className="border-t border-gray-800 pt-4 mt-2">
+              <h3 className="text-sm font-medium text-amber-400 mb-3 flex items-center gap-2">
+                🏷️ 撿便宜策略設定
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-gray-400">撿便宜策略</label>
+                  <button
+                    onClick={() => setConfigForm({ ...configForm, bargain_enabled: !configForm.bargain_enabled })}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${
+                      configForm.bargain_enabled !== false ? 'bg-amber-600' : 'bg-gray-600'
+                    }`}
+                  >
+                    <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                      configForm.bargain_enabled !== false ? 'left-6' : 'left-0.5'
+                    }`} />
+                  </button>
+                  <span className="text-xs text-gray-500">
+                    {configForm.bargain_enabled !== false ? '啟用' : '停用'}
+                  </span>
+                </div>
+                <ConfigField
+                  label="最低買入價"
+                  type="number"
+                  step="0.01"
+                  value={configForm.bargain_min_price ?? 0.10}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_min_price: parseFloat(v) })}
+                  hint="低於此價格不買 (防垃圾股)"
+                />
+                <ConfigField
+                  label="低價閾值"
+                  type="number"
+                  step="0.01"
+                  value={configForm.bargain_price_threshold ?? 0.49}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_price_threshold: parseFloat(v) })}
+                  hint="低於此價格觸發買入 (如 0.49)"
+                />
+                <ConfigField
+                  label="配對成本閾值"
+                  type="number"
+                  step="0.01"
+                  value={configForm.bargain_pair_threshold ?? 0.99}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_pair_threshold: parseFloat(v) })}
+                  hint="兩側合計低於此才配對"
+                />
+                <ConfigField
+                  label="止損幅度"
+                  type="number"
+                  step="0.01"
+                  value={configForm.bargain_stop_loss_cents ?? 0.02}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_cents: parseFloat(v) })}
+                  hint="跌多少賣出 (如 0.02 = 2 分錢)"
+                />
+              </div>
+            </div>
+
             <div className="flex gap-3 pt-2">
               <button
                 onClick={saveConfig}

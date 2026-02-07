@@ -793,6 +793,10 @@ class ArbitrageEngine:
         return self.config.bargain_stop_loss_cents
 
     @property
+    def BARGAIN_MIN_PRICE(self) -> float:
+        return self.config.bargain_min_price
+
+    @property
     def FUTURE_MARKET_MIN_SECONDS(self) -> int:
         return self.config.bargain_future_min_seconds
 
@@ -832,7 +836,8 @@ class ArbitrageEngine:
                 self.status.market_prices[market.slug] = price_info
 
             # 檢查 UP 側
-            if (price_info.up_price > 0 and price_info.up_price < self.BARGAIN_PRICE_THRESHOLD
+            if (price_info.up_price >= self.BARGAIN_MIN_PRICE
+                    and price_info.up_price < self.BARGAIN_PRICE_THRESHOLD
                     and not self._has_active_bargain(market.slug, "UP")):
                 opportunities.append({
                     "market": market,
@@ -845,7 +850,8 @@ class ArbitrageEngine:
                 })
 
             # 檢查 DOWN 側
-            if (price_info.down_price > 0 and price_info.down_price < self.BARGAIN_PRICE_THRESHOLD
+            if (price_info.down_price >= self.BARGAIN_MIN_PRICE
+                    and price_info.down_price < self.BARGAIN_PRICE_THRESHOLD
                     and not self._has_active_bargain(market.slug, "DOWN")):
                 opportunities.append({
                     "market": market,

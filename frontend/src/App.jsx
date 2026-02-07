@@ -301,6 +301,14 @@ function App() {
                   </span>
                 </div>
                 <ConfigField
+                  label="最低買入價"
+                  type="number"
+                  step="0.01"
+                  value={configForm.bargain_min_price ?? 0.10}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_min_price: parseFloat(v) })}
+                  hint="低於此價格不買 (防垃圾股)"
+                />
+                <ConfigField
                   label="低價閾值"
                   type="number"
                   step="0.01"

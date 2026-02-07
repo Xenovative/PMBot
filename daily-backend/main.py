@@ -133,6 +133,23 @@ async def bot_loop():
                     "data": trade.to_dict()
                 })
 
+            # ─── 撿便宜策略: 掃描當前市場低價機會 ───
+            if engine.status.running and config.bargain_enabled:
+                bargain_opps = await engine.check_bargain_opportunities(all_markets)
+                for opp in bargain_opps:
+                    if not engine.status.running:
+                        break
+                    holding = await engine.execute_bargain_buy(opp)
+                    if holding:
+                        await broadcast({
+                            "type": "trade",
+                            "data": {"status": "bargain_buy", "details": holding.to_dict()}
+                        })
+
+            # ─── 撿便宜策略: 監控持倉（配對 or 止損）───
+            if engine.status.running:
+                await engine.scan_bargain_holdings()
+
             await broadcast({"type": "status", "data": engine.status.to_dict()})
             await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
 
@@ -177,6 +194,11 @@ async def get_current_config():
         "crypto_symbols": config.crypto_symbols,
         "private_key_set": bool(config.private_key),
         "funder_address_set": bool(config.funder_address),
+        "bargain_enabled": config.bargain_enabled,
+        "bargain_price_threshold": config.bargain_price_threshold,
+        "bargain_pair_threshold": config.bargain_pair_threshold,
+        "bargain_stop_loss_cents": config.bargain_stop_loss_cents,
+        "bargain_min_price": config.bargain_min_price,
     }
 
 
@@ -192,6 +214,11 @@ class ConfigUpdate(BaseModel):
     private_key: Optional[str] = None
     funder_address: Optional[str] = None
     signature_type: Optional[int] = None
+    bargain_enabled: Optional[bool] = None
+    bargain_price_threshold: Optional[float] = None
+    bargain_pair_threshold: Optional[float] = None
+    bargain_stop_loss_cents: Optional[float] = None
+    bargain_min_price: Optional[float] = None
 
 
 @app.post("/api/config")
