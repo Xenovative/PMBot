@@ -142,8 +142,8 @@ async def bot_loop():
                     holding = await engine.execute_bargain_buy(opp)
                     if holding:
                         await broadcast({
-                            "type": "trade",
-                            "data": {"status": "bargain_buy", "details": holding.to_dict()}
+                            "type": "bargain",
+                            "data": holding.to_dict()
                         })
 
             # ─── 撿便宜策略: 監控持倉（配對 or 止損）───
