@@ -199,6 +199,7 @@ async def get_current_config():
         "bargain_pair_threshold": config.bargain_pair_threshold,
         "bargain_stop_loss_cents": config.bargain_stop_loss_cents,
         "bargain_min_price": config.bargain_min_price,
+        "bargain_max_rounds": config.bargain_max_rounds,
     }
 
 
@@ -219,6 +220,7 @@ class ConfigUpdate(BaseModel):
     bargain_pair_threshold: Optional[float] = None
     bargain_stop_loss_cents: Optional[float] = None
     bargain_min_price: Optional[float] = None
+    bargain_max_rounds: Optional[int] = None
 
 
 @app.post("/api/config")

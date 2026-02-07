@@ -334,6 +334,13 @@ function App() {
                   onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_cents: parseFloat(v) })}
                   hint="跌多少賣出 (如 0.02 = 2 分錢)"
                 />
+                <ConfigField
+                  label="堆疊上限"
+                  type="number"
+                  value={configForm.bargain_max_rounds ?? 56}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_max_rounds: parseInt(v) })}
+                  hint="最多堆疊幾輪"
+                />
               </div>
             </div>
 

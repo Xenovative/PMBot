@@ -90,7 +90,7 @@ class ArbitrageOpportunity:
 
 @dataclass
 class BargainHolding:
-    """撿便宜策略的單側持倉記錄"""
+    """撿便宜策略的單側持倉記錄（支援堆疊輪次）"""
     market_slug: str
     market: MarketInfo
     side: str  # "UP" or "DOWN"
@@ -101,6 +101,8 @@ class BargainHolding:
     amount_usd: float
     timestamp: str
     status: str = "holding"  # "holding", "paired", "stopped_out"
+    round: int = 1  # 堆疊輪次
+    paired_with: Optional[str] = None  # 配對的另一側 holding timestamp (用於追蹤)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -112,6 +114,7 @@ class BargainHolding:
             "amount_usd": self.amount_usd,
             "timestamp": self.timestamp,
             "status": self.status,
+            "round": self.round,
         }
 
 
@@ -757,7 +760,16 @@ class ArbitrageEngine:
                         f"{mr.usdc_received:.2f} USDC | {mr.details}"
                     )
 
-    # ─── 撿便宜策略 (Bargain Hunter) ───
+    # ─── 撿便宜堆疊策略 (Bargain Hunter — Stacking) ───
+    #
+    # 策略邏輯（以熊市為例）:
+    #   Round 1: DOWN < 0.49 → 買 1 股 DOWN @ 0.49
+    #   Round 1: UP   < 0.49 → 買 1 股 UP   @ 0.48 → 配對完成 (0.49+0.48=0.97)
+    #   Round 2: DOWN < 0.48 → 買 1 股 DOWN @ 0.45 (必須低於上一輪買價)
+    #   Round 2: UP   < 0.45 → 買 1 股 UP   @ 0.43 → 配對完成 (0.45+0.43=0.88)
+    #   ... 每輪價差越來越大，利潤越來越高
+    #
+    # 止損: 未配對的持倉跌超過 stop_loss_cents → 賣出
 
     @property
     def BARGAIN_PRICE_THRESHOLD(self) -> float:
@@ -780,17 +792,53 @@ class ArbitrageEngine:
         used = self.status.get_trades_for_market(slug)
         return max(0, self.config.max_trades_per_market - used)
 
-    def _has_active_bargain(self, slug: str, side: str) -> bool:
-        """檢查是否已有該市場同側的活躍撿便宜持倉"""
-        return any(
-            h.market_slug == slug and h.side == side and h.status == "holding"
-            for h in self.status.bargain_holdings
-        )
+    def _get_bargain_stack(self, slug: str) -> Dict[str, Any]:
+        """
+        取得某市場的堆疊狀態:
+        - unpaired: 最新一筆未配對的 holding (等待另一側)
+        - last_buy_price: 上一輪的買入價 (下一輪必須低於此價)
+        - round: 當前輪次
+        - holdings: 所有活躍持倉
+        """
+        holdings = [
+            h for h in self.status.bargain_holdings
+            if h.market_slug == slug and h.status == "holding"
+        ]
+        paired = [
+            h for h in self.status.bargain_holdings
+            if h.market_slug == slug and h.status == "paired"
+        ]
+
+        # 找未配對的持倉（最新一筆 holding）
+        unpaired = None
+        if holdings:
+            unpaired = holdings[-1]  # 最新的未配對持倉
+
+        # 計算當前輪次和上一輪買入價
+        all_buys = holdings + paired
+        if all_buys:
+            max_round = max(h.round for h in all_buys)
+            # 上一輪買入價 = 最近一次買入的價格（作為下一次的天花板）
+            last_buy_price = min(h.buy_price for h in all_buys if h.round == max_round)
+        else:
+            max_round = 0
+            last_buy_price = self.BARGAIN_PRICE_THRESHOLD
+
+        return {
+            "unpaired": unpaired,
+            "last_buy_price": last_buy_price,
+            "round": max_round,
+            "holdings": holdings,
+        }
 
     async def check_bargain_opportunities(self, markets: List[MarketInfo]) -> List[Dict[str, Any]]:
         """
-        掃描所有市場，找出價格低於閾值的撿便宜機會。
-        每日版本：直接在當前市場撿便宜（無未來市場限制）。
+        掃描所有市場，找出堆疊撿便宜機會。
+
+        邏輯:
+        - 無持倉: 任一側 < price_threshold 且 >= min_price → 買入（Round 1 開始）
+        - 有未配對持倉: 另一側 < 未配對買價 → 買入配對（完成本輪）
+        - 已配對: 任一側 < 上輪最低買價 → 開始新一輪堆疊
         """
         opportunities = []
         for market in markets:
@@ -806,47 +854,98 @@ class ArbitrageEngine:
                     continue
                 self.status.market_prices[market.slug] = price_info
 
-            # 檢查 UP 側
             up_ask = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
-            if (up_ask >= self.BARGAIN_MIN_PRICE
-                    and up_ask < self.BARGAIN_PRICE_THRESHOLD
-                    and not self._has_active_bargain(market.slug, "UP")):
-                opportunities.append({
-                    "market": market,
-                    "side": "UP",
-                    "token_id": market.up_token_id,
-                    "complement_token_id": market.down_token_id,
-                    "price": price_info.up_price,
-                    "best_ask": up_ask,
-                    "price_info": price_info,
-                })
-
-            # 檢查 DOWN 側
             down_ask = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
-            if (down_ask >= self.BARGAIN_MIN_PRICE
-                    and down_ask < self.BARGAIN_PRICE_THRESHOLD
-                    and not self._has_active_bargain(market.slug, "DOWN")):
-                opportunities.append({
-                    "market": market,
-                    "side": "DOWN",
-                    "token_id": market.down_token_id,
-                    "complement_token_id": market.up_token_id,
-                    "price": price_info.down_price,
-                    "best_ask": down_ask,
-                    "price_info": price_info,
-                })
+
+            stack = self._get_bargain_stack(market.slug)
+            unpaired = stack["unpaired"]
+
+            if unpaired:
+                # ── 有未配對持倉: 買另一側，價格必須 < 未配對買價 ──
+                if unpaired.side == "UP":
+                    # 需要買 DOWN，且 DOWN 價格 < UP 的買入價
+                    target_price = unpaired.buy_price
+                    if (down_ask >= self.BARGAIN_MIN_PRICE
+                            and down_ask < target_price):
+                        opportunities.append({
+                            "market": market,
+                            "side": "DOWN",
+                            "token_id": market.down_token_id,
+                            "complement_token_id": market.up_token_id,
+                            "price": price_info.down_price,
+                            "best_ask": down_ask,
+                            "price_info": price_info,
+                            "round": unpaired.round,
+                            "is_pairing": True,
+                            "pair_with": unpaired,
+                        })
+                else:  # unpaired.side == "DOWN"
+                    # 需要買 UP，且 UP 價格 < DOWN 的買入價
+                    target_price = unpaired.buy_price
+                    if (up_ask >= self.BARGAIN_MIN_PRICE
+                            and up_ask < target_price):
+                        opportunities.append({
+                            "market": market,
+                            "side": "UP",
+                            "token_id": market.up_token_id,
+                            "complement_token_id": market.down_token_id,
+                            "price": price_info.up_price,
+                            "best_ask": up_ask,
+                            "price_info": price_info,
+                            "round": unpaired.round,
+                            "is_pairing": True,
+                            "pair_with": unpaired,
+                        })
+            else:
+                # ── 無未配對持倉: 開始新一輪 ──
+                next_round = stack["round"] + 1
+                if next_round > self.config.bargain_max_rounds:
+                    continue  # 已達堆疊上限
+
+                price_ceiling = stack["last_buy_price"]
+
+                # 第一輪用 price_threshold 作為天花板
+                if stack["round"] == 0:
+                    price_ceiling = self.BARGAIN_PRICE_THRESHOLD
+
+                # 找最便宜的一側開始新一輪
+                candidates = []
+                if (up_ask >= self.BARGAIN_MIN_PRICE and up_ask < price_ceiling):
+                    candidates.append(("UP", up_ask, market.up_token_id, market.down_token_id))
+                if (down_ask >= self.BARGAIN_MIN_PRICE and down_ask < price_ceiling):
+                    candidates.append(("DOWN", down_ask, market.down_token_id, market.up_token_id))
+
+                if candidates:
+                    # 買最便宜的那側
+                    candidates.sort(key=lambda c: c[1])
+                    side, ask, token_id, comp_id = candidates[0]
+                    opportunities.append({
+                        "market": market,
+                        "side": side,
+                        "token_id": token_id,
+                        "complement_token_id": comp_id,
+                        "price": up_ask if side == "UP" else down_ask,
+                        "best_ask": ask,
+                        "price_info": price_info,
+                        "round": next_round,
+                        "is_pairing": False,
+                        "pair_with": None,
+                    })
 
         # 最便宜的排前面
         opportunities.sort(key=lambda o: o["best_ask"])
         return opportunities
 
     async def execute_bargain_buy(self, opp: Dict[str, Any]) -> Optional[BargainHolding]:
-        """執行撿便宜買入 — 買入單側低價代幣"""
+        """執行撿便宜買入 — 支援堆疊輪次"""
         market: MarketInfo = opp["market"]
         side: str = opp["side"]
         token_id: str = opp["token_id"]
         complement_token_id: str = opp["complement_token_id"]
         price: float = opp["best_ask"]
+        buy_round: int = opp.get("round", 1)
+        is_pairing: bool = opp.get("is_pairing", False)
+        pair_with: Optional[BargainHolding] = opp.get("pair_with")
         order_size = self.config.order_size
         amount_usd = round(order_size * price, 2)
 
@@ -854,15 +953,16 @@ class ArbitrageEngine:
             self.status.add_log(f"🏷️ [撿便宜] {market.slug} {side} 金額 ${amount_usd:.2f} < $1，跳過")
             return None
 
+        action = "配對" if is_pairing else "開倉"
         self.status.add_log(
-            f"🏷️ [撿便宜] 發現 {market.slug} {side} @ {price:.4f} "
-            f"(< {self.BARGAIN_PRICE_THRESHOLD}) | 剩餘: {market.time_remaining_display}"
+            f"🏷️ [撿便宜R{buy_round}{action}] {market.slug} {side} @ {price:.4f} "
+            f"| 剩餘: {market.time_remaining_display}"
         )
 
         if self.config.dry_run:
             estimated_shares = amount_usd / price if price > 0 else 0
             self.status.add_log(
-                f"🏷️ [模擬撿便宜] 買入 {side} | ${amount_usd:.2f} @ {price:.4f} ≈ {estimated_shares:.1f} 股"
+                f"🏷️ [模擬R{buy_round}] 買入 {side} | ${amount_usd:.2f} @ {price:.4f} ≈ {estimated_shares:.1f} 股"
             )
             holding = BargainHolding(
                 market_slug=market.slug,
@@ -875,11 +975,12 @@ class ArbitrageEngine:
                 amount_usd=amount_usd,
                 timestamp=datetime.now(timezone.utc).isoformat(),
                 status="holding",
+                round=buy_round,
             )
         else:
             try:
                 clob_client = self._get_clob_client()
-                result = self._try_buy_one_side(clob_client, token_id, amount_usd, price, f"撿便宜-{side}")
+                result = self._try_buy_one_side(clob_client, token_id, amount_usd, price, f"撿便宜R{buy_round}-{side}")
                 if not result["success"]:
                     self.status.add_log(f"🏷️ [撿便宜] {side} 買入失敗: {result.get('error', '')[:100]}")
                     return None
@@ -895,9 +996,10 @@ class ArbitrageEngine:
                     amount_usd=amount_usd,
                     timestamp=datetime.now(timezone.utc).isoformat(),
                     status="holding",
+                    round=buy_round,
                 )
                 self.status.add_log(
-                    f"🏷️ [撿便宜] {side} 成交 | {holding.shares:.1f} 股 @ {holding.buy_price:.4f}"
+                    f"🏷️ [撿便宜R{buy_round}] {side} 成交 | {holding.shares:.1f} 股 @ {holding.buy_price:.4f}"
                 )
             except Exception as e:
                 self.status.add_log(f"🏷️ [撿便宜] 執行失敗: {str(e)[:120]}")
@@ -906,22 +1008,71 @@ class ArbitrageEngine:
         self.status.bargain_holdings.append(holding)
         self.status.total_trades += 1
         self.status.increment_trades_for_market(market.slug)
+
+        # 如果是配對買入，標記兩邊為 paired
+        if is_pairing and pair_with:
+            combined = pair_with.buy_price + holding.buy_price
+            profit_per_share = 1.0 - combined
+            shares = min(pair_with.shares, holding.shares)
+
+            holding.status = "paired"
+            holding.paired_with = pair_with.timestamp
+            pair_with.status = "paired"
+            pair_with.paired_with = holding.timestamp
+
+            self.status.add_log(
+                f"🏷️ [R{buy_round}配對完成] {market.slug} | "
+                f"{pair_with.side}@{pair_with.buy_price:.4f} + {side}@{holding.buy_price:.4f} "
+                f"= {combined:.4f} | 利潤: ${profit_per_share * shares:.4f} ({(profit_per_share/combined*100):.1f}%)"
+            )
+
+            # 記錄交易
+            record = TradeRecord(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                market_slug=market.slug,
+                up_price=opp["price_info"].up_price,
+                down_price=opp["price_info"].down_price,
+                total_cost=combined,
+                order_size=shares,
+                expected_profit=profit_per_share * shares,
+                profit_pct=(profit_per_share / combined * 100) if combined > 0 else 0,
+                status="executed" if not self.config.dry_run else "simulated",
+                details=f"🏷️ R{buy_round}配對 {pair_with.side}@{pair_with.buy_price:.4f}+{side}@{holding.buy_price:.4f}={combined:.4f}",
+            )
+            self.status.trade_history.append(record)
+            self.status.total_profit += record.expected_profit
+
+            # 追蹤合併
+            if not self.config.dry_run and market.condition_id:
+                self.merger.track_trade(
+                    market_slug=market.slug,
+                    condition_id=market.condition_id,
+                    up_token_id=market.up_token_id or "",
+                    down_token_id=market.down_token_id or "",
+                    amount=shares,
+                    total_cost=combined,
+                )
+                if self.merger.auto_merge_enabled:
+                    merge_results = await self.merger.auto_merge_all()
+                    for mr in merge_results:
+                        self.status.add_log(
+                            f"🔄 合併結果: {mr.status} | {mr.amount:.0f} 對 → "
+                            f"{mr.usdc_received:.2f} USDC | {mr.details}"
+                        )
+
         return holding
 
     async def scan_bargain_holdings(self):
         """
-        掃描所有活躍的撿便宜持倉:
-        1. 如果持倉價格下跌 >= 止損閾值 → 止損賣出
-        2. 如果另一側可以買入且配對總成本 < 閾值 → 買入配對（完成套利）
+        掃描所有活躍的未配對撿便宜持倉:
+        - 如果持倉價格下跌 >= 止損閾值 → 止損賣出
+        (配對邏輯已移至 check_bargain_opportunities + execute_bargain_buy)
         """
         active = [h for h in self.status.bargain_holdings if h.status == "holding"]
         if not active:
             return
 
         for holding in active:
-            if self._bargain_trades_remaining(holding.market_slug) <= 0:
-                continue
-
             # 獲取最新價格
             price_info = await self.get_prices(holding.market)
             if not price_info:
@@ -930,16 +1081,14 @@ class ArbitrageEngine:
             # 當前持倉側的最新價格
             if holding.side == "UP":
                 current_price = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
-                complement_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
             else:
                 current_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
-                complement_price = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
 
             # ── 止損檢查: 跌超過閾值 → 賣出 ──
             price_drop = holding.buy_price - current_price
             if price_drop >= self.BARGAIN_STOP_LOSS_CENTS:
                 self.status.add_log(
-                    f"🛑 [撿便宜止損] {holding.market_slug} {holding.side} | "
+                    f"🛑 [R{holding.round}止損] {holding.market_slug} {holding.side} | "
                     f"買入: {holding.buy_price:.4f} → 現價: {current_price:.4f} "
                     f"(跌 {price_drop:.4f} >= {self.BARGAIN_STOP_LOSS_CENTS})"
                 )
@@ -953,7 +1102,7 @@ class ArbitrageEngine:
                         clob_client = self._get_clob_client()
                         unwind_ok = self._try_unwind_position(
                             clob_client, holding.token_id, holding.shares,
-                            current_price, f"止損-{holding.side}"
+                            current_price, f"止損R{holding.round}-{holding.side}"
                         )
                         holding.status = "stopped_out"
                         if unwind_ok:
@@ -976,89 +1125,7 @@ class ArbitrageEngine:
                     expected_profit=-(price_drop * holding.shares),
                     profit_pct=-(price_drop / holding.buy_price * 100) if holding.buy_price > 0 else 0,
                     status="executed" if not self.config.dry_run else "simulated",
-                    details=f"🛑 撿便宜止損 {holding.side} | -{price_drop:.4f}/share",
-                )
-                self.status.trade_history.append(record)
-                self.status.total_profit += record.expected_profit
-                continue
-
-            # ── 配對檢查: 另一側 + 持倉側 < 閾值 → 買入配對 ──
-            combined = holding.buy_price + complement_price
-            if complement_price > 0 and combined < self.BARGAIN_PAIR_THRESHOLD:
-                complement_side = "DOWN" if holding.side == "UP" else "UP"
-                order_size = holding.shares  # 配對相同股數
-                comp_amount_usd = round(order_size * complement_price, 2)
-
-                if comp_amount_usd < 1.0:
-                    continue
-
-                self.status.add_log(
-                    f"🏷️ [撿便宜配對] {holding.market_slug} | "
-                    f"{holding.side}@{holding.buy_price:.4f} + {complement_side}@{complement_price:.4f} "
-                    f"= {combined:.4f} < {self.BARGAIN_PAIR_THRESHOLD} | 利潤: ${(1.0 - combined) * order_size:.4f}"
-                )
-
-                if self.config.dry_run:
-                    self.status.add_log(
-                        f"🏷️ [模擬配對] 買入 {complement_side} | ${comp_amount_usd:.2f} @ {complement_price:.4f}"
-                    )
-                    holding.status = "paired"
-                    pair_profit = (1.0 - combined) * order_size
-                else:
-                    try:
-                        clob_client = self._get_clob_client()
-                        result = self._try_buy_one_side(
-                            clob_client, holding.complement_token_id,
-                            comp_amount_usd, complement_price, f"配對-{complement_side}"
-                        )
-                        if result["success"]:
-                            holding.status = "paired"
-                            actual_combined = holding.buy_price + result["price"]
-                            pair_profit = (1.0 - actual_combined) * order_size
-                            self.status.add_log(
-                                f"🏷️ [配對成功] {holding.market_slug} | "
-                                f"總成本: {actual_combined:.4f} | 利潤: ${pair_profit:.4f}"
-                            )
-                            # 追蹤合併
-                            if holding.market.condition_id:
-                                self.merger.track_trade(
-                                    market_slug=holding.market_slug,
-                                    condition_id=holding.market.condition_id,
-                                    up_token_id=holding.market.up_token_id or "",
-                                    down_token_id=holding.market.down_token_id or "",
-                                    amount=order_size,
-                                    total_cost=actual_combined,
-                                )
-                                if self.merger.auto_merge_enabled:
-                                    merge_results = await self.merger.auto_merge_all()
-                                    for mr in merge_results:
-                                        self.status.add_log(
-                                            f"🔄 合併結果: {mr.status} | {mr.amount:.0f} 對 → "
-                                            f"{mr.usdc_received:.2f} USDC | {mr.details}"
-                                        )
-                        else:
-                            self.status.add_log(
-                                f"🏷️ [配對失敗] {complement_side}: {result.get('error', '')[:100]}"
-                            )
-                            continue
-                    except Exception as e:
-                        self.status.add_log(f"🏷️ [配對異常] {str(e)[:120]}")
-                        continue
-
-                self.status.total_trades += 1
-                self.status.increment_trades_for_market(holding.market_slug)
-
-                record = TradeRecord(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    market_slug=holding.market_slug,
-                    up_price=price_info.up_price,
-                    down_price=price_info.down_price,
-                    total_cost=combined,
-                    order_size=order_size,
-                    expected_profit=(1.0 - combined) * order_size,
-                    profit_pct=((1.0 - combined) / combined * 100) if combined > 0 else 0,
-                    status="executed" if not self.config.dry_run else "simulated",
-                    details=f"🏷️ 撿便宜配對 {holding.side}+{complement_side} | 總成本: {combined:.4f}",
+                    details=f"🛑 R{holding.round}止損 {holding.side} | -{price_drop:.4f}/share",
                 )
                 self.status.trade_history.append(record)
                 self.status.total_profit += record.expected_profit
