@@ -92,10 +92,11 @@ class ArbitrageOpportunity:
 class BotStatus:
     running: bool = False
     current_market: Optional[str] = None
+    active_markets: List[str] = field(default_factory=list)
     mode: str = "模擬"
     total_trades: int = 0
     total_profit: float = 0.0
-    trades_this_market: int = 0
+    trades_per_market: Dict[str, int] = field(default_factory=dict)
     last_trade_time: float = 0.0
     last_price: Optional[PriceInfo] = None
     opportunities_found: int = 0
@@ -104,6 +105,12 @@ class BotStatus:
     logs: List[str] = field(default_factory=list)
     trade_history: List[TradeRecord] = field(default_factory=list)
     current_opportunities: List[ArbitrageOpportunity] = field(default_factory=list)
+
+    def get_trades_for_market(self, slug: str) -> int:
+        return self.trades_per_market.get(slug, 0)
+
+    def increment_trades_for_market(self, slug: str):
+        self.trades_per_market[slug] = self.trades_per_market.get(slug, 0) + 1
 
     def add_log(self, msg: str):
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
@@ -116,10 +123,11 @@ class BotStatus:
         return {
             "running": self.running,
             "current_market": self.current_market,
+            "active_markets": self.active_markets,
             "mode": self.mode,
             "total_trades": self.total_trades,
             "total_profit": round(self.total_profit, 4),
-            "trades_this_market": self.trades_this_market,
+            "trades_per_market": self.trades_per_market,
             "last_price": self.last_price.to_dict() if self.last_price else None,
             "opportunities_found": self.opportunities_found,
             "scan_count": self.scan_count,
@@ -250,7 +258,7 @@ class ArbitrageEngine:
             reason = f"剩餘時間不足 ({market.time_remaining_display})"
 
         # 檢查 4: 交易次數限制
-        elif self.status.trades_this_market >= self.config.max_trades_per_market:
+        elif self.status.get_trades_for_market(market.slug) >= self.config.max_trades_per_market:
             is_viable = False
             reason = f"已達交易上限 ({self.config.max_trades_per_market})"
 
@@ -715,7 +723,7 @@ class ArbitrageEngine:
                                   order_size: float, market: MarketInfo, price_info: PriceInfo):
         """更新交易統計並觸發自動合併"""
         self.status.total_trades += 1
-        self.status.trades_this_market += 1
+        self.status.increment_trades_for_market(market.slug)
         self.status.last_trade_time = time.time()
         if record.status in ("executed", "simulated"):
             self.status.total_profit += record.expected_profit

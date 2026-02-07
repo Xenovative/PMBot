@@ -60,14 +60,12 @@ async def bot_loop():
     try:
         while engine.status.running:
             # 搜尋市場
-            engine.status.add_log("🔍 搜尋 15 分鐘加密貨幣市場...")
-            await broadcast({"type": "status", "data": engine.status.to_dict()})
-
             all_markets = await market_finder.find_all_crypto_markets()
 
             if not all_markets:
                 engine.status.add_log("⏳ 未找到活躍市場，5 秒後重試...")
                 engine.status.current_market = None
+                engine.status.active_markets = []
                 await broadcast({"type": "status", "data": engine.status.to_dict()})
                 for _ in range(5):
                     if not engine.status.running:
@@ -75,62 +73,66 @@ async def bot_loop():
                     await asyncio.sleep(1)
                 continue
 
+            # 過濾有效市場
+            valid_markets = [
+                m for m in all_markets
+                if m.time_remaining_seconds >= config.min_time_remaining_seconds
+                and m.up_token_id and m.down_token_id
+            ]
+
+            if not valid_markets:
+                engine.status.add_log("⏳ 無符合條件的市場，5 秒後重試...")
+                engine.status.active_markets = []
+                await broadcast({"type": "status", "data": engine.status.to_dict()})
+                for _ in range(5):
+                    if not engine.status.running:
+                        break
+                    await asyncio.sleep(1)
+                continue
+
+            # 更新活躍市場列表
+            engine.status.active_markets = [m.slug for m in valid_markets]
+            engine.status.current_market = f"{len(valid_markets)} 個市場"
+
             # 廣播找到的市場
             await broadcast({
                 "type": "markets",
-                "data": [m.to_dict() for m in all_markets]
+                "data": [m.to_dict() for m in valid_markets]
             })
 
-            engine.status.add_log(f"📊 找到 {len(all_markets)} 個活躍市場")
+            if engine.status.scan_count % 10 == 0:
+                engine.status.add_log(f"📊 監控 {len(valid_markets)} 個活躍市場")
 
-            # 遍歷每個市場進行套利掃描
-            for market in all_markets:
+            # 並行掃描所有市場
+            scan_tasks = [engine.scan_market(m) for m in valid_markets]
+            results = await asyncio.gather(*scan_tasks, return_exceptions=True)
+
+            # 收集所有機會
+            all_opportunities = []
+            for market, result in zip(valid_markets, results):
+                if isinstance(result, Exception):
+                    engine.status.add_log(f"⚠️ 掃描 {market.slug} 失敗: {str(result)[:80]}")
+                    continue
+                if result and result.is_viable:
+                    all_opportunities.append(result)
+
+            engine.status.current_opportunities = all_opportunities
+
+            # 依利潤排序，逐一執行（避免同時下單衝突）
+            all_opportunities.sort(key=lambda o: o.potential_profit, reverse=True)
+            for opportunity in all_opportunities:
                 if not engine.status.running:
                     break
+                trade = await engine.execute_trade(opportunity)
+                await broadcast({
+                    "type": "trade",
+                    "data": trade.to_dict()
+                })
 
-                # 跳過剩餘時間不足的市場
-                if market.time_remaining_seconds < config.min_time_remaining_seconds:
-                    continue
-
-                if not market.up_token_id or not market.down_token_id:
-                    continue
-
-                engine.status.current_market = market.slug
-                engine.status.add_log(
-                    f"📈 監控市場: {market.question} | 剩餘: {market.time_remaining_display}"
-                )
-
-                # 在此市場上持續監控直到市場關閉或機器人停止
-                engine.status.trades_this_market = 0
-
-                while engine.status.running and market.time_remaining_seconds > config.min_time_remaining_seconds:
-                    opportunity = await engine.scan_market(market)
-
-                    if opportunity:
-                        engine.status.current_opportunities = [opportunity] if opportunity.is_viable else []
-
-                        if opportunity.is_viable:
-                            trade = await engine.execute_trade(opportunity)
-                            await broadcast({
-                                "type": "trade",
-                                "data": trade.to_dict()
-                            })
-
-                    await broadcast({"type": "status", "data": engine.status.to_dict()})
-                    await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
-
-                    # 等待掃描間隔
-                    scan_interval = 5
-                    for _ in range(scan_interval):
-                        if not engine.status.running:
-                            break
-                        await asyncio.sleep(1)
-
-                engine.status.add_log(f"⏰ 市場 {market.slug} 即將結束，切換下一個市場")
-
-            # 所有市場掃描完畢，等待後重新搜尋
-            engine.status.add_log("🔄 所有市場掃描完畢，5 秒後重新搜尋...")
             await broadcast({"type": "status", "data": engine.status.to_dict()})
+            await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
+
+            # 掃描間隔
             for _ in range(5):
                 if not engine.status.running:
                     break
