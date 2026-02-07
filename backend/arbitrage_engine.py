@@ -929,11 +929,6 @@ class ArbitrageEngine:
         """
         opportunities = []
 
-        # 全局檢查: 是否有任何市場的未配對持倉
-        has_any_unpaired = any(
-            h.status == "holding" for h in self.status.bargain_holdings
-        )
-
         for market in markets:
             if not market.up_token_id or not market.down_token_id:
                 continue
@@ -993,7 +988,11 @@ class ArbitrageEngine:
                 if not self._is_future_market(market):
                     continue
                 # 如果其他市場有未配對持倉，不開新倉（避免跨市場重複開倉）
-                if has_any_unpaired:
+                other_unpaired = any(
+                    h.status == "holding" and h.market_slug != market.slug
+                    for h in self.status.bargain_holdings
+                )
+                if other_unpaired:
                     continue
                 price_ceiling = stack["last_buy_price"]
                 next_round = stack["round"] + 1
@@ -1037,12 +1036,15 @@ class ArbitrageEngine:
         is_pairing: bool = opp.get("is_pairing", False)
         pair_with: Optional[BargainHolding] = opp.get("pair_with")
 
-        # 即時檢查: 非配對開倉時，若已有任何未配對持倉則跳過（防止批次內重複開倉）
+        # 即時檢查: 非配對開倉時，若其他市場有未配對持倉則跳過（防止跨市場重複開倉）
         if not is_pairing:
-            has_unpaired = any(h.status == "holding" for h in self.status.bargain_holdings)
-            if has_unpaired:
+            other_unpaired = any(
+                h.status == "holding" and h.market_slug != market.slug
+                for h in self.status.bargain_holdings
+            )
+            if other_unpaired:
                 self.status.add_log(
-                    f"🏷️ [撿便宜] 跳過 {market.slug} {side} — 已有未配對持倉待完成"
+                    f"🏷️ [撿便宜] 跳過 {market.slug} {side} — 其他市場有未配對持倉"
                 )
                 return None
 
