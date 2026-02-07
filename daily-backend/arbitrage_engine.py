@@ -927,9 +927,12 @@ class ArbitrageEngine:
             unpaired = stack["unpaired"]
 
             if unpaired:
-                # ── 有未配對持倉: 買另一側，兩側合計 < pair_threshold ──
+                # ── 有未配對持倉: 買另一側，兩側合計 < pair_threshold 且單側 < price_threshold ──
                 if unpaired.side == "UP":
-                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price
+                    target_price = min(
+                        self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price,
+                        self.BARGAIN_PRICE_THRESHOLD,
+                    )
                     if (down_ask >= self.BARGAIN_MIN_PRICE
                             and down_ask < target_price):
                         opportunities.append({
@@ -945,7 +948,10 @@ class ArbitrageEngine:
                             "pair_with": unpaired,
                         })
                 else:  # unpaired.side == "DOWN"
-                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price
+                    target_price = min(
+                        self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price,
+                        self.BARGAIN_PRICE_THRESHOLD,
+                    )
                     if (up_ask >= self.BARGAIN_MIN_PRICE
                             and up_ask < target_price):
                         opportunities.append({
