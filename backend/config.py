@@ -20,6 +20,13 @@ class BotConfig(BaseModel):
     min_liquidity: float = float(os.getenv("MIN_LIQUIDITY", "100"))
     crypto_symbols: List[str] = os.getenv("CRYPTO_SYMBOLS", "btc,eth,sol").split(",")
 
+    # Bargain Hunter Settings
+    bargain_enabled: bool = os.getenv("BARGAIN_ENABLED", "true").lower() == "true"
+    bargain_price_threshold: float = float(os.getenv("BARGAIN_PRICE_THRESHOLD", "0.49"))
+    bargain_pair_threshold: float = float(os.getenv("BARGAIN_PAIR_THRESHOLD", "0.99"))
+    bargain_stop_loss_cents: float = float(os.getenv("BARGAIN_STOP_LOSS_CENTS", "0.02"))
+    bargain_future_min_seconds: int = int(os.getenv("BARGAIN_FUTURE_MIN_SECONDS", "900"))
+
     CLOB_HOST: str = "https://clob.polymarket.com"
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"
     CHAIN_ID: int = 137
