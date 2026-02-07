@@ -343,8 +343,8 @@ class ArbitrageEngine:
     def _try_buy_one_side(self, clob_client, token_id: str, amount_usd: float,
                           price: float, side_label: str) -> dict:
         """
-        FOK 買入 — 傳入 effective price (/price?side=buy)
-        CLOB 計算 shares = amount_usd / price = order_size（確保兩側股數相同）
+        FOK 買入 — price 僅用於估算股數，不傳入 MarketOrderArgs
+        讓 CLOB 自動從訂單簿計算真實成交價（避免限價過緊導致 FOK 失敗）
         """
         from py_clob_client.clob_types import MarketOrderArgs, OrderType
         from py_clob_client.order_builder.constants import BUY
@@ -356,20 +356,36 @@ class ArbitrageEngine:
             self.status.add_log(f"  ⚠️ {side_label} 金額 ${amount_usd:.2f} < $1 最低限制，跳過")
             return {"success": False, "error": "amount below $1 minimum", "shares": 0, "price": price}
 
+        # price=None → CLOB 自動呼叫 calculate_market_price 從訂單簿取得真實價格
+        # 先記錄 CLOB 自動計算的價格（用於診斷）
+        try:
+            auto_price = clob_client.calculate_market_price(
+                token_id, "BUY", amount_usd, OrderType.FOK
+            )
+            actual_shares = amount_usd / auto_price if auto_price > 0 else 0
+            self.status.add_log(
+                f"  📖 {side_label} 訂單簿價格={auto_price:.4f} | "
+                f"${amount_usd:.2f}/{auto_price:.4f}={actual_shares:.2f}股 "
+                f"(effective估算: {estimated_shares:.2f}股)"
+            )
+        except Exception as e:
+            self.status.add_log(f"  ⚠️ {side_label} 訂單簿深度不足: {str(e)[:80]}")
+            return {"success": False, "error": f"orderbook depth: {str(e)[:80]}", "shares": 0, "price": price}
+
         try:
             order = MarketOrderArgs(
                 token_id=token_id,
                 amount=amount_usd,
                 side=BUY,
-                price=price,
+                price=None,
                 order_type=OrderType.FOK,
             )
             signed = clob_client.create_market_order(order)
             resp = clob_client.post_order(signed, OrderType.FOK)
             self.status.add_log(
-                f"  ✅ {side_label} FOK 成交 | ${amount_usd:.4f} @ {price:.4f} ≈ {estimated_shares:.1f} 股"
+                f"  ✅ {side_label} FOK 成交 | ${amount_usd:.2f} @ {auto_price:.4f} ≈ {actual_shares:.1f} 股"
             )
-            return {"success": True, "response": resp, "shares": estimated_shares, "price": price}
+            return {"success": True, "response": resp, "shares": actual_shares, "price": auto_price}
         except Exception as e:
             last_error = str(e)
             self.status.add_log(f"  ⚠️ {side_label} FOK 失敗: {last_error[:120]}")
@@ -501,7 +517,8 @@ class ArbitrageEngine:
                 self.status.add_log(
                     f"📊 價格 | UP={up_price:.4f} DOWN={down_price:.4f} | "
                     f"總成本/share: {actual_cost:.4f} | "
-                    f"UP ${up_amount_usd:.2f} DOWN ${down_amount_usd:.2f}"
+                    f"UP ${up_amount_usd:.2f} DOWN ${down_amount_usd:.2f} | "
+                    f"原始asks: UP={price_info.up_best_ask:.4f} DOWN={price_info.down_best_ask:.4f}"
                 )
 
                 if actual_cost >= 1.0:
