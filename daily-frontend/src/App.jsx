@@ -714,6 +714,57 @@ function App() {
           )}
         </div>
 
+        {/* Bargain Holdings */}
+        {(status?.bargain_holdings || []).length > 0 && (
+          <div className="bg-gray-900 border border-amber-800/30 rounded-xl p-6">
+            <h3 className="text-sm font-medium text-amber-400 mb-4 flex items-center gap-2">
+              🏷️ 撿便宜持倉 ({status.bargain_holdings.length} 筆)
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-500 border-b border-gray-800">
+                    <th className="text-left py-2 px-2">輪次</th>
+                    <th className="text-left py-2 px-2">市場</th>
+                    <th className="text-center py-2 px-2">方向</th>
+                    <th className="text-right py-2 px-2">買入價</th>
+                    <th className="text-right py-2 px-2">股數</th>
+                    <th className="text-right py-2 px-2">金額</th>
+                    <th className="text-left py-2 px-2">時間</th>
+                    <th className="text-center py-2 px-2">狀態</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {status.bargain_holdings.map((h, i) => (
+                    <tr key={i} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                      <td className="py-2 px-2 text-xs font-mono text-amber-400">R{h.round}</td>
+                      <td className="py-2 px-2 text-xs truncate max-w-[140px]">{h.market_slug}</td>
+                      <td className="py-2 px-2 text-center">
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          h.side === 'UP' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                        }`}>
+                          {h.side}
+                        </span>
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono">{h.buy_price?.toFixed(4)}</td>
+                      <td className="py-2 px-2 text-right font-mono">{h.shares?.toFixed(1)}</td>
+                      <td className="py-2 px-2 text-right font-mono">${h.amount_usd?.toFixed(2)}</td>
+                      <td className="py-2 px-2 text-xs text-gray-400 font-mono">
+                        {new Date(h.timestamp).toLocaleTimeString('zh-TW')}
+                      </td>
+                      <td className="py-2 px-2 text-center">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400">
+                          持有中
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Trade History */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
           <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center gap-2">

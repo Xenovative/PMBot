@@ -868,8 +868,6 @@ class ArbitrageEngine:
         """
         opportunities = []
         for market in markets:
-            if not self._is_future_market(market):
-                continue
             if not market.up_token_id or not market.down_token_id:
                 continue
             if self._bargain_trades_remaining(market.slug) <= 0:
@@ -889,6 +887,7 @@ class ArbitrageEngine:
             unpaired = stack["unpaired"]
 
             if unpaired:
+                # 配對不受 future market 限制 — 已有持倉必須完成配對
                 # ── 有未配對持倉: 買另一側，價格必須 < 未配對買價 ──
                 if unpaired.side == "UP":
                     target_price = unpaired.buy_price
@@ -923,7 +922,9 @@ class ArbitrageEngine:
                             "pair_with": unpaired,
                         })
             else:
-                # ── 無未配對持倉: 開始新一輪 ──
+                # ── 無未配對持倉: 開始新一輪（僅限未來市場）──
+                if not self._is_future_market(market):
+                    continue
                 price_ceiling = stack["last_buy_price"]
                 next_round = stack["round"] + 1
 
