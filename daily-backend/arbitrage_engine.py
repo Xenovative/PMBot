@@ -932,10 +932,9 @@ class ArbitrageEngine:
             unpaired = stack["unpaired"]
 
             if unpaired:
-                # ── 有未配對持倉: 買另一側，價格必須 < 未配對買價 ──
+                # ── 有未配對持倉: 買另一側，兩側合計 < pair_threshold ──
                 if unpaired.side == "UP":
-                    # 需要買 DOWN，且 DOWN 價格 < UP 的買入價
-                    target_price = unpaired.buy_price
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price
                     if (down_ask >= self.BARGAIN_MIN_PRICE
                             and down_ask < target_price):
                         opportunities.append({
@@ -951,8 +950,7 @@ class ArbitrageEngine:
                             "pair_with": unpaired,
                         })
                 else:  # unpaired.side == "DOWN"
-                    # 需要買 UP，且 UP 價格 < DOWN 的買入價
-                    target_price = unpaired.buy_price
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price
                     if (up_ask >= self.BARGAIN_MIN_PRICE
                             and up_ask < target_price):
                         opportunities.append({

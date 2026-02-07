@@ -955,9 +955,9 @@ class ArbitrageEngine:
 
             if unpaired:
                 # 配對不受 future market 限制 — 已有持倉必須完成配對
-                # ── 有未配對持倉: 買另一側，價格必須 < 未配對買價 ──
+                # ── 有未配對持倉: 買另一側，兩側合計 < pair_threshold ──
                 if unpaired.side == "UP":
-                    target_price = unpaired.buy_price
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price
                     if (down_ask >= self.BARGAIN_MIN_PRICE
                             and down_ask < target_price):
                         opportunities.append({
@@ -973,7 +973,7 @@ class ArbitrageEngine:
                             "pair_with": unpaired,
                         })
                 else:
-                    target_price = unpaired.buy_price
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price
                     if (up_ask >= self.BARGAIN_MIN_PRICE
                             and up_ask < target_price):
                         opportunities.append({
