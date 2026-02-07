@@ -437,7 +437,11 @@ class ArbitrageEngine:
 
     def _try_unwind_position(self, clob_client, token_id: str, shares: float,
                              buy_price: float, side_label: str):
-        """緊急平倉：賣出已買入的一側代幣以避免單邊風險"""
+        """
+        緊急平倉：賣出已買入的一側代幣以避免單邊風險
+        SELL amount = 股數 (不是 USD)
+        嘗試順序: FOK → GTC → Market Sell (price=None, 掃簿任意價成交)
+        """
         from py_clob_client.clob_types import MarketOrderArgs, OrderType
         from py_clob_client.order_builder.constants import SELL
 
@@ -459,8 +463,52 @@ class ArbitrageEngine:
                 self.status.add_log(f"  ⚠️ {side_label} 平倉 {otype} 失敗: {str(e)[:150]}")
                 continue
 
+        # 最後手段: Market Sell — price=None 讓 CLOB 自動掃簿，任意價成交
+        try:
+            self.status.add_log(f"  🔥 {side_label} 嘗試 Market Sell (任意價)")
+            order = MarketOrderArgs(
+                token_id=token_id,
+                amount=shares,
+                side=SELL,
+                price=None,
+                order_type=OrderType.FOK,
+            )
+            signed = clob_client.create_market_order(order)
+            resp = clob_client.post_order(signed, OrderType.FOK)
+            self.status.add_log(f"  ✅ {side_label} Market Sell 成功: {resp}")
+            return True
+        except Exception as e:
+            self.status.add_log(f"  ⚠️ {side_label} Market Sell 失敗: {str(e)[:150]}")
+
         self.status.add_log(f"  ❌ {side_label} 所有平倉方式均失敗!")
         return False
+
+    def _convert_orphan_to_bargain(self, market: 'MarketInfo', side: str,
+                                    token_id: str, complement_token_id: str,
+                                    buy_price: float, shares: float, amount_usd: float):
+        """
+        平倉失敗時，將孤兒持倉轉入撿便宜策略繼續配對，
+        而非要求使用者手動處理。
+        """
+        holding = BargainHolding(
+            market_slug=market.slug,
+            market=market,
+            side=side,
+            token_id=token_id,
+            complement_token_id=complement_token_id,
+            buy_price=buy_price,
+            shares=shares,
+            amount_usd=amount_usd,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            status="holding",
+            round=1,
+        )
+        self.status.bargain_holdings.append(holding)
+        self.status.add_log(
+            f"🏷️ [孤兒轉撿便宜] {market.slug} {side} | "
+            f"{shares:.1f} 股 @ {buy_price:.4f} → 等待配對"
+        )
+        return holding
 
     async def execute_trade(self, opportunity: ArbitrageOpportunity) -> TradeRecord:
         """執行套利交易 — 安全版本"""
@@ -652,7 +700,16 @@ class ArbitrageEngine:
                             if unwind_ok:
                                 break
                         record.status = "failed"
-                        unwind_status = "已平倉" if unwind_ok else "⚠️ 平倉失敗，需手動處理!"
+                        if unwind_ok:
+                            unwind_status = "已平倉"
+                        else:
+                            comp_token = second_token
+                            self._convert_orphan_to_bargain(
+                                market, first_label, first_token, comp_token,
+                                first_result.get("price", first_price),
+                                unwind_shares, round(unwind_shares * first_result.get("price", first_price), 2),
+                            )
+                            unwind_status = "🏷️ 已轉入撿便宜策略"
                         record.details = f"二次檢查無利潤 ({recheck_cost:.4f}) | {first_label}: {unwind_status}"
                         self.status.add_log(f"❌ 二次檢查放棄交易 | {first_label}: {unwind_status}")
                         await self._update_trade_stats(record, opportunity, order_size, market, price_info)
@@ -688,18 +745,21 @@ class ArbitrageEngine:
                             break
 
                     record.status = "failed"
-                    unwind_status = "已平倉" if unwind_ok else "⚠️ 平倉失敗，需手動處理!"
+                    if unwind_ok:
+                        unwind_status = "已平倉"
+                    else:
+                        comp_token = second_token
+                        self._convert_orphan_to_bargain(
+                            market, first_label, first_token, comp_token,
+                            first_result.get("price", first_price),
+                            unwind_shares, round(unwind_shares * first_result.get("price", first_price), 2),
+                        )
+                        unwind_status = "🏷️ 已轉入撿便宜策略"
                     record.details = (
                         f"❌ {second_label} 買入失敗 | {first_label} {unwind_status} | "
                         f"錯誤: {second_result.get('error', '')[:80]}"
                     )
                     self.status.add_log(f"❌ 配對交易失敗 | {first_label}: {unwind_status}")
-
-                    if not unwind_ok:
-                        self.status.add_log(
-                            f"🚨 警告: {first_label} 平倉失敗! "
-                            f"Token: {first_token[:16]}... 數量: {unwind_shares}"
-                        )
                 else:
                     # Update record with actual fill prices
                     actual_up = first_result["price"] if first_label == "UP" else second_result["price"]
@@ -841,6 +901,12 @@ class ArbitrageEngine:
         - 已配對: 任一側 < 上輪最低買價 → 開始新一輪堆疊
         """
         opportunities = []
+
+        # 全局檢查: 是否有任何市場的未配對持倉
+        has_any_unpaired = any(
+            h.status == "holding" for h in self.status.bargain_holdings
+        )
+
         for market in markets:
             if not market.up_token_id or not market.down_token_id:
                 continue
@@ -898,6 +964,9 @@ class ArbitrageEngine:
                         })
             else:
                 # ── 無未配對持倉: 開始新一輪 ──
+                # 如果其他市場有未配對持倉，不開新倉（避免跨市場重複開倉）
+                if has_any_unpaired:
+                    continue
                 next_round = stack["round"] + 1
                 if next_round > self.config.bargain_max_rounds:
                     continue  # 已達堆疊上限
