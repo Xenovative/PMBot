@@ -179,6 +179,7 @@ class ArbitrageEngine:
         self.merger = PositionMerger(config)
         self._stop_event = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
+        self._stop_loss_cooldown_until: Optional[datetime] = None
 
     async def get_prices(self, market: MarketInfo) -> Optional[PriceInfo]:
         """從 CLOB API 獲取 UP/DOWN 代幣的當前價格和訂單簿深度"""
@@ -517,6 +518,14 @@ class ArbitrageEngine:
         )
         return holding
 
+    def _is_on_cooldown(self) -> bool:
+        """止損冷卻期檢查"""
+        if self._stop_loss_cooldown_until and datetime.now(timezone.utc) < self._stop_loss_cooldown_until:
+            remaining = (self._stop_loss_cooldown_until - datetime.now(timezone.utc)).seconds
+            self.status.add_log(f"⏳ 止損冷卻中，剩餘 {remaining}s")
+            return True
+        return False
+
     async def execute_trade(self, opportunity: ArbitrageOpportunity) -> TradeRecord:
         """
         執行套利交易 — 安全版本
@@ -526,6 +535,15 @@ class ArbitrageEngine:
         4. 如果第二側失敗，立即 FOK 賣回第一側（防止單邊風險）
         5. 失敗後嘗試半量重試
         """
+        if self._is_on_cooldown():
+            record = TradeRecord(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                market_slug=opportunity.market.slug,
+                status="skipped",
+                details="止損冷卻中",
+            )
+            return record
+
         market = opportunity.market
         price_info = opportunity.price_info
         desired_size = self.config.order_size
@@ -929,6 +947,9 @@ class ArbitrageEngine:
         """
         opportunities = []
 
+        if self._is_on_cooldown():
+            return opportunities
+
         for market in markets:
             if not market.up_token_id or not market.down_token_id:
                 continue
@@ -1214,6 +1235,11 @@ class ArbitrageEngine:
                             self.status.add_log(f"🛑 [止損失敗] {holding.side} 需手動處理!")
                     except Exception as e:
                         self.status.add_log(f"🛑 [止損異常] {str(e)[:120]}")
+
+                # 止損後冷卻 3 分鐘
+                from datetime import timedelta
+                self._stop_loss_cooldown_until = datetime.now(timezone.utc) + timedelta(minutes=3)
+                self.status.add_log(f"⏳ 止損冷卻中，3 分鐘內不開新倉")
 
                 self.status.total_trades += 1
                 self.status.increment_trades_for_market(holding.market_slug)
