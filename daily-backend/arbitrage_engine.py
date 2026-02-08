@@ -1193,9 +1193,29 @@ class ArbitrageEngine:
             else:
                 current_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
 
-            # ── 止損檢查: 跌超過閾值 → 賣出 ──
+            # ── 止損檢查: 跌超過閾值 → 延遲 15 分鐘後才賣出 ──
             price_drop = holding.buy_price - current_price
             if price_drop >= self.BARGAIN_STOP_LOSS_CENTS:
+                # 計算持倉時間
+                from datetime import timedelta
+                try:
+                    created_at = datetime.fromisoformat(holding.timestamp)
+                except Exception:
+                    created_at = datetime.now(timezone.utc)
+                holding_age = (datetime.now(timezone.utc) - created_at).total_seconds()
+                market_remaining = holding.market.time_remaining_seconds
+
+                STOP_LOSS_DEFER_SECONDS = 15 * 60  # 15 分鐘
+                MIN_MARKET_TIME_FOR_DEFER = 20 * 60  # 市場剩餘 < 20 分鐘時不延遲
+
+                if holding_age < STOP_LOSS_DEFER_SECONDS and market_remaining > MIN_MARKET_TIME_FOR_DEFER:
+                    defer_remaining = int(STOP_LOSS_DEFER_SECONDS - holding_age)
+                    self.status.add_log(
+                        f"⏳ [R{holding.round}] {holding.side} 跌 {price_drop:.4f} 達止損線，"
+                        f"但持倉僅 {int(holding_age)}s，延遲 {defer_remaining}s 後再止損"
+                    )
+                    continue
+
                 self.status.add_log(
                     f"🛑 [R{holding.round}止損] {holding.market_slug} {holding.side} | "
                     f"買入: {holding.buy_price:.4f} → 現價: {current_price:.4f} "
