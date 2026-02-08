@@ -925,13 +925,20 @@ class ArbitrageEngine:
         if holdings:
             unpaired = holdings[-1]
 
-        # 包含止損過的，避免同價重入
-        all_buys = holdings + paired + stopped
-        if all_buys:
-            max_round = max(h.round for h in all_buys)
-            last_buy_price = min(h.buy_price for h in all_buys if h.round == max_round)
+        # 輪次: 包含止損過的（防止同輪重入）
+        all_for_round = holdings + paired + stopped
+        # 價格天花板: 只看成功的持倉（holding + paired），止損的不拖低天花板
+        active_buys = holdings + paired
+
+        if all_for_round:
+            max_round = max(h.round for h in all_for_round)
         else:
             max_round = 0
+
+        if active_buys:
+            latest_round = max(h.round for h in active_buys)
+            last_buy_price = min(h.buy_price for h in active_buys if h.round == latest_round)
+        else:
             last_buy_price = self.BARGAIN_PRICE_THRESHOLD
 
         return {
