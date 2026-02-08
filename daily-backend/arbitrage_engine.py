@@ -1199,7 +1199,16 @@ class ArbitrageEngine:
             else:
                 current_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
 
-            # ── 止損檢查: 跌超過閾值 → 延遲 15 分鐘後才賣出 ──
+            # ── 價格回升 → 重置延遲計時器 ──
+            if current_price >= holding.buy_price:
+                fresh_ts = datetime.now(timezone.utc).isoformat()
+                if holding.timestamp != fresh_ts[:19]:  # 避免重複 log
+                    holding.timestamp = fresh_ts
+                    self.status.add_log(
+                        f"📈 [R{holding.round}] {holding.side} 回升至 {current_price:.4f} >= 買入價 {holding.buy_price:.4f}，重置止損延遲"
+                    )
+
+            # ── 止損檢查: 跌超過閾值 → 延遲後才賣出 ──
             price_drop = holding.buy_price - current_price
             if price_drop >= self.BARGAIN_STOP_LOSS_CENTS:
                 # 計算持倉時間
