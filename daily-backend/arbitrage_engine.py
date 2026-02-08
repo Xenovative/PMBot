@@ -891,14 +891,18 @@ class ArbitrageEngine:
             h for h in self.status.bargain_holdings
             if h.market_slug == slug and h.status == "paired"
         ]
+        stopped = [
+            h for h in self.status.bargain_holdings
+            if h.market_slug == slug and h.status == "stopped_out"
+        ]
 
         # 找未配對的持倉（最新一筆 holding）
         unpaired = None
         if holdings:
             unpaired = holdings[-1]  # 最新的未配對持倉
 
-        # 計算當前輪次和上一輪買入價
-        all_buys = holdings + paired
+        # 計算當前輪次和上一輪買入價（包含止損過的，避免同價重入）
+        all_buys = holdings + paired + stopped
         if all_buys:
             max_round = max(h.round for h in all_buys)
             # 上一輪買入價 = 最近一次買入的價格（作為下一次的天花板）
@@ -948,12 +952,9 @@ class ArbitrageEngine:
             unpaired = stack["unpaired"]
 
             if unpaired:
-                # ── 有未配對持倉: 買另一側，兩側合計 < pair_threshold 且單側 < price_threshold ──
+                # ── 有未配對持倉: 買另一側，兩側合計 < pair_threshold ──
                 if unpaired.side == "UP":
-                    target_price = min(
-                        self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price,
-                        self.BARGAIN_PRICE_THRESHOLD,
-                    )
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price
                     if (down_ask >= self.BARGAIN_MIN_PRICE
                             and down_ask < target_price):
                         opportunities.append({
@@ -969,10 +970,7 @@ class ArbitrageEngine:
                             "pair_with": unpaired,
                         })
                 else:  # unpaired.side == "DOWN"
-                    target_price = min(
-                        self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price,
-                        self.BARGAIN_PRICE_THRESHOLD,
-                    )
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price
                     if (up_ask >= self.BARGAIN_MIN_PRICE
                             and up_ask < target_price):
                         opportunities.append({

@@ -916,12 +916,17 @@ class ArbitrageEngine:
             h for h in self.status.bargain_holdings
             if h.market_slug == slug and h.status == "paired"
         ]
+        stopped = [
+            h for h in self.status.bargain_holdings
+            if h.market_slug == slug and h.status == "stopped_out"
+        ]
 
         unpaired = None
         if holdings:
             unpaired = holdings[-1]
 
-        all_buys = holdings + paired
+        # 包含止損過的，避免同價重入
+        all_buys = holdings + paired + stopped
         if all_buys:
             max_round = max(h.round for h in all_buys)
             last_buy_price = min(h.buy_price for h in all_buys if h.round == max_round)
@@ -971,12 +976,9 @@ class ArbitrageEngine:
 
             if unpaired:
                 # 配對不受 future market 限制 — 已有持倉必須完成配對
-                # ── 有未配對持倉: 買另一側，兩側合計 < pair_threshold 且單側 < price_threshold ──
+                # ── 有未配對持倉: 買另一側，兩側合計 < pair_threshold ──
                 if unpaired.side == "UP":
-                    target_price = min(
-                        self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price,
-                        self.BARGAIN_PRICE_THRESHOLD,
-                    )
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price
                     if (down_ask >= self.BARGAIN_MIN_PRICE
                             and down_ask < target_price):
                         opportunities.append({
@@ -992,10 +994,7 @@ class ArbitrageEngine:
                             "pair_with": unpaired,
                         })
                 else:
-                    target_price = min(
-                        self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price,
-                        self.BARGAIN_PRICE_THRESHOLD,
-                    )
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price
                     if (up_ask >= self.BARGAIN_MIN_PRICE
                             and up_ask < target_price):
                         opportunities.append({
