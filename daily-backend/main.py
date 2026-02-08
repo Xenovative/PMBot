@@ -200,6 +200,7 @@ async def get_current_config():
         "bargain_stop_loss_cents": config.bargain_stop_loss_cents,
         "bargain_min_price": config.bargain_min_price,
         "bargain_max_rounds": config.bargain_max_rounds,
+        "bargain_stop_loss_defer_minutes": config.bargain_stop_loss_defer_minutes,
     }
 
 
@@ -221,6 +222,7 @@ class ConfigUpdate(BaseModel):
     bargain_stop_loss_cents: Optional[float] = None
     bargain_min_price: Optional[float] = None
     bargain_max_rounds: Optional[int] = None
+    bargain_stop_loss_defer_minutes: Optional[int] = None
 
 
 @app.post("/api/config")

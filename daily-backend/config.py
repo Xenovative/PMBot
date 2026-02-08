@@ -27,6 +27,7 @@ class BotConfig(BaseModel):
     bargain_stop_loss_cents: float = float(os.getenv("BARGAIN_STOP_LOSS_CENTS", "0.02"))
     bargain_min_price: float = float(os.getenv("BARGAIN_MIN_PRICE", "0.10"))
     bargain_max_rounds: int = int(os.getenv("BARGAIN_MAX_ROUNDS", "56"))
+    bargain_stop_loss_defer_minutes: int = int(os.getenv("BARGAIN_STOP_LOSS_DEFER_MINUTES", "30"))
 
     CLOB_HOST: str = "https://clob.polymarket.com"
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"

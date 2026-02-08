@@ -1205,11 +1205,11 @@ class ArbitrageEngine:
                 holding_age = (datetime.now(timezone.utc) - created_at).total_seconds()
                 market_remaining = holding.market.time_remaining_seconds
 
-                STOP_LOSS_DEFER_SECONDS = 15 * 60  # 15 分鐘
-                MIN_MARKET_TIME_FOR_DEFER = 20 * 60  # 市場剩餘 < 20 分鐘時不延遲
+                defer_seconds = self.config.bargain_stop_loss_defer_minutes * 60
+                MIN_MARKET_TIME_FOR_DEFER = defer_seconds + 5 * 60  # 市場剩餘不足時不延遲
 
-                if holding_age < STOP_LOSS_DEFER_SECONDS and market_remaining > MIN_MARKET_TIME_FOR_DEFER:
-                    defer_remaining = int(STOP_LOSS_DEFER_SECONDS - holding_age)
+                if holding_age < defer_seconds and market_remaining > MIN_MARKET_TIME_FOR_DEFER:
+                    defer_remaining = int(defer_seconds - holding_age)
                     self.status.add_log(
                         f"⏳ [R{holding.round}] {holding.side} 跌 {price_drop:.4f} 達止損線，"
                         f"但持倉僅 {int(holding_age)}s，延遲 {defer_remaining}s 後再止損"

@@ -335,6 +335,13 @@ function App() {
                   hint="跌多少賣出 (如 0.02 = 2 分錢)"
                 />
                 <ConfigField
+                  label="止損延遲 (分鐘)"
+                  type="number"
+                  value={configForm.bargain_stop_loss_defer_minutes ?? 30}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_defer_minutes: parseInt(v) })}
+                  hint="止損觸發後延遲多久才執行"
+                />
+                <ConfigField
                   label="堆疊上限"
                   type="number"
                   value={configForm.bargain_max_rounds ?? 56}
