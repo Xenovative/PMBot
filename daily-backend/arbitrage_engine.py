@@ -903,18 +903,20 @@ class ArbitrageEngine:
 
         # 輪次: 包含止損過的（防止同輪重入）
         all_for_round = holdings + paired + stopped
-        # 價格天花板: 只看成功的持倉（holding + paired），止損的不拖低天花板
-        active_buys = holdings + paired
+        # 價格天花板: 只看未配對持倉（holding）
+        # 已配對的輪次已完成，不應限制下一輪的進場價格
 
         if all_for_round:
             max_round = max(h.round for h in all_for_round)
         else:
             max_round = 0
 
-        if active_buys:
-            latest_round = max(h.round for h in active_buys)
-            last_buy_price = min(h.buy_price for h in active_buys if h.round == latest_round)
+        if holdings:
+            # 有未配對持倉 → 用該持倉的買價作為天花板（配對側必須更便宜）
+            latest_round = max(h.round for h in holdings)
+            last_buy_price = min(h.buy_price for h in holdings if h.round == latest_round)
         else:
+            # 全部已配對或無持倉 → 重置天花板，新一輪獨立進場
             last_buy_price = self.BARGAIN_PRICE_THRESHOLD
 
         return {
