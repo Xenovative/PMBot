@@ -1208,6 +1208,15 @@ class ArbitrageEngine:
                         f"📈 [R{holding.round}] {holding.side} 回升至 {current_price:.4f} >= 買入價 {holding.buy_price:.4f}，重置止損延遲"
                     )
 
+            # ── 前 N 輪免止損，只等配對 ──
+            if holding.round <= self.config.bargain_stop_loss_immune_rounds:
+                if self.status.scan_count % 10 == 0:
+                    self.status.add_log(
+                        f"🛡️ [R{holding.round}] {holding.side} 免止損 (≤R{self.config.bargain_stop_loss_immune_rounds}) | "
+                        f"買入: {holding.buy_price:.4f} 現價: {current_price:.4f} | 等待配對"
+                    )
+                continue
+
             # ── 止損檢查: 跌超過閾值 → 延遲後才賣出 ──
             price_drop = holding.buy_price - current_price
             if price_drop >= self.BARGAIN_STOP_LOSS_CENTS:
