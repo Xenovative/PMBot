@@ -1256,10 +1256,11 @@ class ArbitrageEngine:
                     except Exception as e:
                         self.status.add_log(f"🛑 [止損異常] {str(e)[:120]}")
 
-                # 止損後冷卻 3 分鐘
+                # 止損後冷卻（防止「高買低賣」循環）
                 from datetime import timedelta
-                self._stop_loss_cooldown_until = datetime.now(timezone.utc) + timedelta(minutes=3)
-                self.status.add_log(f"⏳ 止損冷卻中，3 分鐘內不開新倉")
+                cooldown_min = self.config.bargain_stop_loss_cooldown_minutes
+                self._stop_loss_cooldown_until = datetime.now(timezone.utc) + timedelta(minutes=cooldown_min)
+                self.status.add_log(f"⏳ 止損冷卻中，{cooldown_min} 分鐘內不開新倉")
 
                 self.status.total_trades += 1
                 self.status.increment_trades_for_market(holding.market_slug)
