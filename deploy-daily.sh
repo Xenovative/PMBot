@@ -32,7 +32,7 @@ if ! python3.12 --version &>/dev/null; then
 fi
 PYTHON_BIN=$(command -v python3.12)
 
-# Node.js via NodeSource
+# Node.js via NodeSource (if not already installed via nvm or system)
 if ! command -v node &>/dev/null; then
     echo "  Installing Node.js ${NODE_VERSION}..."
     curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
@@ -44,6 +44,7 @@ if ! command -v pm2 &>/dev/null; then
     echo "  Installing PM2..."
     npm install -g pm2
 fi
+
 PM2_BIN=$(which pm2)
 
 echo "  Python: $($PYTHON_BIN --version)"
@@ -66,7 +67,7 @@ if [ -d "$APP_DIR/backend" ]; then
     echo "  Existing install detected — updating code..."
     # Stop services before updating
     systemctl stop pmbot-daily-backend 2>/dev/null || true
-    sudo -u "$APP_USER" $PM2_BIN stop pmbot-daily-frontend 2>/dev/null || true
+    $PM2_BIN stop pmbot-daily-frontend 2>/dev/null || true
 else
     echo "  Fresh install — copying files..."
 fi
@@ -138,12 +139,15 @@ systemctl daemon-reload
 systemctl enable pmbot-daily-backend
 systemctl restart pmbot-daily-backend
 
-# Frontend via PM2
+# Frontend via PM2 (run as root, process runs as APP_USER via --uid)
 echo "  Starting frontend with PM2..."
-NODE_PATH=$(dirname $(which node))
-sudo -u "$APP_USER" bash -c "export PATH=$NODE_PATH:\$PATH && cd $APP_DIR/frontend && $PM2_BIN delete pmbot-daily-frontend 2>/dev/null; $PM2_BIN start 'npx vite preview --host 0.0.0.0 --port $FRONTEND_PORT' --name pmbot-daily-frontend"
-sudo -u "$APP_USER" bash -c "export PATH=$NODE_PATH:\$PATH && $PM2_BIN save"
-$PM2_BIN startup systemd -u "$APP_USER" --hp "$APP_DIR" 2>/dev/null || true
+$PM2_BIN delete pmbot-daily-frontend 2>/dev/null || true
+$PM2_BIN start "npx vite preview --host 0.0.0.0 --port $FRONTEND_PORT" \
+    --name pmbot-daily-frontend \
+    --cwd "$APP_DIR/frontend" \
+    --uid "$APP_USER"
+$PM2_BIN save
+$PM2_BIN startup systemd 2>/dev/null || true
 
 # ── 7. Nginx reverse proxy ──
 echo "[7/7] Configuring Nginx..."
@@ -195,9 +199,9 @@ echo "  Backend:    http://127.0.0.1:$BACKEND_PORT"
 echo ""
 echo "  Services:"
 echo "    systemctl status pmbot-daily-backend     # backend"
-echo "    sudo -u $APP_USER pm2 status             # frontend"
+echo "    pm2 status                                # frontend"
 echo "    journalctl -u pmbot-daily-backend -f     # backend logs"
-echo "    sudo -u $APP_USER pm2 logs pmbot-daily-frontend  # frontend logs"
+echo "    pm2 logs pmbot-daily-frontend              # frontend logs"
 echo ""
 echo "  Config:     $APP_DIR/backend/.env"
 echo ""

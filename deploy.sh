@@ -66,7 +66,7 @@ if [ -d "$APP_DIR/backend" ]; then
     echo "  Existing install detected — updating code..."
     # Stop services before updating
     systemctl stop pmbot-backend 2>/dev/null || true
-    sudo -u "$APP_USER" $PM2_BIN stop pmbot-frontend 2>/dev/null || true
+    $PM2_BIN stop pmbot-frontend 2>/dev/null || true
 else
     echo "  Fresh install — copying files..."
 fi
@@ -138,12 +138,15 @@ systemctl daemon-reload
 systemctl enable pmbot-backend
 systemctl restart pmbot-backend
 
-# Frontend via PM2
+# Frontend via PM2 (run as root, process runs as APP_USER via --uid)
 echo "  Starting frontend with PM2..."
-NODE_PATH=$(dirname $(which node))
-sudo -u "$APP_USER" bash -c "export PATH=$NODE_PATH:\$PATH && cd $APP_DIR/frontend && $PM2_BIN delete pmbot-frontend 2>/dev/null; $PM2_BIN start 'npx vite preview --host 0.0.0.0 --port $FRONTEND_PORT' --name pmbot-frontend"
-sudo -u "$APP_USER" bash -c "export PATH=$NODE_PATH:\$PATH && $PM2_BIN save"
-$PM2_BIN startup systemd -u "$APP_USER" --hp "$APP_DIR" 2>/dev/null || true
+$PM2_BIN delete pmbot-frontend 2>/dev/null || true
+$PM2_BIN start "npx vite preview --host 0.0.0.0 --port $FRONTEND_PORT" \
+    --name pmbot-frontend \
+    --cwd "$APP_DIR/frontend" \
+    --uid "$APP_USER"
+$PM2_BIN save
+$PM2_BIN startup systemd 2>/dev/null || true
 
 # ── 7. Nginx reverse proxy ──
 echo "[7/7] Configuring Nginx..."
@@ -196,9 +199,9 @@ echo "  Backend:    http://127.0.0.1:$BACKEND_PORT"
 echo ""
 echo "  Services:"
 echo "    systemctl status pmbot-backend     # backend"
-echo "    sudo -u $APP_USER pm2 status       # frontend"
+echo "    pm2 status                          # frontend"
 echo "    journalctl -u pmbot-backend -f     # backend logs"
-echo "    sudo -u $APP_USER pm2 logs pmbot-frontend  # frontend logs"
+echo "    pm2 logs pmbot-frontend             # frontend logs"
 echo ""
 echo "  Config:     $APP_DIR/backend/.env"
 echo ""
