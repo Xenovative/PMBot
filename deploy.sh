@@ -44,6 +44,7 @@ if ! command -v pm2 &>/dev/null; then
     echo "  Installing PM2..."
     npm install -g pm2
 fi
+PM2_BIN=$(which pm2)
 
 echo "  Python: $($PYTHON_BIN --version)"
 echo "  Node:   $(node --version)"
@@ -65,7 +66,7 @@ if [ -d "$APP_DIR/backend" ]; then
     echo "  Existing install detected — updating code..."
     # Stop services before updating
     systemctl stop pmbot-backend 2>/dev/null || true
-    sudo -u "$APP_USER" pm2 stop pmbot-frontend 2>/dev/null || true
+    sudo -u "$APP_USER" $PM2_BIN stop pmbot-frontend 2>/dev/null || true
 else
     echo "  Fresh install — copying files..."
 fi
@@ -139,9 +140,10 @@ systemctl restart pmbot-backend
 
 # Frontend via PM2
 echo "  Starting frontend with PM2..."
-sudo -u "$APP_USER" bash -c "cd $APP_DIR/frontend && pm2 delete pmbot-frontend 2>/dev/null; pm2 start 'npx vite preview --host 0.0.0.0 --port $FRONTEND_PORT' --name pmbot-frontend"
-sudo -u "$APP_USER" pm2 save
-pm2 startup systemd -u "$APP_USER" --hp "$APP_DIR" 2>/dev/null || true
+NODE_PATH=$(dirname $(which node))
+sudo -u "$APP_USER" bash -c "export PATH=$NODE_PATH:\$PATH && cd $APP_DIR/frontend && $PM2_BIN delete pmbot-frontend 2>/dev/null; $PM2_BIN start 'npx vite preview --host 0.0.0.0 --port $FRONTEND_PORT' --name pmbot-frontend"
+sudo -u "$APP_USER" bash -c "export PATH=$NODE_PATH:\$PATH && $PM2_BIN save"
+$PM2_BIN startup systemd -u "$APP_USER" --hp "$APP_DIR" 2>/dev/null || true
 
 # ── 7. Nginx reverse proxy ──
 echo "[7/7] Configuring Nginx..."
