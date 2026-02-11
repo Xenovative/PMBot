@@ -21,7 +21,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 # ─── Config ───
 AUTH_FILE = os.path.join(os.path.dirname(__file__), ".auth.json")
-JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32))
+_BOOT_NONCE = secrets.token_hex(16)
+JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32)) + _BOOT_NONCE
 JWT_EXPIRY_HOURS = int(os.environ.get("JWT_EXPIRY_HOURS", "24"))
 APP_NAME = "PMBot Daily"
 
