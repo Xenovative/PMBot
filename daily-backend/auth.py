@@ -108,9 +108,31 @@ def is_setup_complete() -> bool:
     return bool(auth.get("password_hash"))
 
 
+def _migrate_totp(auth_data: dict) -> bool:
+    """Migrate old single totp_secret to totp_devices list. Returns True if migrated."""
+    if "totp_secret" in auth_data and "totp_devices" not in auth_data:
+        old_secret = auth_data.pop("totp_secret")
+        old_verified = auth_data.pop("totp_verified", False)
+        if old_secret and old_verified:
+            auth_data["totp_devices"] = [{
+                "id": secrets.token_hex(8),
+                "name": "Authenticator",
+                "secret": old_secret,
+                "added_at": datetime.now(timezone.utc).isoformat(),
+            }]
+        else:
+            auth_data.pop("totp_secret", None)
+            auth_data.pop("totp_verified", None)
+            auth_data["totp_devices"] = []
+        return True
+    return False
+
+
 def is_2fa_enabled() -> bool:
     auth = _load_auth()
-    return bool(auth.get("totp_secret") and auth.get("totp_verified"))
+    if _migrate_totp(auth):
+        _save_auth(auth)
+    return len(auth.get("totp_devices", [])) > 0
 
 
 # ─── Setup: initial password ───
@@ -134,17 +156,18 @@ def verify_password(password: str) -> bool:
     return _verify_password(password, stored_hash, salt)
 
 
-# ─── TOTP 2FA ───
+# ─── TOTP 2FA (multi-device) ───
 
-def generate_totp_secret() -> tuple[str, str]:
+def _generate_totp_secret(device_name: str = "Authenticator") -> tuple[str, str]:
     """Generate a new TOTP secret and return (secret, otpauth_uri)"""
     secret = pyotp.random_base32()
     totp = pyotp.TOTP(secret)
-    uri = totp.provisioning_uri(name="admin", issuer_name=APP_NAME)
+    label = f"admin ({device_name})" if device_name else "admin"
+    uri = totp.provisioning_uri(name=label, issuer_name=APP_NAME)
     return secret, uri
 
 
-def get_totp_qr_svg(uri: str) -> str:
+def _get_totp_qr_png(uri: str) -> str:
     """Generate QR code as base64 PNG"""
     qr = qrcode.QRCode(version=1, box_size=6, border=2)
     qr.add_data(uri)
@@ -156,49 +179,96 @@ def get_totp_qr_svg(uri: str) -> str:
     return f"data:image/png;base64,{b64}"
 
 
-def setup_2fa() -> dict:
-    """Start 2FA setup: generate secret, return QR + secret for user"""
-    secret, uri = generate_totp_secret()
+def setup_2fa(device_name: str = "Authenticator") -> dict:
+    """Start 2FA setup for a new device. Returns QR + secret + pending device id."""
+    secret, uri = _generate_totp_secret(device_name)
+    device_id = secrets.token_hex(8)
     auth = _load_auth()
-    auth["totp_secret"] = secret
-    auth["totp_verified"] = False
+    _migrate_totp(auth)
+    # Store pending device (not yet verified)
+    auth["_pending_device"] = {
+        "id": device_id,
+        "name": device_name,
+        "secret": secret,
+    }
     _save_auth(auth)
-    qr_data = get_totp_qr_svg(uri)
+    qr_data = _get_totp_qr_png(uri)
     return {
+        "device_id": device_id,
         "secret": secret,
         "uri": uri,
         "qr": qr_data,
     }
 
 
-def verify_2fa_setup(code: str) -> bool:
-    """Verify the TOTP code during setup to confirm user has the authenticator"""
+def verify_2fa_setup(code: str) -> Optional[dict]:
+    """Verify the TOTP code during setup. Returns the device dict on success, None on failure."""
     auth = _load_auth()
-    secret = auth.get("totp_secret")
-    if not secret:
-        return False
-    totp = pyotp.TOTP(secret)
+    _migrate_totp(auth)
+    pending = auth.get("_pending_device")
+    if not pending:
+        return None
+    totp = pyotp.TOTP(pending["secret"])
     if totp.verify(code, valid_window=1):
-        auth["totp_verified"] = True
+        device = {
+            "id": pending["id"],
+            "name": pending["name"],
+            "secret": pending["secret"],
+            "added_at": datetime.now(timezone.utc).isoformat(),
+        }
+        devices = auth.get("totp_devices", [])
+        devices.append(device)
+        auth["totp_devices"] = devices
+        auth.pop("_pending_device", None)
         _save_auth(auth)
-        return True
-    return False
+        return {"id": device["id"], "name": device["name"], "added_at": device["added_at"]}
+    return None
 
 
 def verify_totp(code: str) -> bool:
-    """Verify TOTP code during login"""
+    """Verify TOTP code during login — tries all registered devices."""
     auth = _load_auth()
-    secret = auth.get("totp_secret")
-    if not secret or not auth.get("totp_verified"):
+    _migrate_totp(auth)
+    devices = auth.get("totp_devices", [])
+    if not devices:
         return True  # 2FA not enabled, skip
-    totp = pyotp.TOTP(secret)
-    return totp.verify(code, valid_window=1)
+    for dev in devices:
+        totp = pyotp.TOTP(dev["secret"])
+        if totp.verify(code, valid_window=1):
+            return True
+    return False
+
+
+def list_devices() -> list[dict]:
+    """List all registered 2FA devices (without secrets)."""
+    auth = _load_auth()
+    _migrate_totp(auth)
+    return [
+        {"id": d["id"], "name": d["name"], "added_at": d.get("added_at", "")}
+        for d in auth.get("totp_devices", [])
+    ]
+
+
+def remove_device(device_id: str) -> bool:
+    """Remove a 2FA device by id. Returns True if found and removed."""
+    auth = _load_auth()
+    _migrate_totp(auth)
+    devices = auth.get("totp_devices", [])
+    new_devices = [d for d in devices if d["id"] != device_id]
+    if len(new_devices) == len(devices):
+        return False
+    auth["totp_devices"] = new_devices
+    _save_auth(auth)
+    return True
 
 
 def disable_2fa() -> bool:
+    """Remove all 2FA devices."""
     auth = _load_auth()
     auth.pop("totp_secret", None)
     auth.pop("totp_verified", None)
+    auth.pop("_pending_device", None)
+    auth["totp_devices"] = []
     _save_auth(auth)
     return True
 

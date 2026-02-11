@@ -62,8 +62,14 @@ class LoginRequest(BaseModel):
     password: str
     totp_code: Optional[str] = None
 
+class TotpSetupRequest(BaseModel):
+    device_name: Optional[str] = "Authenticator"
+
 class TotpVerifyRequest(BaseModel):
     code: str
+
+class DeviceRemoveRequest(BaseModel):
+    device_id: str
 
 
 @app.get("/api/auth/status")
@@ -108,23 +114,38 @@ async def auth_login(req: LoginRequest):
 
 
 @app.post("/api/auth/2fa/setup")
-async def auth_2fa_setup(_user=Depends(auth.require_auth)):
-    """Start 2FA setup (requires auth)"""
-    result = auth.setup_2fa()
+async def auth_2fa_setup(req: TotpSetupRequest = TotpSetupRequest(), _user=Depends(auth.require_auth)):
+    """Start 2FA setup for a new device"""
+    result = auth.setup_2fa(req.device_name or "Authenticator")
     return result
 
 
 @app.post("/api/auth/2fa/verify")
 async def auth_2fa_verify(req: TotpVerifyRequest, _user=Depends(auth.require_auth)):
     """Verify 2FA setup with a code from authenticator"""
-    if auth.verify_2fa_setup(req.code):
-        return {"status": "ok", "totp_enabled": True}
+    device = auth.verify_2fa_setup(req.code)
+    if device:
+        return {"status": "ok", "totp_enabled": True, "device": device}
     return {"error": "Invalid code. Try again."}
+
+
+@app.get("/api/auth/2fa/devices")
+async def auth_2fa_devices(_user=Depends(auth.require_auth)):
+    """List all registered 2FA devices"""
+    return {"devices": auth.list_devices()}
+
+
+@app.post("/api/auth/2fa/remove")
+async def auth_2fa_remove(req: DeviceRemoveRequest, _user=Depends(auth.require_auth)):
+    """Remove a specific 2FA device"""
+    if auth.remove_device(req.device_id):
+        return {"status": "ok", "totp_enabled": auth.is_2fa_enabled()}
+    return {"error": "Device not found"}
 
 
 @app.post("/api/auth/2fa/disable")
 async def auth_2fa_disable(_user=Depends(auth.require_auth)):
-    """Disable 2FA"""
+    """Remove all 2FA devices"""
     auth.disable_2fa()
     return {"status": "ok", "totp_enabled": False}
 

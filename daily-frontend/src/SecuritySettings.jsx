@@ -1,11 +1,14 @@
-import { useState, useRef } from 'react'
-import { Shield, Smartphone, Copy, Check, Lock, KeyRound, Eye, EyeOff, LogOut } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Shield, Smartphone, Copy, Check, Lock, KeyRound, Eye, EyeOff, LogOut, Plus, Trash2 } from 'lucide-react'
 
 const API = ''
 
 export default function SecuritySettings({ token, onLogout }) {
+  const [devices, setDevices] = useState([])
   const [totpEnabled, setTotpEnabled] = useState(null)
-  const [setupData, setSetupData] = useState(null) // { qr, secret, uri }
+  const [setupData, setSetupData] = useState(null) // { qr, secret, uri, device_id }
+  const [deviceName, setDeviceName] = useState('')
+  const [showAddForm, setShowAddForm] = useState(false)
   const [verifyCode, setVerifyCode] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -15,29 +18,45 @@ export default function SecuritySettings({ token, onLogout }) {
   const [newPassword, setNewPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const codeRef = useRef(null)
+  const nameRef = useRef(null)
 
   const headers = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`,
   }
 
-  // Check 2FA status on mount
-  useState(() => {
+  // Fetch status + devices on mount
+  useEffect(() => {
     fetch(`${API}/api/auth/status`)
       .then(r => r.json())
       .then(d => setTotpEnabled(d.totp_enabled))
       .catch(() => {})
-  })
+    fetchDevices()
+  }, [])
+
+  async function fetchDevices() {
+    try {
+      const res = await fetch(`${API}/api/auth/2fa/devices`, { headers })
+      const data = await res.json()
+      if (data.devices) setDevices(data.devices)
+    } catch {}
+  }
 
   async function start2FASetup() {
+    const name = deviceName.trim() || 'Authenticator'
     setLoading(true)
     setError('')
     setSuccess('')
     try {
-      const res = await fetch(`${API}/api/auth/2fa/setup`, { method: 'POST', headers })
+      const res = await fetch(`${API}/api/auth/2fa/setup`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ device_name: name }),
+      })
       const data = await res.json()
       if (data.qr) {
         setSetupData(data)
+        setShowAddForm(false)
         setTimeout(() => codeRef.current?.focus(), 200)
       } else {
         setError(data.error || 'Failed to start 2FA setup')
@@ -64,7 +83,9 @@ export default function SecuritySettings({ token, onLogout }) {
         setTotpEnabled(true)
         setSetupData(null)
         setVerifyCode('')
-        setSuccess('2FA 已成功啟用！')
+        setDeviceName('')
+        setSuccess('裝置已成功新增！')
+        fetchDevices()
       } else {
         setError(data.error || '驗證碼錯誤，請重試')
         setVerifyCode('')
@@ -75,8 +96,32 @@ export default function SecuritySettings({ token, onLogout }) {
     setLoading(false)
   }
 
-  async function disable2FA() {
-    if (!confirm('確定要停用兩步驟驗證嗎？')) return
+  async function removeDevice(deviceId, deviceName) {
+    if (!confirm(`確定要移除裝置「${deviceName}」嗎？`)) return
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch(`${API}/api/auth/2fa/remove`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ device_id: deviceId }),
+      })
+      const data = await res.json()
+      if (data.status === 'ok') {
+        setTotpEnabled(data.totp_enabled)
+        setSuccess(`已移除裝置「${deviceName}」`)
+        fetchDevices()
+      } else {
+        setError(data.error || '移除失敗')
+      }
+    } catch (e) {
+      setError('Connection error')
+    }
+    setLoading(false)
+  }
+
+  async function disableAll2FA() {
+    if (!confirm('確定要停用所有裝置的兩步驟驗證嗎？')) return
     setLoading(true)
     setError('')
     try {
@@ -84,7 +129,8 @@ export default function SecuritySettings({ token, onLogout }) {
       const data = await res.json()
       if (!data.totp_enabled && data.status === 'ok') {
         setTotpEnabled(false)
-        setSuccess('2FA 已停用')
+        setDevices([])
+        setSuccess('所有 2FA 裝置已停用')
       }
     } catch (e) {
       setError('Connection error')
@@ -129,6 +175,13 @@ export default function SecuritySettings({ token, onLogout }) {
     }
   }
 
+  function cancelSetup() {
+    setSetupData(null)
+    setVerifyCode('')
+    setDeviceName('')
+    setShowAddForm(false)
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -162,28 +215,95 @@ export default function SecuritySettings({ token, onLogout }) {
               ? 'bg-neon-green/10 text-neon-green border border-neon-green/20'
               : 'bg-gray-700/50 text-gray-500 border border-gray-600'
           }`}>
-            {totpEnabled ? '已啟用' : '未啟用'}
+            {totpEnabled ? `已啟用 (${devices.length} 裝置)` : '未啟用'}
           </span>
         </div>
 
-        {/* Setup flow */}
-        {!totpEnabled && !setupData && (
-          <div>
-            <p className="text-xs text-gray-500 mb-3">
-              使用 Google Authenticator、Authy 或其他 TOTP 應用程式增加帳戶安全性
-            </p>
-            <button
-              onClick={start2FASetup}
-              disabled={loading}
-              className="flex items-center gap-2 text-xs px-3 py-2 bg-neon-magenta/20 hover:bg-neon-magenta/30 border border-neon-magenta/30 text-neon-magenta rounded-lg transition-all disabled:opacity-40"
-            >
-              <Shield className="w-3.5 h-3.5" />
-              {loading ? '設定中...' : '啟用 2FA'}
-            </button>
+        {/* ── Device List ── */}
+        {devices.length > 0 && !setupData && (
+          <div className="space-y-2">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider">已註冊裝置</p>
+            {devices.map(dev => (
+              <div key={dev.id} className="flex items-center justify-between bg-black/30 border border-neon-magenta/5 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Smartphone className="w-3.5 h-3.5 text-neon-magenta flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-gray-200 truncate">{dev.name}</p>
+                    {dev.added_at && (
+                      <p className="text-[10px] text-gray-600">
+                        {new Date(dev.added_at).toLocaleDateString('zh-TW')} 新增
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => removeDevice(dev.id, dev.name)}
+                  disabled={loading}
+                  className="p-1.5 text-gray-600 hover:text-neon-pink hover:bg-neon-pink/10 rounded-lg transition-all disabled:opacity-40"
+                  title="移除此裝置"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
-        {/* QR Code display */}
+        {/* ── Add Device / Enable 2FA ── */}
+        {!setupData && !showAddForm && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => { setShowAddForm(true); setError(''); setSuccess(''); setTimeout(() => nameRef.current?.focus(), 100) }}
+              disabled={loading}
+              className="flex items-center gap-2 text-xs px-3 py-2 bg-neon-magenta/20 hover:bg-neon-magenta/30 border border-neon-magenta/30 text-neon-magenta rounded-lg transition-all disabled:opacity-40"
+            >
+              {devices.length > 0 ? <Plus className="w-3.5 h-3.5" /> : <Shield className="w-3.5 h-3.5" />}
+              {devices.length > 0 ? '新增裝置' : '啟用 2FA'}
+            </button>
+            {devices.length > 0 && (
+              <button
+                onClick={disableAll2FA}
+                disabled={loading}
+                className="flex items-center gap-2 text-xs px-3 py-2 bg-neon-pink/10 hover:bg-neon-pink/20 border border-neon-pink/20 text-neon-pink rounded-lg transition-all disabled:opacity-40"
+              >
+                停用全部
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* ── Device Name Input ── */}
+        {showAddForm && !setupData && (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-400">為新裝置命名（方便辨識）</p>
+            <input
+              ref={nameRef}
+              type="text"
+              value={deviceName}
+              onChange={(e) => setDeviceName(e.target.value)}
+              placeholder="例如：iPhone、iPad、備用手機"
+              className="w-full bg-black/40 border border-neon-magenta/15 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-neon-magenta/50 focus:shadow-neon-magenta transition-all text-gray-200"
+              onKeyDown={(e) => e.key === 'Enter' && start2FASetup()}
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={start2FASetup}
+                disabled={loading}
+                className="px-4 py-2 bg-neon-magenta/20 hover:bg-neon-magenta/30 border border-neon-magenta/40 text-neon-magenta rounded-lg text-sm font-medium transition-all disabled:opacity-40"
+              >
+                {loading ? '設定中...' : '產生 QR Code'}
+              </button>
+              <button
+                onClick={() => { setShowAddForm(false); setDeviceName('') }}
+                className="px-4 py-2 bg-black/30 border border-gray-600 rounded-lg text-sm text-gray-400 transition-all hover:bg-black/50"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── QR Code display ── */}
         {setupData && (
           <div className="space-y-4">
             <p className="text-xs text-gray-400">
@@ -230,11 +350,11 @@ export default function SecuritySettings({ token, onLogout }) {
                   disabled={loading || verifyCode.length !== 6}
                   className="flex-1 py-2 bg-neon-magenta/20 hover:bg-neon-magenta/30 border border-neon-magenta/40 text-neon-magenta rounded-lg text-sm font-medium transition-all disabled:opacity-40"
                 >
-                  {loading ? '驗證中...' : '驗證並啟用'}
+                  {loading ? '驗證中...' : '驗證並新增'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setSetupData(null); setVerifyCode('') }}
+                  onClick={cancelSetup}
                   className="px-4 py-2 bg-black/30 border border-gray-600 rounded-lg text-sm text-gray-400 transition-all hover:bg-black/50"
                 >
                   取消
@@ -244,20 +364,11 @@ export default function SecuritySettings({ token, onLogout }) {
           </div>
         )}
 
-        {/* Disable 2FA */}
-        {totpEnabled && !setupData && (
-          <div>
-            <p className="text-xs text-gray-500 mb-3">
-              兩步驟驗證已啟用。每次登入時需要輸入 Authenticator 驗證碼。
-            </p>
-            <button
-              onClick={disable2FA}
-              disabled={loading}
-              className="flex items-center gap-2 text-xs px-3 py-2 bg-neon-pink/10 hover:bg-neon-pink/20 border border-neon-pink/20 text-neon-pink rounded-lg transition-all disabled:opacity-40"
-            >
-              停用 2FA
-            </button>
-          </div>
+        {/* Info text when no devices */}
+        {devices.length === 0 && !setupData && !showAddForm && (
+          <p className="text-xs text-gray-500">
+            使用 Google Authenticator、Authy 或其他 TOTP 應用程式增加帳戶安全性。支援多裝置同時使用。
+          </p>
         )}
       </div>
 
