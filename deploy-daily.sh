@@ -132,6 +132,7 @@ ExecStart=$APP_DIR/venv/bin/python main.py
 Restart=always
 RestartSec=5
 Environment=PATH=$APP_DIR/venv/bin:/usr/bin:/bin
+Environment=PORT=$BACKEND_PORT
 
 [Install]
 WantedBy=multi-user.target

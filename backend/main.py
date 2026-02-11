@@ -3,6 +3,7 @@ Polymarket 套利機器人 - FastAPI 後端
 """
 import asyncio
 import json
+import os
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
@@ -397,4 +398,5 @@ async def websocket_endpoint(websocket: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8888)
+    port = int(os.environ.get("PORT", 8888))
+    uvicorn.run(app, host="0.0.0.0", port=port)
