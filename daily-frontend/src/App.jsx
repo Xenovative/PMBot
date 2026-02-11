@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import AnalyticsDashboard from './AnalyticsDashboard'
+import LoginPage from './LoginPage'
+import SecuritySettings from './SecuritySettings'
 import {
   Play, Square, Settings, TrendingUp, TrendingDown, Activity,
   Wifi, WifiOff, DollarSign, BarChart3,
@@ -11,8 +13,43 @@ import {
 const API = ''
 
 function App() {
+  const [token, setToken] = useState(() => localStorage.getItem('pmbot_token'))
+
+  function handleLogin(newToken) {
+    localStorage.setItem('pmbot_token', newToken)
+    setToken(newToken)
+  }
+
+  function handleLogout() {
+    localStorage.removeItem('pmbot_token')
+    setToken(null)
+  }
+
+  // Auth headers helper
+  const authHeaders = {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+  }
+
+  // Verify token on mount
+  useEffect(() => {
+    if (!token) return
+    fetch(`${API}/api/auth/verify`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => { if (r.status === 401) handleLogout() })
+      .catch(() => {})
+  }, [token])
+
+  // Show login if no token
+  if (!token) {
+    return <LoginPage onLogin={handleLogin} />
+  }
+
+  return <Dashboard token={token} authHeaders={authHeaders} onLogout={handleLogout} />
+}
+
+function Dashboard({ token, authHeaders, onLogout }) {
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
-  const { status, markets, trades, mergeStatus, connected } = useWebSocket(wsUrl)
+  const { status, markets, trades, mergeStatus, connected } = useWebSocket(wsUrl, token)
   const [config, setConfig] = useState(null)
   const [configForm, setConfigForm] = useState({})
   const [showKey, setShowKey] = useState(false)
@@ -30,7 +67,7 @@ function App() {
 
   async function fetchConfig() {
     try {
-      const res = await fetch(`${API}/api/config`)
+      const res = await fetch(`${API}/api/config`, { headers: authHeaders })
       const data = await res.json()
       setConfig(data)
       setConfigForm(data)
@@ -43,7 +80,7 @@ function App() {
     try {
       const res = await fetch(`${API}/api/config`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify(configForm),
       })
       const data = await res.json()
@@ -57,7 +94,7 @@ function App() {
 
   async function startBot() {
     try {
-      await fetch(`${API}/api/bot/start`, { method: 'POST' })
+      await fetch(`${API}/api/bot/start`, { method: 'POST', headers: authHeaders })
     } catch (e) {
       console.error('Failed to start bot:', e)
     }
@@ -65,7 +102,7 @@ function App() {
 
   async function stopBot() {
     try {
-      await fetch(`${API}/api/bot/stop`, { method: 'POST' })
+      await fetch(`${API}/api/bot/stop`, { method: 'POST', headers: authHeaders })
     } catch (e) {
       console.error('Failed to stop bot:', e)
     }
@@ -73,7 +110,7 @@ function App() {
 
   async function toggleAutoMerge() {
     try {
-      await fetch(`${API}/api/merge/toggle`, { method: 'POST' })
+      await fetch(`${API}/api/merge/toggle`, { method: 'POST', headers: authHeaders })
     } catch (e) {
       console.error('Failed to toggle merge:', e)
     }
@@ -81,7 +118,7 @@ function App() {
 
   async function mergeAll() {
     try {
-      await fetch(`${API}/api/merge/all`, { method: 'POST' })
+      await fetch(`${API}/api/merge/all`, { method: 'POST', headers: authHeaders })
     } catch (e) {
       console.error('Failed to merge all:', e)
     }
@@ -91,7 +128,7 @@ function App() {
     try {
       await fetch(`${API}/api/merge/execute`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders,
         body: JSON.stringify({ condition_id: conditionId }),
       })
     } catch (e) {
@@ -102,7 +139,7 @@ function App() {
   async function scanMarkets() {
     setLoading(true)
     try {
-      const res = await fetch(`${API}/api/markets`)
+      const res = await fetch(`${API}/api/markets`, { headers: authHeaders })
       const data = await res.json()
       setManualMarkets(data)
     } catch (e) {
@@ -621,7 +658,7 @@ function App() {
 
         {/* ═══════════════ ANALYTICS TAB ═══════════════ */}
         {activeView === 'analytics' && (
-          <AnalyticsDashboard />
+          <AnalyticsDashboard token={token} />
         )}
 
         {/* ═══════════════ SETTINGS TAB ═══════════════ */}
@@ -803,6 +840,11 @@ function App() {
               >
                 重置
               </button>
+            </div>
+
+            {/* Security Settings */}
+            <div className="border-t border-neon-magenta/15 pt-4 mt-2">
+              <SecuritySettings token={token} onLogout={onLogout} />
             </div>
           </div>
         )}

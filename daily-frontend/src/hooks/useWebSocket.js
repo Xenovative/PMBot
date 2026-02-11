@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 
-export function useWebSocket(url) {
+export function useWebSocket(url, token) {
   const [status, setStatus] = useState(null)
   const [markets, setMarkets] = useState([])
   const [trades, setTrades] = useState([])
@@ -13,7 +13,8 @@ export function useWebSocket(url) {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
 
     try {
-      const ws = new WebSocket(url)
+      const wsUrl = token ? `${url}?token=${encodeURIComponent(token)}` : url
+      const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
       ws.onopen = () => {
@@ -58,7 +59,7 @@ export function useWebSocket(url) {
       console.error('WS connect error:', e)
       reconnectTimer.current = setTimeout(connect, 3000)
     }
-  }, [url])
+  }, [url, token])
 
   useEffect(() => {
     connect()

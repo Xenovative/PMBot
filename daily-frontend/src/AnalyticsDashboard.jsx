@@ -11,7 +11,8 @@ import {
 
 const API = ''
 
-function AnalyticsDashboard() {
+function AnalyticsDashboard({ token }) {
+  const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {}
   const [overview, setOverview] = useState(null)
   const [cumProfit, setCumProfit] = useState([])
   const [dailyPnl, setDailyPnl] = useState([])
@@ -28,15 +29,16 @@ function AnalyticsDashboard() {
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
+      const opts = { headers: authHeaders }
       const [ov, cp, dp, tf, wr, pm, tr, mr] = await Promise.all([
-        fetch(`${API}/api/analytics/overview`).then(r => r.json()),
-        fetch(`${API}/api/analytics/cumulative-profit?days=${days}`).then(r => r.json()),
-        fetch(`${API}/api/analytics/daily-pnl?days=${days}`).then(r => r.json()),
-        fetch(`${API}/api/analytics/trade-frequency?days=${days}`).then(r => r.json()),
-        fetch(`${API}/api/analytics/win-rate?days=${days}`).then(r => r.json()),
-        fetch(`${API}/api/analytics/per-market`).then(r => r.json()),
-        fetch(`${API}/api/analytics/trades?limit=50`).then(r => r.json()),
-        fetch(`${API}/api/analytics/merges?limit=20`).then(r => r.json()),
+        fetch(`${API}/api/analytics/overview`, opts).then(r => r.json()),
+        fetch(`${API}/api/analytics/cumulative-profit?days=${days}`, opts).then(r => r.json()),
+        fetch(`${API}/api/analytics/daily-pnl?days=${days}`, opts).then(r => r.json()),
+        fetch(`${API}/api/analytics/trade-frequency?days=${days}`, opts).then(r => r.json()),
+        fetch(`${API}/api/analytics/win-rate?days=${days}`, opts).then(r => r.json()),
+        fetch(`${API}/api/analytics/per-market`, opts).then(r => r.json()),
+        fetch(`${API}/api/analytics/trades?limit=50`, opts).then(r => r.json()),
+        fetch(`${API}/api/analytics/merges?limit=20`, opts).then(r => r.json()),
       ])
       setOverview(ov)
       setCumProfit(cp)
