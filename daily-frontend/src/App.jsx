@@ -114,23 +114,29 @@ function App() {
   const isRunning = status?.running || false
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="min-h-screen text-gray-100 scanlines relative">
+      {/* Background */}
+      <div className="fixed inset-0 z-0">
+        <img src="/background.jpeg" alt="" className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-black/70" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80" />
+      </div>
       {/* Header */}
-      <header className="border-b border-gray-800 bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50">
+      <header className="border-b border-neon-cyan/20 bg-black/60 backdrop-blur-xl sticky top-0 z-50 shadow-neon-cyan">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
+            <div className="w-10 h-10 rounded-xl bg-neon-cyan/10 border border-neon-cyan/30 flex items-center justify-center shadow-neon-cyan">
+              <Zap className="w-5 h-5 text-neon-cyan" />
             </div>
             <div>
-              <h1 className="text-lg font-bold tracking-tight">Polymarket 每日套利機器人</h1>
-              <p className="text-xs text-gray-500">每日加密貨幣 Up or Down 市場自動套利</p>
+              <h1 className="text-lg font-bold tracking-wider font-cyber neon-text-cyan">PM 套利機器人</h1>
+              <p className="text-xs text-neon-cyan/40 tracking-widest uppercase">Daily Crypto Arbitrage</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
             {/* Top-level tabs */}
-            <div className="flex gap-1 bg-gray-800/50 rounded-lg p-0.5">
+            <div className="flex gap-1 bg-black/40 border border-neon-cyan/10 rounded-lg p-0.5">
               {[
                 { id: 'live', label: '即時監控', icon: <Activity className="w-3.5 h-3.5" /> },
                 { id: 'analytics', label: '數據分析', icon: <BarChart3 className="w-3.5 h-3.5" /> },
@@ -139,10 +145,10 @@ function App() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveView(tab.id)}
-                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors font-medium ${
+                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-all font-medium ${
                     activeView === tab.id
-                      ? 'bg-orange-600 text-white'
-                      : 'text-gray-400 hover:text-gray-200'
+                      ? 'bg-neon-cyan/15 text-neon-cyan border border-neon-cyan/30 shadow-neon-cyan'
+                      : 'text-gray-500 hover:text-neon-cyan/70 border border-transparent'
                   }`}
                 >
                   {tab.icon}
@@ -152,18 +158,20 @@ function App() {
             </div>
 
             {/* Connection Status */}
-            <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${
-              connected ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+            <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border ${
+              connected
+                ? 'bg-neon-green/5 text-neon-green border-neon-green/30 shadow-neon-green'
+                : 'bg-red-500/5 text-red-400 border-red-500/30 shadow-neon-pink'
             }`}>
               {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
               {connected ? '已連線' : '未連線'}
             </div>
 
             {/* Mode Badge */}
-            <div className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+            <div className={`text-xs px-2.5 py-1 rounded-full font-medium border ${
               config?.dry_run !== false
-                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                ? 'bg-neon-amber/5 text-neon-amber border-neon-amber/30 shadow-neon-amber'
+                : 'bg-neon-pink/5 text-neon-pink border-neon-pink/30 shadow-neon-pink neon-pulse'
             }`}>
               {config?.dry_run !== false ? '🔸 模擬模式' : '🔴 真實交易'}
             </div>
@@ -172,7 +180,7 @@ function App() {
             {isRunning ? (
               <button
                 onClick={stopBot}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-neon-pink/20 hover:bg-neon-pink/30 border border-neon-pink/50 text-neon-pink rounded-lg text-sm font-medium transition-all shadow-neon-pink"
               >
                 <Square className="w-4 h-4" />
                 停止
@@ -180,7 +188,7 @@ function App() {
             ) : (
               <button
                 onClick={startBot}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-sm font-medium transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-neon-green/20 hover:bg-neon-green/30 border border-neon-green/50 text-neon-green rounded-lg text-sm font-medium transition-all shadow-neon-green"
               >
                 <Play className="w-4 h-4" />
                 啟動
@@ -190,7 +198,7 @@ function App() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6 relative z-10">
 
         {/* ═══════════════ LIVE TAB ═══════════════ */}
         {activeView === 'live' && (
@@ -232,16 +240,16 @@ function App() {
             {/* Price Table + Bargain Holdings — side by side */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Price Monitoring */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-                <h3 className="text-sm font-medium text-gray-400 mb-3 flex items-center gap-2">
+              <div className="cyber-panel p-5">
+                <h3 className="text-sm font-medium neon-text-cyan mb-3 flex items-center gap-2">
                   <TrendingUp className="w-4 h-4" />
                   即時價格 — {Object.keys(status?.market_prices || {}).length} 個市場
                 </h3>
                 {status?.market_prices && Object.keys(status.market_prices).length > 0 ? (
                   <div className="overflow-x-auto max-h-72 overflow-y-auto">
                     <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-gray-900">
-                        <tr className="text-gray-500 border-b border-gray-800">
+                      <thead className="sticky top-0 bg-black/80 backdrop-blur">
+                        <tr className="text-neon-cyan/50 border-b border-neon-cyan/10">
                           <th className="text-left py-1.5 pr-3 font-medium">市場</th>
                           <th className="text-right py-1.5 px-2 font-medium">UP</th>
                           <th className="text-right py-1.5 px-2 font-medium">DOWN</th>
@@ -255,7 +263,7 @@ function App() {
                           .map(([slug, price]) => {
                             const profitable = price.total_cost < (config?.target_pair_cost ?? 0.99);
                             return (
-                              <tr key={slug} className={`border-b border-gray-800/50 ${profitable ? 'bg-emerald-500/5' : ''}`}>
+                              <tr key={slug} className={`border-b border-neon-cyan/5 ${profitable ? 'bg-neon-green/5' : ''}`}>
                                 <td className="py-2 pr-3">
                                   <span className="font-mono text-gray-300 truncate block max-w-[160px]" title={slug}>
                                     {slug}
@@ -267,10 +275,10 @@ function App() {
                                 <td className="text-right py-2 px-2 font-mono text-white">
                                   {price.down_best_ask > 0 ? price.down_best_ask.toFixed(4) : price.down_price.toFixed(4)}
                                 </td>
-                                <td className={`text-right py-2 px-2 font-mono font-bold ${profitable ? 'text-emerald-400' : 'text-white'}`}>
+                                <td className={`text-right py-2 px-2 font-mono font-bold ${profitable ? 'neon-text-green' : 'text-white'}`}>
                                   {price.total_cost.toFixed(4)}
                                 </td>
-                                <td className={`text-right py-2 pl-2 font-mono ${price.spread > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                <td className={`text-right py-2 pl-2 font-mono ${price.spread > 0 ? 'text-neon-green' : 'text-neon-pink'}`}>
                                   {price.spread > 0 ? '+' : ''}{price.spread.toFixed(4)}
                                 </td>
                               </tr>
@@ -285,15 +293,15 @@ function App() {
               </div>
 
               {/* Bargain Holdings */}
-              <div className="bg-gray-900 border border-amber-800/30 rounded-xl p-5">
-                <h3 className="text-sm font-medium text-amber-400 mb-3 flex items-center gap-2">
+              <div className="cyber-panel-amber p-5">
+                <h3 className="text-sm font-medium neon-text-amber mb-3 flex items-center gap-2">
                   🏷️ 撿便宜持倉 ({(status?.bargain_holdings || []).length} 筆)
                 </h3>
                 {(status?.bargain_holdings || []).length > 0 ? (
                   <div className="overflow-x-auto max-h-72 overflow-y-auto">
                     <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-gray-900">
-                        <tr className="text-gray-500 border-b border-gray-800">
+                      <thead className="sticky top-0 bg-black/80 backdrop-blur">
+                        <tr className="text-neon-amber/50 border-b border-neon-amber/10">
                           <th className="text-left py-1.5 px-2 font-medium">R#</th>
                           <th className="text-left py-1.5 px-2 font-medium">市場</th>
                           <th className="text-center py-1.5 px-2 font-medium">方向</th>
@@ -305,12 +313,12 @@ function App() {
                       </thead>
                       <tbody>
                         {status.bargain_holdings.map((h, i) => (
-                          <tr key={i} className="border-b border-gray-800/50 hover:bg-gray-800/30">
-                            <td className="py-1.5 px-2 font-mono text-amber-400">R{h.round}</td>
+                          <tr key={i} className="border-b border-neon-amber/5 hover:bg-neon-amber/5">
+                            <td className="py-1.5 px-2 font-mono text-neon-amber">R{h.round}</td>
                             <td className="py-1.5 px-2 truncate max-w-[120px]" title={h.market_slug}>{h.market_slug}</td>
                             <td className="py-1.5 px-2 text-center">
                               <span className={`px-1.5 py-0.5 rounded-full ${
-                                h.side === 'UP' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                                h.side === 'UP' ? 'bg-neon-green/10 text-neon-green' : 'bg-neon-pink/10 text-neon-pink'
                               }`}>
                                 {h.side}
                               </span>
@@ -320,9 +328,9 @@ function App() {
                             <td className="py-1.5 px-2 text-right font-mono">${h.amount_usd?.toFixed(2)}</td>
                             <td className="py-1.5 px-2 text-center">
                               <span className={`px-1.5 py-0.5 rounded-full ${
-                                h.status === 'holding' ? 'bg-amber-500/10 text-amber-400' :
-                                h.status === 'paired' ? 'bg-emerald-500/10 text-emerald-400' :
-                                'bg-red-500/10 text-red-400'
+                                h.status === 'holding' ? 'bg-neon-amber/10 text-neon-amber' :
+                                h.status === 'paired' ? 'bg-neon-green/10 text-neon-green' :
+                                'bg-neon-pink/10 text-neon-pink'
                               }`}>
                                 {h.status === 'holding' ? '持有' : h.status === 'paired' ? '已配對' : '止損'}
                               </span>
@@ -341,16 +349,16 @@ function App() {
             {/* Opportunities + Merge — side by side */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Opportunities */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <div className="cyber-panel p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-medium text-gray-400 flex items-center gap-2">
+                  <h3 className="text-sm font-medium neon-text-cyan flex items-center gap-2">
                     <Zap className="w-4 h-4" />
                     套利機會
                   </h3>
                   <button
                     onClick={scanMarkets}
                     disabled={loading}
-                    className="flex items-center gap-1.5 text-xs px-2.5 py-1 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1.5 text-xs px-2.5 py-1 bg-neon-cyan/10 hover:bg-neon-cyan/20 border border-neon-cyan/20 text-neon-cyan rounded-lg transition-all disabled:opacity-50"
                   >
                     <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
                     掃描
@@ -367,15 +375,15 @@ function App() {
                     {status.current_opportunities.map((opp, i) => (
                       <div key={i} className={`rounded-lg p-3 border ${
                         opp.is_viable
-                          ? 'bg-emerald-500/5 border-emerald-500/20'
-                          : 'bg-gray-800/50 border-gray-700/50'
+                          ? 'bg-neon-green/5 border-neon-green/20 shadow-neon-green'
+                          : 'bg-black/30 border-neon-cyan/10'
                       }`}>
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-medium">
                             {opp.is_viable ? '💰 可執行' : '⏳ 不可執行'}
                           </span>
                           <span className={`text-xs font-mono ${
-                            opp.profit_pct > 0 ? 'text-emerald-400' : 'text-gray-400'
+                            opp.profit_pct > 0 ? 'text-neon-green' : 'text-gray-400'
                           }`}>
                             {opp.profit_pct > 0 ? '+' : ''}{opp.profit_pct.toFixed(2)}%
                           </span>
@@ -384,7 +392,7 @@ function App() {
                         <div className="grid grid-cols-3 gap-2 mt-1.5 text-[10px]">
                           <div>
                             <span className="text-gray-500">利潤</span>
-                            <p className="font-mono text-emerald-400">${opp.potential_profit.toFixed(4)}</p>
+                            <p className="font-mono text-neon-green">${opp.potential_profit.toFixed(4)}</p>
                           </div>
                           <div>
                             <span className="text-gray-500">成本</span>
@@ -402,19 +410,19 @@ function App() {
               </div>
 
               {/* Merge Panel (compact) */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <div className="cyber-panel-magenta p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-medium text-gray-400 flex items-center gap-2">
-                    <GitMerge className="w-4 h-4 text-cyan-400" />
+                  <h3 className="text-sm font-medium neon-text-magenta flex items-center gap-2">
+                    <GitMerge className="w-4 h-4" />
                     持倉合併
                   </h3>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={toggleAutoMerge}
-                      className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg transition-colors ${
+                      className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg transition-all ${
                         mergeStatus?.auto_merge_enabled
-                          ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                          : 'bg-gray-800 text-gray-500 border border-gray-700'
+                          ? 'bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/30 shadow-neon-magenta'
+                          : 'bg-black/30 text-gray-500 border border-gray-700'
                       }`}
                     >
                       <ArrowRightLeft className="w-3 h-3" />
@@ -422,7 +430,7 @@ function App() {
                     </button>
                     <button
                       onClick={mergeAll}
-                      className="flex items-center gap-1 text-[10px] px-2 py-1 bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors"
+                      className="flex items-center gap-1 text-[10px] px-2 py-1 bg-neon-magenta/20 hover:bg-neon-magenta/30 border border-neon-magenta/40 text-neon-magenta rounded-lg transition-all"
                     >
                       <Layers className="w-3 h-3" />
                       全部合併
@@ -438,19 +446,19 @@ function App() {
 
                 {/* Merge Stats */}
                 <div className="grid grid-cols-4 gap-2 mb-3">
-                  <div className="bg-gray-800/50 rounded-lg p-2">
+                  <div className="bg-black/30 border border-neon-magenta/10 rounded-lg p-2">
                     <p className="text-[10px] text-gray-500">追蹤</p>
                     <p className="text-sm font-bold font-mono">{mergeStatus?.total_tracked ?? 0}</p>
                   </div>
-                  <div className="bg-gray-800/50 rounded-lg p-2">
+                  <div className="bg-black/30 border border-neon-magenta/10 rounded-lg p-2">
                     <p className="text-[10px] text-gray-500">可合併</p>
-                    <p className="text-sm font-bold font-mono text-cyan-400">{(mergeStatus?.total_mergeable ?? 0).toFixed(0)}</p>
+                    <p className="text-sm font-bold font-mono text-neon-magenta">{(mergeStatus?.total_mergeable ?? 0).toFixed(0)}</p>
                   </div>
-                  <div className="bg-gray-800/50 rounded-lg p-2">
+                  <div className="bg-black/30 border border-neon-magenta/10 rounded-lg p-2">
                     <p className="text-[10px] text-gray-500">已合併</p>
-                    <p className="text-sm font-bold font-mono text-emerald-400">${(mergeStatus?.total_merged_usdc ?? 0).toFixed(2)}</p>
+                    <p className="text-sm font-bold font-mono text-neon-green">${(mergeStatus?.total_merged_usdc ?? 0).toFixed(2)}</p>
                   </div>
-                  <div className="bg-gray-800/50 rounded-lg p-2">
+                  <div className="bg-black/30 border border-neon-magenta/10 rounded-lg p-2">
                     <p className="text-[10px] text-gray-500">次數</p>
                     <p className="text-sm font-bold font-mono">{mergeStatus?.merge_count ?? 0}</p>
                   </div>
@@ -463,7 +471,7 @@ function App() {
                       <p className="text-xs text-gray-600 py-2 text-center">尚無追蹤持倉</p>
                     ) : (
                       mergeStatus.positions.map((pos, i) => (
-                        <div key={i} className="bg-gray-800/50 rounded-lg p-2.5 border border-gray-700/50">
+                        <div key={i} className="bg-black/30 rounded-lg p-2.5 border border-neon-magenta/10">
                           <div className="flex items-center justify-between">
                             <div>
                               <p className="text-xs font-medium truncate max-w-[160px]">{pos.market_slug}</p>
@@ -472,7 +480,7 @@ function App() {
                             <button
                               onClick={() => mergeOne(pos.condition_id)}
                               disabled={pos.mergeable_amount < 1}
-                              className="flex items-center gap-1 text-[10px] px-2 py-1 bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                              className="flex items-center gap-1 text-[10px] px-2 py-1 bg-neon-magenta/20 hover:bg-neon-magenta/30 border border-neon-magenta/40 text-neon-magenta rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                             >
                               <GitMerge className="w-3 h-3" />
                               合併
@@ -481,15 +489,15 @@ function App() {
                           <div className="grid grid-cols-3 gap-2 mt-1.5 text-[10px]">
                             <div>
                               <span className="text-gray-500">UP</span>
-                              <p className="font-mono text-emerald-400">{pos.up_balance?.toFixed(1)}</p>
+                              <p className="font-mono text-neon-green">{pos.up_balance?.toFixed(1)}</p>
                             </div>
                             <div>
                               <span className="text-gray-500">DOWN</span>
-                              <p className="font-mono text-red-400">{pos.down_balance?.toFixed(1)}</p>
+                              <p className="font-mono text-neon-pink">{pos.down_balance?.toFixed(1)}</p>
                             </div>
                             <div>
                               <span className="text-gray-500">可合併</span>
-                              <p className="font-mono text-cyan-400">{pos.mergeable_amount?.toFixed(1)}</p>
+                              <p className="font-mono text-neon-magenta">{pos.mergeable_amount?.toFixed(1)}</p>
                             </div>
                           </div>
                         </div>
@@ -504,15 +512,15 @@ function App() {
                             <div key={i} className="bg-gray-800/30 rounded p-1.5 text-[10px] flex items-center justify-between">
                               <div className="flex items-center gap-1.5">
                                 <span className={`px-1 py-0.5 rounded ${
-                                  mr.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' :
-                                  mr.status === 'simulated' ? 'bg-amber-500/10 text-amber-400' :
-                                  'bg-red-500/10 text-red-400'
+                                  mr.status === 'success' ? 'bg-neon-green/10 text-neon-green' :
+                                  mr.status === 'simulated' ? 'bg-neon-amber/10 text-neon-amber' :
+                                  'bg-neon-pink/10 text-neon-pink'
                                 }`}>
                                   {mr.status === 'success' ? '成功' : mr.status === 'simulated' ? '模擬' : '失敗'}
                                 </span>
                                 <span className="text-gray-400 truncate max-w-[100px]">{mr.market_slug}</span>
                               </div>
-                              <span className="font-mono text-emerald-400">${mr.usdc_received?.toFixed(2)}</span>
+                              <span className="font-mono text-neon-green">${mr.usdc_received?.toFixed(2)}</span>
                             </div>
                           ))}
                         </div>
@@ -526,8 +534,8 @@ function App() {
             {/* Trade History (compact) + Logs — side by side */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Recent Trades */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-                <h3 className="text-sm font-medium text-gray-400 mb-3 flex items-center gap-2">
+              <div className="cyber-panel p-5">
+                <h3 className="text-sm font-medium neon-text-cyan mb-3 flex items-center gap-2">
                   <Shield className="w-4 h-4" />
                   最近交易
                 </h3>
@@ -536,8 +544,8 @@ function App() {
                 ) : (
                   <div className="overflow-x-auto max-h-64 overflow-y-auto">
                     <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-gray-900">
-                        <tr className="text-gray-500 border-b border-gray-800">
+                      <thead className="sticky top-0 bg-black/80 backdrop-blur">
+                        <tr className="text-neon-cyan/50 border-b border-neon-cyan/10">
                           <th className="text-left py-1.5 pr-2 font-medium">時間</th>
                           <th className="text-left py-1.5 px-2 font-medium">市場</th>
                           <th className="text-right py-1.5 px-2 font-medium">成本</th>
@@ -547,7 +555,7 @@ function App() {
                       </thead>
                       <tbody>
                         {[...(status?.trade_history || []), ...trades].slice(0, 20).map((t, i) => (
-                          <tr key={i} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                          <tr key={i} className="border-b border-neon-cyan/5 hover:bg-neon-cyan/5">
                             <td className="py-1.5 pr-2 text-gray-400 font-mono whitespace-nowrap">
                               {new Date(t.timestamp).toLocaleTimeString('zh-TW')}
                             </td>
@@ -556,15 +564,15 @@ function App() {
                             </td>
                             <td className="py-1.5 px-2 text-right font-mono">{t.total_cost?.toFixed(4)}</td>
                             <td className={`py-1.5 px-2 text-right font-mono ${
-                              (t.expected_profit ?? 0) > 0 ? 'text-emerald-400' : 'text-red-400'
+                              (t.expected_profit ?? 0) > 0 ? 'text-neon-green' : 'text-neon-pink'
                             }`}>
                               ${t.expected_profit?.toFixed(4)}
                             </td>
                             <td className="py-1.5 pl-2 text-center">
                               <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                                t.status === 'executed' ? 'bg-emerald-500/10 text-emerald-400' :
-                                t.status === 'simulated' ? 'bg-amber-500/10 text-amber-400' :
-                                'bg-red-500/10 text-red-400'
+                                t.status === 'executed' ? 'bg-neon-green/10 text-neon-green' :
+                                t.status === 'simulated' ? 'bg-neon-amber/10 text-neon-amber' :
+                                'bg-neon-pink/10 text-neon-pink'
                               }`}>
                                 {t.status === 'executed' ? '成交' : t.status === 'simulated' ? '模擬' : '失敗'}
                               </span>
@@ -578,12 +586,12 @@ function App() {
               </div>
 
               {/* Logs */}
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-                <h3 className="text-sm font-medium text-gray-400 mb-3 flex items-center gap-2">
+              <div className="cyber-panel p-5">
+                <h3 className="text-sm font-medium neon-text-cyan mb-3 flex items-center gap-2">
                   <Activity className="w-4 h-4" />
                   運行日誌
                 </h3>
-                <div className="bg-gray-950 rounded-lg p-3 max-h-64 overflow-y-scroll font-mono text-[11px] space-y-0.5">
+                <div className="bg-black/50 border border-neon-cyan/10 rounded-lg p-3 max-h-64 overflow-y-scroll font-mono text-[11px] space-y-0.5">
                   {(status?.logs || []).length === 0 ? (
                     <p className="text-gray-600">等待機器人啟動...</p>
                   ) : (
@@ -618,10 +626,10 @@ function App() {
 
         {/* ═══════════════ SETTINGS TAB ═══════════════ */}
         {activeView === 'settings' && (
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Settings className="w-5 h-5 text-orange-400" />
-              機器人設定
+          <div className="cyber-panel p-6 space-y-4">
+            <h2 className="text-lg font-semibold flex items-center gap-2 font-cyber">
+              <Settings className="w-5 h-5 text-neon-cyan" />
+              <span className="neon-text-cyan">機器人設定</span>
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -697,8 +705,8 @@ function App() {
                 <label className="text-sm text-gray-400">模擬模式</label>
                 <button
                   onClick={() => setConfigForm({ ...configForm, dry_run: !configForm.dry_run })}
-                  className={`relative w-12 h-6 rounded-full transition-colors ${
-                    configForm.dry_run !== false ? 'bg-emerald-600' : 'bg-red-600'
+                  className={`relative w-12 h-6 rounded-full transition-all ${
+                    configForm.dry_run !== false ? 'bg-neon-green/40 shadow-neon-green' : 'bg-neon-pink/40 shadow-neon-pink'
                   }`}
                 >
                   <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
@@ -712,8 +720,8 @@ function App() {
             </div>
 
             {/* Bargain Hunter Settings */}
-            <div className="border-t border-gray-800 pt-4 mt-2">
-              <h3 className="text-sm font-medium text-amber-400 mb-3 flex items-center gap-2">
+            <div className="border-t border-neon-amber/15 pt-4 mt-2">
+              <h3 className="text-sm font-medium neon-text-amber mb-3 flex items-center gap-2">
                 🏷️ 撿便宜策略設定
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -721,8 +729,8 @@ function App() {
                   <label className="text-sm text-gray-400">撿便宜策略</label>
                   <button
                     onClick={() => setConfigForm({ ...configForm, bargain_enabled: !configForm.bargain_enabled })}
-                    className={`relative w-12 h-6 rounded-full transition-colors ${
-                      configForm.bargain_enabled !== false ? 'bg-amber-600' : 'bg-gray-600'
+                    className={`relative w-12 h-6 rounded-full transition-all ${
+                      configForm.bargain_enabled !== false ? 'bg-neon-amber/40 shadow-neon-amber' : 'bg-gray-700'
                     }`}
                   >
                     <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
@@ -785,13 +793,13 @@ function App() {
             <div className="flex gap-3 pt-2">
               <button
                 onClick={saveConfig}
-                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-neon-cyan/20 hover:bg-neon-cyan/30 border border-neon-cyan/40 text-neon-cyan rounded-lg text-sm font-medium transition-all shadow-neon-cyan"
               >
                 儲存設定
               </button>
               <button
                 onClick={() => setConfigForm(config || {})}
-                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
+                className="px-4 py-2 bg-black/30 hover:bg-black/50 border border-gray-600 rounded-lg text-sm font-medium transition-all text-gray-400"
               >
                 重置
               </button>
@@ -802,40 +810,32 @@ function App() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-800 mt-8 py-4 text-center text-xs text-gray-600">
-        Polymarket 每日套利機器人 v1.0 | 僅供教育和研究用途 | 交易有風險，請謹慎操作
+      <footer className="border-t border-neon-cyan/10 mt-8 py-4 text-center text-xs text-neon-cyan/30 relative z-10">
+        <span className="font-cyber tracking-wider">PM DAILY ARB BOT</span> v1.0 | 僅供教育和研究用途 | 交易有風險，請謹慎操作
       </footer>
     </div>
   )
 }
 
 function StatCard({ icon, label, value, color = 'gray' }) {
-  const colors = {
-    emerald: 'from-emerald-500/10 to-emerald-500/5 border-emerald-500/20',
-    blue: 'from-blue-500/10 to-blue-500/5 border-blue-500/20',
-    violet: 'from-violet-500/10 to-violet-500/5 border-violet-500/20',
-    amber: 'from-amber-500/10 to-amber-500/5 border-amber-500/20',
-    orange: 'from-orange-500/10 to-orange-500/5 border-orange-500/20',
-    red: 'from-red-500/10 to-red-500/5 border-red-500/20',
-    gray: 'from-gray-500/10 to-gray-500/5 border-gray-500/20',
+  const neonMap = {
+    emerald: { border: 'border-neon-green/25', shadow: 'shadow-neon-green', text: 'text-neon-green', glow: 'neon-text-green' },
+    blue: { border: 'border-neon-blue/25', shadow: 'shadow-neon-cyan', text: 'text-neon-blue', glow: 'neon-text-cyan' },
+    cyan: { border: 'border-neon-cyan/25', shadow: 'shadow-neon-cyan', text: 'text-neon-cyan', glow: 'neon-text-cyan' },
+    violet: { border: 'border-neon-magenta/25', shadow: 'shadow-neon-magenta', text: 'text-neon-magenta', glow: 'neon-text-magenta' },
+    amber: { border: 'border-neon-amber/25', shadow: 'shadow-neon-amber', text: 'text-neon-amber', glow: 'neon-text-amber' },
+    red: { border: 'border-neon-pink/25', shadow: 'shadow-neon-pink', text: 'text-neon-pink', glow: '' },
+    gray: { border: 'border-gray-600/25', shadow: '', text: 'text-gray-400', glow: '' },
   }
-  const iconColors = {
-    emerald: 'text-emerald-400',
-    blue: 'text-blue-400',
-    violet: 'text-violet-400',
-    amber: 'text-amber-400',
-    orange: 'text-orange-400',
-    red: 'text-red-400',
-    gray: 'text-gray-400',
-  }
+  const n = neonMap[color] || neonMap.gray
 
   return (
-    <div className={`bg-gradient-to-br ${colors[color]} border rounded-xl p-4`}>
+    <div className={`bg-black/40 backdrop-blur-sm border ${n.border} ${n.shadow} rounded-xl p-4 transition-all hover:scale-[1.02]`}>
       <div className="flex items-center gap-2 mb-2">
-        <span className={iconColors[color]}>{icon}</span>
-        <span className="text-xs text-gray-500">{label}</span>
+        <span className={n.text}>{icon}</span>
+        <span className="text-xs text-gray-500 uppercase tracking-wider">{label}</span>
       </div>
-      <p className="text-xl font-bold">{value}</p>
+      <p className={`text-xl font-bold font-cyber ${n.glow}`}>{value}</p>
     </div>
   )
 }
@@ -843,14 +843,14 @@ function StatCard({ icon, label, value, color = 'gray' }) {
 function ConfigField({ label, value, onChange, type = 'text', step, hint, suffix }) {
   return (
     <div>
-      <label className="text-xs text-gray-400 block mb-1">{label}</label>
+      <label className="text-xs text-neon-cyan/50 block mb-1 uppercase tracking-wider">{label}</label>
       <div className="flex items-center gap-2">
         <input
           type={type}
           step={step}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 transition-colors"
+          className="w-full bg-black/40 border border-neon-cyan/15 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-neon-cyan/50 focus:shadow-neon-cyan transition-all text-gray-200"
         />
         {suffix}
       </div>
