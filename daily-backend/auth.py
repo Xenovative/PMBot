@@ -148,7 +148,7 @@ def get_totp_qr_svg(uri: str) -> str:
     qr = qrcode.QRCode(version=1, box_size=6, border=2)
     qr.add_data(uri)
     qr.make(fit=True)
-    img = qr.make_image(fill_color="white", back_color="transparent")
+    img = qr.make_image(fill_color="black", back_color="white")
     buf = BytesIO()
     img.save(buf, format="PNG")
     b64 = base64.b64encode(buf.getvalue()).decode()
