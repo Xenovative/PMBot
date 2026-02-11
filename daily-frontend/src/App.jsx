@@ -14,15 +14,18 @@ const API = ''
 
 function App() {
   const [token, setToken] = useState(() => localStorage.getItem('pmbot_token'))
+  const [verified, setVerified] = useState(false)
 
   function handleLogin(newToken) {
     localStorage.setItem('pmbot_token', newToken)
     setToken(newToken)
+    setVerified(true)
   }
 
   function handleLogout() {
     localStorage.removeItem('pmbot_token')
     setToken(null)
+    setVerified(false)
   }
 
   // Auth headers helper
@@ -31,17 +34,36 @@ function App() {
     ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
   }
 
-  // Verify token on mount
+  // Verify token on mount — block rendering until done
   useEffect(() => {
-    if (!token) return
+    if (!token) { setVerified(false); return }
+    setVerified(false)
     fetch(`${API}/api/auth/verify`, { headers: { 'Authorization': `Bearer ${token}` } })
-      .then(r => { if (r.status === 401) handleLogout() })
-      .catch(() => {})
+      .then(r => {
+        if (r.status === 401) { handleLogout() }
+        else { setVerified(true) }
+      })
+      .catch(() => { setVerified(true) }) // offline = let them through, API calls will fail anyway
   }, [token])
 
-  // Show login if no token
+  // No token = login
   if (!token) {
     return <LoginPage onLogin={handleLogin} />
+  }
+
+  // Token exists but not yet verified = loading
+  if (!verified) {
+    return (
+      <div className="min-h-screen flex items-center justify-center relative">
+        <div className="fixed inset-0 z-0">
+          <img src="/background.jpeg" alt="" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-black/80" />
+        </div>
+        <div className="relative z-10 text-neon-cyan animate-pulse font-cyber text-lg">
+          VERIFYING SESSION...
+        </div>
+      </div>
+    )
   }
 
   return <Dashboard token={token} authHeaders={authHeaders} onLogout={handleLogout} />
