@@ -583,7 +583,7 @@ function App() {
                   <Activity className="w-4 h-4" />
                   運行日誌
                 </h3>
-                <div className="bg-gray-950 rounded-lg p-3 max-h-64 overflow-y-auto font-mono text-[11px] space-y-0.5">
+                <div className="bg-gray-950 rounded-lg p-3 max-h-64 overflow-y-scroll font-mono text-[11px] space-y-0.5">
                   {(status?.logs || []).length === 0 ? (
                     <p className="text-gray-600">等待機器人啟動...</p>
                   ) : (
