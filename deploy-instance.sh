@@ -43,7 +43,86 @@ fi
 
 # ── Detect available bot source directories ──
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-echo -e "${BOLD}Available bot sources in ${SCRIPT_DIR}:${NC}"
+
+# ============================================
+#  Scan existing deployed instances
+# ============================================
+echo -e "${BOLD}── Existing Instances ──${NC}"
+echo ""
+
+EXISTING_INSTANCES=()
+ALL_USED_PORTS=()
+
+# Collect ports from live sockets
+while IFS= read -r p; do
+    [[ -n "$p" ]] && ALL_USED_PORTS+=("$p")
+done < <(ss -tlnp 2>/dev/null | grep -oP ':\K[0-9]+' | sort -un)
+
+found_any=false
+for inst_dir in /opt/pmbot-*/; do
+    [ -d "$inst_dir/backend" ] || continue
+    found_any=true
+
+    inst_name=$(basename "$inst_dir" | sed 's/^pmbot-//')
+    svc_name="pmbot-${inst_name}-backend"
+    svc_file="/etc/systemd/system/${svc_name}.service"
+
+    # ── Status ──
+    if systemctl is-active "$svc_name" &>/dev/null; then
+        status="${GREEN}running${NC}"
+    elif systemctl is-enabled "$svc_name" &>/dev/null; then
+        status="${YELLOW}stopped${NC}"
+    else
+        status="${RED}unknown${NC}"
+    fi
+
+    # ── Backend port (from systemd Environment=PORT=) ──
+    be_port="-"
+    if [ -f "$svc_file" ]; then
+        be_port=$(grep -oP 'Environment=PORT=\K[0-9]+' "$svc_file" 2>/dev/null || echo "-")
+    fi
+    [[ "$be_port" != "-" ]] && ALL_USED_PORTS+=("$be_port")
+
+    # ── Nginx port (from sites-available) ──
+    nginx_port="-"
+    nginx_conf="/etc/nginx/sites-available/pmbot-${inst_name}"
+    if [ -f "$nginx_conf" ]; then
+        nginx_port=$(grep -oP 'listen\s+\K[0-9]+' "$nginx_conf" 2>/dev/null | head -1 || echo "-")
+    fi
+    [[ "$nginx_port" != "-" ]] && ALL_USED_PORTS+=("$nginx_port")
+
+    # ── Frontend port (from PM2 or process) ──
+    fe_port="-"
+    pm2_name="pmbot-${inst_name}-frontend"
+    # Try to extract from PM2 process args
+    fe_port_match=$(pm2 jlist 2>/dev/null | grep -oP "\"name\":\"${pm2_name}\"[^}]*\"--port[\" ]+\K[0-9]+" 2>/dev/null || true)
+    if [ -n "$fe_port_match" ]; then
+        fe_port="$fe_port_match"
+    fi
+    [[ "$fe_port" != "-" ]] && ALL_USED_PORTS+=("$fe_port")
+
+    # ── Auth status ──
+    auth_info=""
+    if [ -f "$inst_dir/backend/.auth.json" ]; then
+        auth_info="${GREEN}✓ auth${NC}"
+    fi
+
+    EXISTING_INSTANCES+=("$inst_name")
+
+    echo -e "  ${CYAN}${inst_name}${NC}"
+    echo -e "    Status:  ${status}    Backend: ${BOLD}${be_port}${NC}    Nginx: ${BOLD}${nginx_port}${NC}    Frontend: ${BOLD}${fe_port}${NC}  ${auth_info}"
+    echo -e "    Dir:     ${inst_dir}"
+done
+
+if [ "$found_any" = false ]; then
+    info "No existing instances found in /opt/pmbot-*/"
+fi
+
+# De-duplicate used ports
+USED_PORTS=$(printf '%s\n' "${ALL_USED_PORTS[@]}" | sort -un)
+
+echo ""
+echo -e "${BOLD}── Available Bot Sources ──${NC}"
 echo ""
 
 SOURCES=()
@@ -107,12 +186,31 @@ INSTANCE_NAME=${INSTANCE_NAME:-$DEFAULT_NAME}
 # Sanitize: lowercase, replace spaces with dashes
 INSTANCE_NAME=$(echo "$INSTANCE_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-')
 
+# ── Check if updating an existing instance ──
+EXISTING_APP_DIR="/opt/pmbot-${INSTANCE_NAME}"
+if [ -d "$EXISTING_APP_DIR/backend" ]; then
+    echo ""
+    warn "Instance '${INSTANCE_NAME}' already exists at ${EXISTING_APP_DIR}"
+
+    # Read existing ports as defaults
+    existing_svc="/etc/systemd/system/pmbot-${INSTANCE_NAME}-backend.service"
+    existing_nginx="/etc/nginx/sites-available/pmbot-${INSTANCE_NAME}"
+
+    EXISTING_BE_PORT=$(grep -oP 'Environment=PORT=\K[0-9]+' "$existing_svc" 2>/dev/null || echo "")
+    EXISTING_NGINX_PORT=$(grep -oP 'listen\s+\K[0-9]+' "$existing_nginx" 2>/dev/null | head -1 || echo "")
+
+    if [ -n "$EXISTING_BE_PORT" ]; then
+        info "Current backend port: ${EXISTING_BE_PORT}"
+    fi
+    if [ -n "$EXISTING_NGINX_PORT" ]; then
+        info "Current nginx port:   ${EXISTING_NGINX_PORT}"
+    fi
+fi
+
 echo ""
 
 # ── Ports ──
-# Suggest ports based on existing instances to avoid conflicts
-USED_PORTS=$(ss -tlnp 2>/dev/null | grep -oP ':\K[0-9]+' | sort -un || true)
-
+# Suggest ports: use existing ports for updates, or find free ones for new instances
 suggest_port() {
     local base=$1
     local port=$base
@@ -122,9 +220,19 @@ suggest_port() {
     echo $port
 }
 
-DEFAULT_BACKEND_PORT=$(suggest_port 8889)
+if [ -n "$EXISTING_BE_PORT" ]; then
+    DEFAULT_BACKEND_PORT="$EXISTING_BE_PORT"
+else
+    DEFAULT_BACKEND_PORT=$(suggest_port 8889)
+fi
+
 DEFAULT_FRONTEND_PORT=$(suggest_port 5174)
-DEFAULT_NGINX_PORT=$(suggest_port 81)
+
+if [ -n "$EXISTING_NGINX_PORT" ]; then
+    DEFAULT_NGINX_PORT="$EXISTING_NGINX_PORT"
+else
+    DEFAULT_NGINX_PORT=$(suggest_port 81)
+fi
 
 read -p "  Backend port [${DEFAULT_BACKEND_PORT}]: " BACKEND_PORT
 BACKEND_PORT=${BACKEND_PORT:-$DEFAULT_BACKEND_PORT}
