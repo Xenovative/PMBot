@@ -72,9 +72,11 @@ else
     echo "  Fresh install — copying files..."
 fi
 
-# Sync backend (preserve .env)
+# Sync backend (preserve .env, .auth.json, databases)
 rsync -a --delete \
     --exclude '.env' \
+    --exclude '.auth.json' \
+    --exclude '*.db' \
     --exclude '__pycache__' \
     --exclude '*.pyc' \
     daily-backend/ "$APP_DIR/backend/"

@@ -92,10 +92,10 @@ function AnalyticsDashboard({ token }) {
   }
 
   return (
-    <div className="cyber-panel p-6 space-y-4">
+    <div className="cyber-panel p-3 sm:p-6 space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold flex items-center gap-2 font-cyber">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <h2 className="text-base sm:text-lg font-semibold flex items-center gap-2 font-cyber">
           <BarChart3 className="w-5 h-5 text-neon-magenta" />
           <span className="neon-text-magenta">數據分析</span>
         </h2>
@@ -149,7 +149,7 @@ function AnalyticsDashboard({ token }) {
       {activeTab === 'overview' && overview && (
         <div className="space-y-4">
           {/* Stat Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
             <MiniStat
               icon={<DollarSign className="w-4 h-4" />}
               label="總利潤"
@@ -176,7 +176,7 @@ function AnalyticsDashboard({ token }) {
             />
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
             <MiniStat
               icon={<TrendingUp className="w-4 h-4" />}
               label="今日利潤"
@@ -431,13 +431,13 @@ function AnalyticsDashboard({ token }) {
                 <h4 className="text-xs text-gray-500 mb-2 font-medium">各市場利潤</h4>
                 <div className="h-48 w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={perMarket.slice(0, 10)} layout="vertical">
+                    <BarChart data={perMarket.slice(0, 10)} layout="vertical" margin={{ left: 0, right: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,255,255,0.06)" />
                       <XAxis type="number" tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} tickFormatter={v => `$${v.toFixed(2)}`} />
                       <YAxis
                         type="category"
                         dataKey="market_slug"
-                        width={120}
+                        width={80}
                         tick={{ fontSize: 9, fill: 'rgba(0,255,255,0.4)' }}
                         tickFormatter={v => v.length > 20 ? v.slice(0, 20) + '...' : v}
                       />
@@ -505,18 +505,18 @@ function AnalyticsDashboard({ token }) {
               <h4 className="text-xs text-gray-500 mb-2 font-medium">最近合併記錄</h4>
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
                 {recentMerges.map((m, i) => (
-                  <div key={m.id || i} className="bg-black/30 border border-neon-cyan/5 rounded-lg p-2.5 text-xs flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className={`px-1.5 py-0.5 rounded ${
+                  <div key={m.id || i} className="bg-black/30 border border-neon-cyan/5 rounded-lg p-2 sm:p-2.5 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`px-1.5 py-0.5 rounded flex-shrink-0 ${
                         m.status === 'success' ? 'bg-neon-green/10 text-neon-green' :
                         m.status === 'simulated' ? 'bg-neon-amber/10 text-neon-amber' :
                         'bg-neon-pink/10 text-neon-pink'
                       }`}>
                         {m.status === 'success' ? '成功' : m.status === 'simulated' ? '模擬' : '失敗'}
                       </span>
-                      <span className="text-gray-400 truncate max-w-[150px]">{m.market_slug}</span>
+                      <span className="text-gray-400 truncate">{m.market_slug}</span>
                     </div>
-                    <div className="flex items-center gap-3 font-mono">
+                    <div className="flex items-center gap-3 font-mono flex-shrink-0 pl-7 sm:pl-0">
                       <span className="text-gray-500">{m.amount?.toFixed(0)} 對</span>
                       <span className="text-neon-green">${m.usdc_received?.toFixed(2)}</span>
                     </div>
@@ -553,12 +553,12 @@ function MiniStat({ icon, label, value, color = 'gray' }) {
   const n = neonMap[color] || neonMap.gray
 
   return (
-    <div className={`bg-black/30 backdrop-blur-sm border ${n.border} rounded-lg p-3`}>
+    <div className={`bg-black/30 backdrop-blur-sm border ${n.border} rounded-lg p-2 sm:p-3`}>
       <div className="flex items-center gap-1.5 mb-1">
         <span className={n.text}>{icon}</span>
         <span className="text-[10px] text-gray-500 uppercase tracking-wider">{label}</span>
       </div>
-      <p className={`text-sm font-bold font-mono ${n.glow || n.text}`}>{value}</p>
+      <p className={`text-xs sm:text-sm font-bold font-mono ${n.glow || n.text}`}>{value}</p>
     </div>
   )
 }

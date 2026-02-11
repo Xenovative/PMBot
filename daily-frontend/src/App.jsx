@@ -182,88 +182,91 @@ function Dashboard({ token, authHeaders, onLogout }) {
       </div>
       {/* Header */}
       <header className="border-b border-neon-cyan/20 bg-black/60 backdrop-blur-xl sticky top-0 z-50 shadow-neon-cyan">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-neon-cyan/10 border border-neon-cyan/30 flex items-center justify-center shadow-neon-cyan">
-              <Zap className="w-5 h-5 text-neon-cyan" />
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2 sm:py-3">
+          {/* Top row: logo + badges + start/stop */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-neon-cyan/10 border border-neon-cyan/30 flex items-center justify-center shadow-neon-cyan flex-shrink-0">
+                <Zap className="w-4 h-4 sm:w-5 sm:h-5 text-neon-cyan" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-sm sm:text-lg font-bold tracking-wider font-cyber neon-text-cyan truncate">PM 套利機器人</h1>
+                <p className="text-[10px] sm:text-xs text-neon-cyan/40 tracking-widest uppercase hidden sm:block">Daily Crypto Arbitrage</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-wider font-cyber neon-text-cyan">PM 套利機器人</h1>
-              <p className="text-xs text-neon-cyan/40 tracking-widest uppercase">Daily Crypto Arbitrage</p>
+
+            <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
+              {/* Connection Status */}
+              <div className={`flex items-center gap-1 text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full border ${
+                connected
+                  ? 'bg-neon-green/5 text-neon-green border-neon-green/30 shadow-neon-green'
+                  : 'bg-red-500/5 text-red-400 border-red-500/30 shadow-neon-pink'
+              }`}>
+                {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                <span className="hidden sm:inline">{connected ? '已連線' : '未連線'}</span>
+              </div>
+
+              {/* Mode Badge */}
+              <div className={`text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full font-medium border ${
+                config?.dry_run !== false
+                  ? 'bg-neon-amber/5 text-neon-amber border-neon-amber/30 shadow-neon-amber'
+                  : 'bg-neon-pink/5 text-neon-pink border-neon-pink/30 shadow-neon-pink neon-pulse'
+              }`}>
+                {config?.dry_run !== false ? '🔸 模擬' : '🔴 真實'}
+              </div>
+
+              {/* Start/Stop */}
+              {isRunning ? (
+                <button
+                  onClick={stopBot}
+                  className="flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 bg-neon-pink/20 hover:bg-neon-pink/30 border border-neon-pink/50 text-neon-pink rounded-lg text-xs sm:text-sm font-medium transition-all shadow-neon-pink"
+                >
+                  <Square className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <span className="hidden sm:inline">停止</span>
+                </button>
+              ) : (
+                <button
+                  onClick={startBot}
+                  className="flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 bg-neon-green/20 hover:bg-neon-green/30 border border-neon-green/50 text-neon-green rounded-lg text-xs sm:text-sm font-medium transition-all shadow-neon-green"
+                >
+                  <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <span className="hidden sm:inline">啟動</span>
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* Top-level tabs */}
-            <div className="flex gap-1 bg-black/40 border border-neon-cyan/10 rounded-lg p-0.5">
-              {[
-                { id: 'live', label: '即時監控', icon: <Activity className="w-3.5 h-3.5" /> },
-                { id: 'analytics', label: '數據分析', icon: <BarChart3 className="w-3.5 h-3.5" /> },
-                { id: 'settings', label: '設定', icon: <Settings className="w-3.5 h-3.5" /> },
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveView(tab.id)}
-                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-all font-medium ${
-                    activeView === tab.id
-                      ? 'bg-neon-cyan/15 text-neon-cyan border border-neon-cyan/30 shadow-neon-cyan'
-                      : 'text-gray-500 hover:text-neon-cyan/70 border border-transparent'
-                  }`}
-                >
-                  {tab.icon}
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Connection Status */}
-            <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border ${
-              connected
-                ? 'bg-neon-green/5 text-neon-green border-neon-green/30 shadow-neon-green'
-                : 'bg-red-500/5 text-red-400 border-red-500/30 shadow-neon-pink'
-            }`}>
-              {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-              {connected ? '已連線' : '未連線'}
-            </div>
-
-            {/* Mode Badge */}
-            <div className={`text-xs px-2.5 py-1 rounded-full font-medium border ${
-              config?.dry_run !== false
-                ? 'bg-neon-amber/5 text-neon-amber border-neon-amber/30 shadow-neon-amber'
-                : 'bg-neon-pink/5 text-neon-pink border-neon-pink/30 shadow-neon-pink neon-pulse'
-            }`}>
-              {config?.dry_run !== false ? '🔸 模擬模式' : '🔴 真實交易'}
-            </div>
-
-            {/* Start/Stop */}
-            {isRunning ? (
+          {/* Bottom row: tabs */}
+          <div className="flex gap-1 bg-black/40 border border-neon-cyan/10 rounded-lg p-0.5 mt-2">
+            {[
+              { id: 'live', label: '即時監控', icon: <Activity className="w-3.5 h-3.5" /> },
+              { id: 'analytics', label: '數據分析', icon: <BarChart3 className="w-3.5 h-3.5" /> },
+              { id: 'settings', label: '設定', icon: <Settings className="w-3.5 h-3.5" /> },
+            ].map(tab => (
               <button
-                onClick={stopBot}
-                className="flex items-center gap-2 px-4 py-2 bg-neon-pink/20 hover:bg-neon-pink/30 border border-neon-pink/50 text-neon-pink rounded-lg text-sm font-medium transition-all shadow-neon-pink"
+                key={tab.id}
+                onClick={() => setActiveView(tab.id)}
+                className={`flex-1 flex items-center justify-center gap-1.5 text-xs px-2 sm:px-3 py-1.5 rounded-md transition-all font-medium ${
+                  activeView === tab.id
+                    ? 'bg-neon-cyan/15 text-neon-cyan border border-neon-cyan/30 shadow-neon-cyan'
+                    : 'text-gray-500 hover:text-neon-cyan/70 border border-transparent'
+                }`}
               >
-                <Square className="w-4 h-4" />
-                停止
+                {tab.icon}
+                <span className="hidden sm:inline">{tab.label}</span>
               </button>
-            ) : (
-              <button
-                onClick={startBot}
-                className="flex items-center gap-2 px-4 py-2 bg-neon-green/20 hover:bg-neon-green/30 border border-neon-green/50 text-neon-green rounded-lg text-sm font-medium transition-all shadow-neon-green"
-              >
-                <Play className="w-4 h-4" />
-                啟動
-              </button>
-            )}
+            ))}
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6 relative z-10">
+      <main className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6 relative z-10">
 
         {/* ═══════════════ LIVE TAB ═══════════════ */}
         {activeView === 'live' && (
           <>
             {/* Compact Stats Row */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-3">
               <StatCard
                 icon={<Activity className="w-5 h-5" />}
                 label="狀態"
@@ -297,9 +300,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
             </div>
 
             {/* Price Table + Bargain Holdings — side by side */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
               {/* Price Monitoring */}
-              <div className="cyber-panel p-5">
+              <div className="cyber-panel p-3 sm:p-5">
                 <h3 className="text-sm font-medium neon-text-cyan mb-3 flex items-center gap-2">
                   <TrendingUp className="w-4 h-4" />
                   即時價格 — {Object.keys(status?.market_prices || {}).length} 個市場
@@ -352,7 +355,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
               </div>
 
               {/* Bargain Holdings */}
-              <div className="cyber-panel-amber p-5">
+              <div className="cyber-panel-amber p-3 sm:p-5">
                 <h3 className="text-sm font-medium neon-text-amber mb-3 flex items-center gap-2">
                   🏷️ 撿便宜持倉 ({(status?.bargain_holdings || []).length} 筆)
                 </h3>
@@ -406,9 +409,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
             </div>
 
             {/* Opportunities + Merge — side by side */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
               {/* Opportunities */}
-              <div className="cyber-panel p-5">
+              <div className="cyber-panel p-3 sm:p-5">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-medium neon-text-cyan flex items-center gap-2">
                     <Zap className="w-4 h-4" />
@@ -469,7 +472,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
               </div>
 
               {/* Merge Panel (compact) */}
-              <div className="cyber-panel-magenta p-5">
+              <div className="cyber-panel-magenta p-3 sm:p-5">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-medium neon-text-magenta flex items-center gap-2">
                     <GitMerge className="w-4 h-4" />
@@ -504,7 +507,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 </div>
 
                 {/* Merge Stats */}
-                <div className="grid grid-cols-4 gap-2 mb-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
                   <div className="bg-black/30 border border-neon-magenta/10 rounded-lg p-2">
                     <p className="text-[10px] text-gray-500">追蹤</p>
                     <p className="text-sm font-bold font-mono">{mergeStatus?.total_tracked ?? 0}</p>
@@ -591,9 +594,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
             </div>
 
             {/* Trade History (compact) + Logs — side by side */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
               {/* Recent Trades */}
-              <div className="cyber-panel p-5">
+              <div className="cyber-panel p-3 sm:p-5">
                 <h3 className="text-sm font-medium neon-text-cyan mb-3 flex items-center gap-2">
                   <Shield className="w-4 h-4" />
                   最近交易
@@ -645,7 +648,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
               </div>
 
               {/* Logs */}
-              <div className="cyber-panel p-5">
+              <div className="cyber-panel p-3 sm:p-5">
                 <h3 className="text-sm font-medium neon-text-cyan mb-3 flex items-center gap-2">
                   <Activity className="w-4 h-4" />
                   運行日誌
@@ -685,7 +688,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
 
         {/* ═══════════════ SETTINGS TAB ═══════════════ */}
         {activeView === 'settings' && (
-          <div className="cyber-panel p-6 space-y-4">
+          <div className="cyber-panel p-4 sm:p-6 space-y-4">
             <h2 className="text-lg font-semibold flex items-center gap-2 font-cyber">
               <Settings className="w-5 h-5 text-neon-cyan" />
               <span className="neon-text-cyan">機器人設定</span>
@@ -894,12 +897,12 @@ function StatCard({ icon, label, value, color = 'gray' }) {
   const n = neonMap[color] || neonMap.gray
 
   return (
-    <div className={`bg-black/40 backdrop-blur-sm border ${n.border} ${n.shadow} rounded-xl p-4 transition-all hover:scale-[1.02]`}>
-      <div className="flex items-center gap-2 mb-2">
-        <span className={n.text}>{icon}</span>
-        <span className="text-xs text-gray-500 uppercase tracking-wider">{label}</span>
+    <div className={`bg-black/40 backdrop-blur-sm border ${n.border} ${n.shadow} rounded-xl p-3 sm:p-4 transition-all hover:scale-[1.02]`}>
+      <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-2">
+        <span className={`${n.text} [&>svg]:w-4 [&>svg]:h-4 sm:[&>svg]:w-5 sm:[&>svg]:h-5`}>{icon}</span>
+        <span className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wider">{label}</span>
       </div>
-      <p className={`text-xl font-bold font-cyber ${n.glow}`}>{value}</p>
+      <p className={`text-base sm:text-xl font-bold font-cyber ${n.glow}`}>{value}</p>
     </div>
   )
 }
