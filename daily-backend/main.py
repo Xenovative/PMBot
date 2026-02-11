@@ -18,9 +18,6 @@ import trade_db
 
 app = FastAPI(title="Polymarket 每日套利機器人")
 
-# 初始化 SQLite
-trade_db.init_db()
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,6 +28,10 @@ app.add_middleware(
 
 # 全域狀態
 config = get_config()
+
+# 初始化 SQLite（模擬/真實分開存檔）
+trade_db.init_db(dry_run=config.dry_run)
+
 market_finder = MarketFinder(config)
 engine = ArbitrageEngine(config)
 bot_task: Optional[asyncio.Task] = None
@@ -236,6 +237,9 @@ async def update_config(update: ConfigUpdate):
     for k, v in updates.items():
         if hasattr(config, k):
             setattr(config, k, v)
+    # 切換模式時重新初始化 DB（模擬/真實分開存檔）
+    if "dry_run" in updates:
+        trade_db.init_db(dry_run=config.dry_run)
     return {"status": "ok", "updated": list(updates.keys())}
 
 

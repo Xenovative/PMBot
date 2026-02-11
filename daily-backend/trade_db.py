@@ -8,7 +8,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "pmbot_daily.db")
+DB_DIR = os.path.dirname(__file__)
+DB_PATH = os.path.join(DB_DIR, "pmbot_daily_live.db")  # default, overridden by init_db()
 
 _local = threading.local()
 
@@ -23,8 +24,21 @@ def _get_conn() -> sqlite3.Connection:
     return _local.conn
 
 
-def init_db():
-    """建立所有資料表（冪等）"""
+def _reset_connections():
+    """關閉所有線程連接（切換 DB 時使用）"""
+    if hasattr(_local, "conn") and _local.conn is not None:
+        _local.conn.close()
+        _local.conn = None
+
+
+def init_db(dry_run: bool = True):
+    """建立所有資料表（冪等）。dry_run=True → paper DB, False → live DB"""
+    global DB_PATH
+    db_name = "pmbot_daily_paper.db" if dry_run else "pmbot_daily_live.db"
+    new_path = os.path.join(DB_DIR, db_name)
+    if new_path != DB_PATH:
+        _reset_connections()
+        DB_PATH = new_path
     conn = _get_conn()
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS trades (
