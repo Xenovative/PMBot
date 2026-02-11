@@ -26,5 +26,10 @@ frontend/build/
 # Logs
 *.log
 
+# SQLite databases
+*.db
+*.db-wal
+*.db-shm
+
 # Windsurf
 .windsurf/

@@ -11,6 +11,7 @@ from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
 from eth_account import Account
 from config import BotConfig
+import trade_db
 
 # Polymarket 合約地址 (Polygon)
 CTF_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
@@ -363,6 +364,25 @@ class PositionMerger:
             self.add_log(record.details)
 
         self.merge_history.append(record)
+
+        # 持久化到 SQLite
+        try:
+            trade_db.record_merge(
+                timestamp=record.timestamp,
+                market_slug=record.market_slug,
+                condition_id=record.condition_id,
+                amount=record.amount,
+                usdc_received=record.usdc_received,
+                tx_hash=record.tx_hash,
+                gas_cost=record.gas_cost,
+                net_profit=record.net_profit,
+                status=record.status,
+                details=record.details,
+            )
+            trade_db.rebuild_daily_summary()
+        except Exception:
+            pass
+
         return record
 
     async def auto_merge_all(self) -> List[MergeRecord]:

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from config import BotConfig
 from market_finder import MarketInfo
 from position_merger import PositionMerger
+import trade_db
 
 
 @dataclass
@@ -826,6 +827,26 @@ class ArbitrageEngine:
             self.status.total_profit += record.expected_profit
         self.status.trade_history.append(record)
 
+        # 持久化到 SQLite
+        try:
+            trade_db.record_trade(
+                timestamp=record.timestamp,
+                market_slug=record.market_slug,
+                trade_type="arbitrage",
+                side="BOTH",
+                up_price=record.up_price,
+                down_price=record.down_price,
+                total_cost=record.total_cost,
+                order_size=record.order_size,
+                profit=record.expected_profit,
+                profit_pct=record.profit_pct,
+                status=record.status,
+                details=record.details,
+            )
+            trade_db.rebuild_daily_summary()
+        except Exception:
+            pass
+
         if record.status in ("executed", "simulated") and market.condition_id:
             self.merger.track_trade(
                 market_slug=market.slug,
@@ -1126,6 +1147,25 @@ class ArbitrageEngine:
         self.status.total_trades += 1
         self.status.increment_trades_for_market(market.slug)
 
+        # 持久化開倉記錄
+        try:
+            trade_db.record_trade(
+                timestamp=holding.timestamp,
+                market_slug=market.slug,
+                trade_type="bargain_open",
+                side=side,
+                up_price=opp["price_info"].up_price,
+                down_price=opp["price_info"].down_price,
+                total_cost=holding.buy_price,
+                order_size=holding.shares,
+                profit=0,
+                profit_pct=0,
+                status="executed" if not self.config.dry_run else "simulated",
+                details=f"R{buy_round} {'配對' if is_pairing else '開倉'} {side}@{holding.buy_price:.4f}",
+            )
+        except Exception:
+            pass
+
         # 如果是配對買入，標記兩邊為 paired
         if is_pairing and pair_with:
             combined = pair_with.buy_price + holding.buy_price
@@ -1158,6 +1198,26 @@ class ArbitrageEngine:
             )
             self.status.trade_history.append(record)
             self.status.total_profit += record.expected_profit
+
+            # 持久化配對記錄
+            try:
+                trade_db.record_trade(
+                    timestamp=record.timestamp,
+                    market_slug=record.market_slug,
+                    trade_type="bargain_pair",
+                    side="BOTH",
+                    up_price=record.up_price,
+                    down_price=record.down_price,
+                    total_cost=record.total_cost,
+                    order_size=record.order_size,
+                    profit=record.expected_profit,
+                    profit_pct=record.profit_pct,
+                    status=record.status,
+                    details=record.details,
+                )
+                trade_db.rebuild_daily_summary()
+            except Exception:
+                pass
 
             # 追蹤合併
             if not self.config.dry_run and market.condition_id:
@@ -1291,6 +1351,26 @@ class ArbitrageEngine:
                 self.status.trade_history.append(record)
                 self.status.total_profit += record.expected_profit
 
+                # 持久化止損記錄
+                try:
+                    trade_db.record_trade(
+                        timestamp=record.timestamp,
+                        market_slug=record.market_slug,
+                        trade_type="bargain_stop",
+                        side=holding.side,
+                        up_price=record.up_price,
+                        down_price=record.down_price,
+                        total_cost=record.total_cost,
+                        order_size=record.order_size,
+                        profit=record.expected_profit,
+                        profit_pct=record.profit_pct,
+                        status=record.status,
+                        details=record.details,
+                    )
+                    trade_db.rebuild_daily_summary()
+                except Exception:
+                    pass
+
     async def scan_market(self, market: MarketInfo) -> Optional[ArbitrageOpportunity]:
         """掃描單個市場的套利機會"""
         price_info = await self.get_prices(market)
@@ -1302,6 +1382,23 @@ class ArbitrageEngine:
         self.status.scan_count += 1
 
         opportunity = self.check_arbitrage(market, price_info)
+
+        # 每 10 次掃描持久化一次（避免寫入過頻）
+        if self.status.scan_count % 10 == 0:
+            try:
+                trade_db.record_scan(
+                    timestamp=price_info.timestamp,
+                    market_slug=market.slug,
+                    up_price=price_info.up_price,
+                    down_price=price_info.down_price,
+                    total_cost=price_info.total_cost,
+                    spread=price_info.spread,
+                    up_liquidity=price_info.up_liquidity,
+                    down_liquidity=price_info.down_liquidity,
+                    opportunity_viable=opportunity.is_viable,
+                )
+            except Exception:
+                pass
 
         if opportunity.is_viable:
             self.status.opportunities_found += 1

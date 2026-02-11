@@ -14,8 +14,12 @@ from config import get_config, BotConfig
 from market_finder import MarketFinder, MarketInfo
 from arbitrage_engine import ArbitrageEngine
 from position_merger import PositionMerger
+import trade_db
 
 app = FastAPI(title="Polymarket 套利機器人")
+
+# 初始化 SQLite
+trade_db.init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -298,6 +302,48 @@ async def merge_all_positions():
     for r in results:
         await broadcast({"type": "merge", "data": r.to_dict()})
     return [r.to_dict() for r in results]
+
+
+# ─── Analytics API ───
+
+@app.get("/api/analytics/overview")
+async def analytics_overview():
+    return trade_db.get_overview()
+
+
+@app.get("/api/analytics/cumulative-profit")
+async def analytics_cumulative_profit(days: int = 30):
+    return trade_db.get_cumulative_profit(days)
+
+
+@app.get("/api/analytics/daily-pnl")
+async def analytics_daily_pnl(days: int = 30):
+    return trade_db.get_daily_pnl(days)
+
+
+@app.get("/api/analytics/trade-frequency")
+async def analytics_trade_frequency(days: int = 30):
+    return trade_db.get_trade_frequency(days)
+
+
+@app.get("/api/analytics/win-rate")
+async def analytics_win_rate(days: int = 30):
+    return trade_db.get_win_rate_over_time(days)
+
+
+@app.get("/api/analytics/per-market")
+async def analytics_per_market():
+    return trade_db.get_per_market_stats()
+
+
+@app.get("/api/analytics/trades")
+async def analytics_trades(limit: int = 100, offset: int = 0, status: Optional[str] = None):
+    return trade_db.get_trades(limit, offset, status)
+
+
+@app.get("/api/analytics/merges")
+async def analytics_merges(limit: int = 50):
+    return trade_db.get_merges(limit)
 
 
 @app.get("/api/price/{crypto}")

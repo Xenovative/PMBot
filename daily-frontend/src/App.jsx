@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
+import AnalyticsDashboard from './AnalyticsDashboard'
 import {
   Play, Square, Settings, TrendingUp, TrendingDown, Activity,
   Wifi, WifiOff, DollarSign, BarChart3, Clock, AlertTriangle,
@@ -25,9 +26,7 @@ function App() {
     fetchConfig()
   }, [])
 
-  useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [status?.logs])
+  // No auto-scroll on new log entries
 
   async function fetchConfig() {
     try {
@@ -829,6 +828,9 @@ function App() {
             </div>
           )}
         </div>
+
+        {/* Analytics Dashboard */}
+        <AnalyticsDashboard />
 
         {/* Logs */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
