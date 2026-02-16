@@ -321,6 +321,8 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "bargain_min_price": config.bargain_min_price,
         "bargain_max_rounds": config.bargain_max_rounds,
         "bargain_stop_loss_defer_minutes": config.bargain_stop_loss_defer_minutes,
+        "bargain_first_buy_bias": config.bargain_first_buy_bias,
+        "bargain_pair_escalation_hours": config.bargain_pair_escalation_hours,
     }
 
 
@@ -343,6 +345,8 @@ class ConfigUpdate(BaseModel):
     bargain_min_price: Optional[float] = None
     bargain_max_rounds: Optional[int] = None
     bargain_stop_loss_defer_minutes: Optional[int] = None
+    bargain_first_buy_bias: Optional[str] = None
+    bargain_pair_escalation_hours: Optional[int] = None
 
 
 @app.post("/api/config")

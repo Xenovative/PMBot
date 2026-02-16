@@ -1020,8 +1020,22 @@ class ArbitrageEngine:
 
             if unpaired:
                 # ── 有未配對持倉: 買另一側，兩側合計 < pair_threshold ──
+                # 配對加價: 未配對超過設定時間，放寬 +0.05
+                escalation = 0.0
+                try:
+                    created_at = datetime.fromisoformat(unpaired.timestamp)
+                    wait_hours = (datetime.now(timezone.utc) - created_at).total_seconds() / 3600
+                    esc_hours = self.config.bargain_pair_escalation_hours
+                    if esc_hours > 0 and wait_hours >= esc_hours:
+                        escalation = 0.05
+                        self.status.add_log(
+                            f"⏰ [R{unpaired.round}] {unpaired.side} 等待配對 {wait_hours:.1f}h >= {esc_hours}h，配對上限 +5¢"
+                        )
+                except Exception:
+                    pass
+
                 if unpaired.side == "UP":
-                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price + escalation
                     if (down_ask >= self.BARGAIN_MIN_PRICE
                             and down_ask < target_price):
                         opportunities.append({
@@ -1037,7 +1051,7 @@ class ArbitrageEngine:
                             "pair_with": unpaired,
                         })
                 else:  # unpaired.side == "DOWN"
-                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price + escalation
                     if (up_ask >= self.BARGAIN_MIN_PRICE
                             and up_ask < target_price):
                         opportunities.append({
@@ -1079,7 +1093,13 @@ class ArbitrageEngine:
                     candidates.append(("DOWN", down_ask, market.down_token_id, market.up_token_id))
 
                 if candidates:
-                    # 買最便宜的那側
+                    # R1 開倉: 套用偏好方向
+                    bias = self.config.bargain_first_buy_bias.upper()
+                    if next_round == 1 and bias in ("UP", "DOWN"):
+                        biased = [c for c in candidates if c[0] == bias]
+                        if biased:
+                            candidates = biased
+                    # 買最便宜的那側（或偏好側）
                     candidates.sort(key=lambda c: c[1])
                     side, ask, token_id, comp_id = candidates[0]
                     opportunities.append({

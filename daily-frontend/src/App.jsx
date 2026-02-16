@@ -842,6 +842,26 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_defer_minutes: parseInt(v) })}
                   hint="止損觸發後延遲多久才執行"
                 />
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">首次買入偏好</label>
+                  <select
+                    value={configForm.bargain_first_buy_bias ?? "AUTO"}
+                    onChange={(e) => setConfigForm({ ...configForm, bargain_first_buy_bias: e.target.value })}
+                    className="w-full px-3 py-2 bg-dark-card border border-dark-border rounded-lg text-sm text-white"
+                  >
+                    <option value="AUTO">自動 (最便宜)</option>
+                    <option value="UP">偏好 UP</option>
+                    <option value="DOWN">偏好 DOWN</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">R1 開倉時優先買哪一側</p>
+                </div>
+                <ConfigField
+                  label="配對加價時限 (小時)"
+                  type="number"
+                  value={configForm.bargain_pair_escalation_hours ?? 3}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_pair_escalation_hours: parseInt(v) })}
+                  hint="未配對超過此時間，配對價格上限 +5¢"
+                />
                 <ConfigField
                   label="堆疊上限"
                   type="number"

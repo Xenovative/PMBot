@@ -30,6 +30,8 @@ class BotConfig(BaseModel):
     bargain_stop_loss_defer_minutes: int = int(os.getenv("BARGAIN_STOP_LOSS_DEFER_MINUTES", "30"))
     bargain_stop_loss_cooldown_minutes: int = int(os.getenv("BARGAIN_STOP_LOSS_COOLDOWN_MINUTES", "30"))
     bargain_stop_loss_immune_rounds: int = int(os.getenv("BARGAIN_STOP_LOSS_IMMUNE_ROUNDS", "3"))
+    bargain_first_buy_bias: str = os.getenv("BARGAIN_FIRST_BUY_BIAS", "AUTO")  # "UP", "DOWN", or "AUTO"
+    bargain_pair_escalation_hours: int = int(os.getenv("BARGAIN_PAIR_ESCALATION_HOURS", "3"))
 
     CLOB_HOST: str = "https://clob.polymarket.com"
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"
