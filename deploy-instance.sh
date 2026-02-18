@@ -405,6 +405,8 @@ fi
 if [ -n "$FRONTEND_SRC" ]; then
     header "5/7" "Building frontend..."
     cd "$APP_DIR/frontend"
+    # Clear build cache to ensure fresh build
+    rm -rf dist node_modules/.vite
     sudo -u "$APP_USER" npm install --silent
     sudo -u "$APP_USER" npm run build
     ok "Frontend built"
