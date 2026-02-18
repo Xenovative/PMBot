@@ -222,6 +222,8 @@ for inst_name in "${UPDATE_LIST[@]}"; do
     if [ -n "$FRONTEND_SRC" ] && [ -d "$APP_DIR/frontend" ]; then
         info "Rebuilding frontend..."
         cd "$APP_DIR/frontend"
+        # Clear build cache to ensure fresh build
+        rm -rf dist node_modules/.vite
         sudo -u "$APP_USER" npm install --silent
         sudo -u "$APP_USER" npm run build
         ok "Frontend rebuilt"
