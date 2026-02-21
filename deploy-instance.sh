@@ -250,6 +250,22 @@ echo ""
 # ── Domain (optional) ──
 read -p "  Domain name (leave empty for IP-only): " DOMAIN
 
+SSL_ENABLED=false
+SSL_EMAIL=""
+if [ -n "$DOMAIN" ]; then
+    info "Domain detected: SSL will be configured with Let's Encrypt"
+    if [ "$NGINX_PORT" != "80" ]; then
+        warn "Domain + SSL requires Nginx on port 80 for HTTP challenge. Overriding Nginx port to 80."
+        NGINX_PORT=80
+    fi
+    SSL_ENABLED=true
+    read -p "  Let's Encrypt email (required): " SSL_EMAIL
+    if [ -z "$SSL_EMAIL" ]; then
+        err "Email is required for Let's Encrypt SSL"
+        exit 1
+    fi
+fi
+
 # ── Derived paths ──
 APP_DIR="/opt/pmbot-${INSTANCE_NAME}"
 APP_USER="pmbot"
@@ -268,6 +284,7 @@ echo -e "  Backend port: ${BACKEND_PORT}"
 [ -n "$FRONTEND_SRC" ] && echo -e "  Frontend port:${FRONTEND_PORT}"
 echo -e "  Nginx port:   ${NGINX_PORT}"
 [ -n "$DOMAIN" ] && echo -e "  Domain:       ${DOMAIN}"
+[ "$SSL_ENABLED" = true ] && echo -e "  SSL:          Let's Encrypt (${SSL_EMAIL})"
 echo -e "  Service:      ${SERVICE_NAME}"
 [ -n "$FRONTEND_SRC" ] && echo -e "  PM2 process:  ${PM2_NAME}"
 echo ""
@@ -289,7 +306,7 @@ echo -e "${BOLD}═════════════════════�
 # ============================================
 header "1/7" "Installing system dependencies..."
 apt-get update -qq
-apt-get install -y -qq software-properties-common nginx curl git rsync
+apt-get install -y -qq software-properties-common nginx curl git rsync certbot python3-certbot-nginx
 
 # Python 3.12
 if ! python3.12 --version &>/dev/null; then
@@ -516,6 +533,23 @@ ln -sf "$NGINX_CONF" "/etc/nginx/sites-enabled/${NGINX_SITE}"
 nginx -t && systemctl reload nginx
 ok "Nginx configured on port ${NGINX_PORT}"
 
+# ── SSL via Let's Encrypt (if domain provided) ──
+SSL_OK=false
+if [ "$SSL_ENABLED" = true ]; then
+    info "Requesting SSL certificate for ${DOMAIN}..."
+    if certbot --nginx \
+        -d "$DOMAIN" \
+        --non-interactive \
+        --agree-tos \
+        -m "$SSL_EMAIL" \
+        --redirect; then
+        SSL_OK=true
+        ok "SSL enabled for ${DOMAIN}"
+    else
+        warn "SSL setup failed. Site is still available over HTTP."
+    fi
+fi
+
 # ============================================
 #  Done!
 # ============================================
@@ -526,7 +560,13 @@ echo -e "${BOLD}═════════════════════�
 echo -e "${BOLD}  ${GREEN}✓ Instance '${INSTANCE_NAME}' deployed!${NC}"
 echo -e "${BOLD}════════════════════════════════════════════════${NC}"
 echo ""
-echo -e "  Dashboard:    ${CYAN}http://${IP}:${NGINX_PORT}${NC}"
+if [ "$SSL_OK" = true ]; then
+    echo -e "  Dashboard:    ${CYAN}https://${DOMAIN}${NC}"
+elif [ -n "$DOMAIN" ]; then
+    echo -e "  Dashboard:    ${CYAN}http://${DOMAIN}:${NGINX_PORT}${NC}"
+else
+    echo -e "  Dashboard:    ${CYAN}http://${IP}:${NGINX_PORT}${NC}"
+fi
 echo -e "  Backend:      http://127.0.0.1:${BACKEND_PORT}"
 echo -e "  Install dir:  ${APP_DIR}/"
 echo ""
