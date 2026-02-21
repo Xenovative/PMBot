@@ -272,6 +272,7 @@ APP_USER="pmbot"
 SERVICE_NAME="pmbot-${INSTANCE_NAME}-backend"
 PM2_NAME="pmbot-${INSTANCE_NAME}-frontend"
 NGINX_SITE="pmbot-${INSTANCE_NAME}"
+NPM_CACHE_DIR="/opt/pmbot/.npm-cache"
 
 echo ""
 echo -e "${BOLD}── Deployment Summary ──${NC}"
@@ -422,10 +423,18 @@ fi
 if [ -n "$FRONTEND_SRC" ]; then
     header "5/7" "Building frontend..."
     cd "$APP_DIR/frontend"
+    # Prepare npm cache directory to avoid EACCES
+    sudo mkdir -p "$NPM_CACHE_DIR"
+    sudo chown -R "$APP_USER:$APP_USER" "$NPM_CACHE_DIR"
+
     # Clear build cache to ensure fresh build
     rm -rf dist node_modules/.vite
-    sudo -u "$APP_USER" npm install --silent
-    sudo -u "$APP_USER" npm run build
+
+    # Install deps with explicit cache to prevent permission issues
+    sudo -u "$APP_USER" env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm install --no-audit --no-fund
+
+    # Build with explicit cache
+    sudo -u "$APP_USER" env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm run build
     ok "Frontend built"
 else
     header "5/7" "No frontend — skipping..."
