@@ -20,9 +20,18 @@ import auth
 
 app = FastAPI(title="Polymarket 每日套利機器人")
 
+_default_origins = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+]
+_extra = os.environ.get("ALLOWED_ORIGINS", "")
+_allowed_origins = _default_origins + [o.strip() for o in _extra.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -95,20 +104,30 @@ async def auth_setup(req: SetupRequest):
 
 
 @app.post("/api/auth/login")
-async def auth_login(req: LoginRequest):
+async def auth_login(req: LoginRequest, request: Request):
     """Login with password + optional TOTP"""
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Rate limit check
+    lockout = auth._check_rate_limit(client_ip)
+    if lockout:
+        return {"error": f"Too many attempts. Try again in {lockout}s.", "locked": True}
+
     if not auth.is_setup_complete():
         return {"error": "Not set up yet. Use /api/auth/setup first."}
 
     if not auth.verify_password(req.password):
-        return {"error": "Invalid password"}
+        auth._record_login_attempt(client_ip)
+        return {"error": "Invalid credentials"}
 
     if auth.is_2fa_enabled():
         if not req.totp_code:
             return {"error": "2FA code required", "needs_totp": True}
         if not auth.verify_totp(req.totp_code):
-            return {"error": "Invalid 2FA code"}
+            auth._record_login_attempt(client_ip)
+            return {"error": "Invalid credentials"}
 
+    auth._clear_login_attempts(client_ip)
     token = auth.create_token()
     return {"status": "ok", "token": token}
 
@@ -335,9 +354,6 @@ class ConfigUpdate(BaseModel):
     trade_cooldown_seconds: Optional[int] = None
     min_liquidity: Optional[float] = None
     crypto_symbols: Optional[list] = None
-    private_key: Optional[str] = None
-    funder_address: Optional[str] = None
-    signature_type: Optional[int] = None
     bargain_enabled: Optional[bool] = None
     bargain_price_threshold: Optional[float] = None
     bargain_pair_threshold: Optional[float] = None
@@ -489,11 +505,10 @@ async def get_price(crypto: str, _user=Depends(auth.require_auth)):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
-    # Require auth if setup is complete
-    if auth.is_setup_complete():
-        if not token or not auth._jwt_verify(token):
-            await websocket.close(code=4001, reason="Unauthorized")
-            return
+    # Always require auth — block if no password set or invalid token
+    if not auth.is_setup_complete() or not token or not auth._jwt_verify(token):
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
     await websocket.accept()
     connected_clients.append(websocket)
     engine.status.add_log("🔗 新的 WebSocket 連接")

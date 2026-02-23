@@ -491,10 +491,44 @@ SERVER_NAME="${DOMAIN:-_}"
 
 NGINX_CONF="/etc/nginx/sites-available/${NGINX_SITE}"
 
+# Rate limiting zone — must be in http context (conf.d)
+RATE_LIMIT_CONF="/etc/nginx/conf.d/pmbot-ratelimit-${INSTANCE_NAME}.conf"
+cat > "$RATE_LIMIT_CONF" << EOF
+limit_req_zone \$binary_remote_addr zone=login_${INSTANCE_NAME}:10m rate=5r/m;
+EOF
+
 cat > "$NGINX_CONF" << EOF
 server {
     listen ${NGINX_PORT};
     server_name $SERVER_NAME;
+
+    # ── Security headers ──
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # ── Block dotfiles (.env, .auth.json, .git, etc) ──
+    location ~ /\. {
+        deny all;
+        return 404;
+    }
+
+    # ── Block direct access to backend source files ──
+    location ~* \.(py|db|sqlite|json|sh|txt|md)$ {
+        deny all;
+        return 404;
+    }
+
+    # ── Rate limit login endpoint ──
+    location = /api/auth/login {
+        limit_req zone=login_${INSTANCE_NAME} burst=3 nodelay;
+        limit_req_status 429;
+        proxy_pass http://127.0.0.1:$BACKEND_PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
 
     # Frontend (static build)
     location / {

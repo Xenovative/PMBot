@@ -21,6 +21,39 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 # ─── Config ───
 AUTH_FILE = os.path.join(os.path.dirname(__file__), ".auth.json")
+
+# ─── Login rate limiting ───
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_WINDOW_SECONDS = 300  # 5 minutes
+LOGIN_LOCKOUT_SECONDS = 900  # 15 minutes after exceeding max
+_login_attempts: dict[str, list[float]] = {}  # ip -> [timestamps]
+
+
+def _check_rate_limit(ip: str) -> Optional[int]:
+    """Check if IP is rate-limited. Returns seconds until unlock, or None if OK."""
+    now = time.time()
+    attempts = _login_attempts.get(ip, [])
+    # Prune old attempts outside the lockout window
+    attempts = [t for t in attempts if now - t < LOGIN_LOCKOUT_SECONDS]
+    _login_attempts[ip] = attempts
+
+    if len(attempts) >= LOGIN_MAX_ATTEMPTS:
+        oldest_excess = attempts[-LOGIN_MAX_ATTEMPTS]
+        unlock_at = oldest_excess + LOGIN_LOCKOUT_SECONDS
+        if now < unlock_at:
+            return int(unlock_at - now)
+    return None
+
+
+def _record_login_attempt(ip: str):
+    """Record a failed login attempt."""
+    _login_attempts.setdefault(ip, []).append(time.time())
+
+
+def _clear_login_attempts(ip: str):
+    """Clear attempts on successful login."""
+    _login_attempts.pop(ip, None)
+
 _BOOT_NONCE = secrets.token_hex(16)
 JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32)) + _BOOT_NONCE
 JWT_EXPIRY_HOURS = int(os.environ.get("JWT_EXPIRY_HOURS", "24"))
@@ -279,9 +312,9 @@ async def require_auth(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ):
-    """Dependency: require valid JWT. Skip if no password is set yet (first-time setup)."""
+    """Dependency: require valid JWT. Rejects all requests if no password is set."""
     if not is_setup_complete():
-        return {"sub": "setup"}
+        raise HTTPException(status_code=403, detail="Initial setup required. Set a password first.")
 
     if not credentials:
         raise HTTPException(status_code=401, detail="Missing authorization token")
