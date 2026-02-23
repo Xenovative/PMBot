@@ -271,3 +271,24 @@ else
 fi
 echo -e "${BOLD}════════════════════════════════════════════════${NC}"
 echo ""
+
+# ── Nginx hardening (headers + body size) applied globally ──
+HARDEN_CONF="/etc/nginx/conf.d/pmbot-hardening.conf"
+cat > "$HARDEN_CONF" << 'EOF'
+# Global hardening for PMBot instances
+client_max_body_size 1m;
+
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header X-XSS-Protection "1; mode=block" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+# HSTS only makes sense on HTTPS; harmless on HTTP but only effective on HTTPS responses
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+add_header Content-Security-Policy "default-src 'self'; frame-ancestors 'none'; base-uri 'self';" always;
+EOF
+
+if command -v nginx >/dev/null 2>&1; then
+    nginx -t && systemctl reload nginx && ok "Nginx hardening applied"
+else
+    warn "Nginx not found; skipping hardening reload"
+fi

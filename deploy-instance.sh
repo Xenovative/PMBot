@@ -502,11 +502,16 @@ server {
     listen ${NGINX_PORT};
     server_name $SERVER_NAME;
 
+    # ── Request size limit (DoS mitigation) ──
+    client_max_body_size 1m;
+
     # ── Security headers ──
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header Content-Security-Policy "default-src 'self'; frame-ancestors 'none'; base-uri 'self';" always;
 
     # ── Block dotfiles (.env, .auth.json, .git, etc) ──
     location ~ /\. {
