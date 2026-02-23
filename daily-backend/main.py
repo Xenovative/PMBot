@@ -13,6 +13,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Query, Req
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import httpx
 
 from config import get_config, BotConfig
 from market_finder import MarketFinder, MarketInfo
@@ -24,6 +25,8 @@ import auth
 
 # ─── Request size limit (app-level guard, complementary to Nginx) ───
 MAX_BODY_BYTES = 512 * 1024  # 512 KB
+
+LOGIN_AUDIT_FILE = os.getenv("LOGIN_AUDIT_FILE", "login_audit.log")
 
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
@@ -38,6 +41,42 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
                 return {"type": "http.request", "body": body, "more_body": False}
             request._receive = receive
         return await call_next(request)
+
+
+async def geo_lookup(ip: str) -> dict:
+    """Lightweight geolocation lookup; best-effort and safe to fail silently."""
+    try:
+        url = f"http://ip-api.com/json/{ip}?fields=status,country,regionName,city,org,query"
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            r = await client.get(url)
+            data = r.json()
+            if data.get("status") == "success":
+                return {
+                    "country": data.get("country"),
+                    "region": data.get("regionName"),
+                    "city": data.get("city"),
+                    "org": data.get("org"),
+                }
+    except Exception:
+        pass
+    return {}
+
+
+async def log_login_event(ip: str, success: bool, method: str, reason: str = ""):
+    geo = await geo_lookup(ip) if ip not in {"127.0.0.1", "::1"} else {}
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "ip": ip,
+        "geo": geo,
+        "method": method,
+        "success": success,
+        "reason": reason,
+    }
+    try:
+        with open(LOGIN_AUDIT_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 app = FastAPI(title="Polymarket 每日套利機器人")
 
@@ -128,28 +167,35 @@ async def auth_setup(req: SetupRequest):
 async def auth_login(req: LoginRequest, request: Request):
     """Login with password + optional TOTP"""
     client_ip = request.client.host if request.client else "unknown"
+    method = "password+totp" if req.totp_code else "password"
 
     # Rate limit check
     lockout = auth._check_rate_limit(client_ip)
     if lockout:
+        await log_login_event(client_ip, success=False, method=method, reason="rate_limit")
         return {"error": f"Too many attempts. Try again in {lockout}s.", "locked": True}
 
     if not auth.is_setup_complete():
+        await log_login_event(client_ip, success=False, method=method, reason="setup_incomplete")
         return {"error": "Not set up yet. Use /api/auth/setup first."}
 
     if not auth.verify_password(req.password):
         auth._record_login_attempt(client_ip)
+        await log_login_event(client_ip, success=False, method=method, reason="bad_password")
         return {"error": "Invalid credentials"}
 
     if auth.is_2fa_enabled():
         if not req.totp_code:
+            await log_login_event(client_ip, success=False, method=method, reason="totp_missing")
             return {"error": "2FA code required", "needs_totp": True}
         if not auth.verify_totp(req.totp_code):
             auth._record_login_attempt(client_ip)
+            await log_login_event(client_ip, success=False, method=method, reason="bad_totp")
             return {"error": "Invalid credentials"}
 
     auth._clear_login_attempts(client_ip)
     token = auth.create_token()
+    await log_login_event(client_ip, success=True, method=method, reason="ok")
     return {"status": "ok", "token": token}
 
 
