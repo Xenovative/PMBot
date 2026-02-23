@@ -27,6 +27,7 @@ import auth
 MAX_BODY_BYTES = 512 * 1024  # 512 KB
 
 LOGIN_AUDIT_FILE = os.getenv("LOGIN_AUDIT_FILE", "login_audit.log")
+LOGIN_AUDIT_GEO_LOOKUP = os.getenv("LOGIN_AUDIT_GEO_LOOKUP", "1") == "1"
 
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
@@ -45,9 +46,11 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
 
 async def geo_lookup(ip: str) -> dict:
     """Lightweight geolocation lookup; best-effort and safe to fail silently."""
+    if not LOGIN_AUDIT_GEO_LOOKUP:
+        return {}
     try:
         url = f"http://ip-api.com/json/{ip}?fields=status,country,regionName,city,org,query"
-        async with httpx.AsyncClient(timeout=2.0) as client:
+        async with httpx.AsyncClient(timeout=1.0) as client:
             r = await client.get(url)
             data = r.json()
             if data.get("status") == "success":
