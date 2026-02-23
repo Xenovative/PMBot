@@ -7,7 +7,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
