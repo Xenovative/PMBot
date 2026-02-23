@@ -272,6 +272,14 @@ fi
 echo -e "${BOLD}════════════════════════════════════════════════${NC}"
 echo ""
 
+# ── Ensure nginx includes conf.d drop-ins ──
+if command -v nginx >/dev/null 2>&1; then
+    if ! grep -q "conf.d/\\*.conf" /etc/nginx/nginx.conf; then
+        warn "nginx.conf missing conf.d include; adding it"
+        echo "include /etc/nginx/conf.d/*.conf;" >> /etc/nginx/nginx.conf
+    fi
+fi
+
 # ── Nginx hardening (headers + body size) applied globally ──
 HARDEN_CONF="/etc/nginx/conf.d/pmbot-hardening.conf"
 cat > "$HARDEN_CONF" << 'EOF'
