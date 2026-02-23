@@ -493,6 +493,10 @@ NGINX_CONF="/etc/nginx/sites-available/${NGINX_SITE}"
 
 # Remove legacy global hardening drop-in that may conflict (optional cleanup)
 [ -f /etc/nginx/conf.d/pmbot-hardening.conf ] && rm -f /etc/nginx/conf.d/pmbot-hardening.conf
+[ -f /etc/nginx/conf.d/pmbot-ratelimit-${INSTANCE_NAME}.conf ] && rm -f /etc/nginx/conf.d/pmbot-ratelimit-${INSTANCE_NAME}.conf
+
+# Also purge any older wildcard ratelimit files to avoid duplicates
+rm -f /etc/nginx/conf.d/pmbot-ratelimit-*.conf
 
 cat > "$NGINX_CONF" << EOF
 # Rate limiting zone (http context via sites-enabled include)
