@@ -7,7 +7,10 @@ import os
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
+from starlette.middleware.base import BaseHTTPMiddleware
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -17,6 +20,24 @@ from arbitrage_engine import ArbitrageEngine
 from position_merger import PositionMerger
 import trade_db
 import auth
+
+
+# ─── Request size limit (app-level guard, complementary to Nginx) ───
+MAX_BODY_BYTES = 512 * 1024  # 512 KB
+
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        # Only enforce for requests with body (ignore GET/HEAD/etc.)
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            body = await request.body()
+            if len(body) > MAX_BODY_BYTES:
+                return JSONResponse({"error": "Request body too large"}, status_code=413)
+            # reattach body for downstream handlers
+            async def receive():
+                return {"type": "http.request", "body": body, "more_body": False}
+            request._receive = receive
+        return await call_next(request)
 
 app = FastAPI(title="Polymarket 每日套利機器人")
 
