@@ -497,6 +497,9 @@ cat > "$RATE_LIMIT_CONF" << EOF
 limit_req_zone \$binary_remote_addr zone=login_${INSTANCE_NAME}:10m rate=5r/m;
 EOF
 
+# Remove legacy global hardening drop-in that may conflict (optional cleanup)
+[ -f /etc/nginx/conf.d/pmbot-hardening.conf ] && rm -f /etc/nginx/conf.d/pmbot-hardening.conf
+
 cat > "$NGINX_CONF" << EOF
 server {
     listen ${NGINX_PORT};
