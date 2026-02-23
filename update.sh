@@ -127,8 +127,13 @@ detect_source() {
     local inst_name="$1"
     local be_src="" fe_src=""
 
-    # Try common naming patterns
-    for candidate in "${inst_name}-backend" "${inst_name}_backend" "backend"; do
+    # Try common naming patterns (prefer daily backend over legacy generic backend)
+    for candidate in \
+        "${inst_name}-backend" \
+        "${inst_name}_backend" \
+        "daily-backend" \
+        "daily_backend" \
+        "backend"; do
         if [ -d "$SCRIPT_DIR/$candidate" ] && { [ -f "$SCRIPT_DIR/$candidate/main.py" ] || [ -f "$SCRIPT_DIR/$candidate/requirements.txt" ]; }; then
             be_src="$candidate"
             break
@@ -173,7 +178,7 @@ for inst_name in "${UPDATE_LIST[@]}"; do
 
     if [ -z "$BACKEND_SRC" ]; then
         err "Cannot find source directory for '${inst_name}'"
-        echo -e "  Looked for: ${inst_name}-backend, ${inst_name}_backend, backend"
+        echo -e "  Looked for: ${inst_name}-backend, ${inst_name}_backend, daily-backend, daily_backend, backend"
         ((FAILED++))
         echo ""
         continue
