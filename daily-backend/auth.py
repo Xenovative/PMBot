@@ -86,14 +86,29 @@ def _jwt_verify(token: str) -> Optional[dict]:
         parts = token.split(".")
         if len(parts) != 3:
             return None
+
+        # Reject empty signature (alg:none attack)
+        if not parts[2]:
+            return None
+
+        # Validate header — only accept HS256
+        header = json.loads(_b64url_decode(parts[0]))
+        if header.get("alg") != "HS256":
+            return None
+
         sig_input = f"{parts[0]}.{parts[1]}".encode()
         expected_sig = hmac.new(JWT_SECRET.encode(), sig_input, hashlib.sha256).digest()
         actual_sig = _b64url_decode(parts[2])
         if not hmac.compare_digest(expected_sig, actual_sig):
             return None
+
         payload = json.loads(_b64url_decode(parts[1]))
-        if payload.get("exp", 0) < time.time():
+
+        # Require exp claim and reject expired tokens
+        exp = payload.get("exp")
+        if exp is None or exp < time.time():
             return None
+
         return payload
     except Exception:
         return None
