@@ -356,12 +356,22 @@ class ArbitrageEngine:
         """建立並返回 CLOB 客戶端"""
         from py_clob_client.client import ClobClient
         if not hasattr(self, '_clob_client') or self._clob_client is None:
+            funder = self.config.funder_address or None  # avoid empty-string normalization errors
+            # Debug: log signer/funder/sig type
+            try:
+                from eth_account import Account
+                signer_addr = Account.from_key(self.config.private_key).address if self.config.private_key else ""
+            except Exception:
+                signer_addr = "<invalid key>"
+            self.status.add_log(
+                f"🔑 Clob signer={signer_addr[:10]}..., sig_type={self.config.signature_type}, funder={funder or '<none>'}"
+            )
             self._clob_client = ClobClient(
                 self.config.CLOB_HOST,
                 key=self.config.private_key,
                 chain_id=self.config.CHAIN_ID,
                 signature_type=self.config.signature_type,
-                funder=self.config.funder_address,
+                funder=funder,
             )
             self._clob_client.set_api_creds(
                 self._clob_client.create_or_derive_api_creds()
@@ -1096,9 +1106,15 @@ class ArbitrageEngine:
                     # R1 開倉: 套用偏好方向
                     bias = self.config.bargain_first_buy_bias.upper()
                     if next_round == 1 and bias in ("UP", "DOWN"):
-                        biased = [c for c in candidates if c[0] == bias]
-                        if biased:
-                            candidates = biased
+                        bias_price = up_ask if bias == "UP" else down_ask
+                        if bias_price > 0 and bias_price < self.config.bargain_pair_threshold:
+                            candidates = [(bias, bias_price,
+                                           market.up_token_id if bias == "UP" else market.down_token_id,
+                                           market.down_token_id if bias == "UP" else market.up_token_id)]
+                        else:
+                            biased = [c for c in candidates if c[0] == bias]
+                            if biased:
+                                candidates = biased
                     # 買最便宜的那側（或偏好側）
                     candidates.sort(key=lambda c: c[1])
                     side, ask, token_id, comp_id = candidates[0]
