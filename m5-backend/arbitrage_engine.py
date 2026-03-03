@@ -1058,6 +1058,8 @@ class ArbitrageEngine:
                 escalation = 0.0
                 try:
                     created_at = datetime.fromisoformat(unpaired.timestamp)
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
                     wait_hours = (datetime.now(timezone.utc) - created_at).total_seconds() / 3600
                     esc_hours = self.config.bargain_pair_escalation_hours
                     if esc_hours > 0 and wait_hours >= esc_hours:
@@ -1392,6 +1394,8 @@ class ArbitrageEngine:
                 from datetime import timedelta
                 try:
                     created_at = datetime.fromisoformat(holding.timestamp)
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
                 except Exception:
                     created_at = datetime.now(timezone.utc)
                 holding_age = (datetime.now(timezone.utc) - created_at).total_seconds()

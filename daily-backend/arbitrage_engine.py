@@ -1034,6 +1034,8 @@ class ArbitrageEngine:
                 escalation = 0.0
                 try:
                     created_at = datetime.fromisoformat(unpaired.timestamp)
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
                     wait_hours = (datetime.now(timezone.utc) - created_at).total_seconds() / 3600
                     esc_hours = self.config.bargain_pair_escalation_hours
                     if esc_hours > 0 and wait_hours >= esc_hours:
@@ -1103,18 +1105,12 @@ class ArbitrageEngine:
                     candidates.append(("DOWN", down_ask, market.down_token_id, market.up_token_id))
 
                 if candidates:
-                    # R1 開倉: 套用偏好方向
+                    # R1 開倉: 套用偏好方向（但仍須滿足閾值與天花板）
                     bias = self.config.bargain_first_buy_bias.upper()
                     if next_round == 1 and bias in ("UP", "DOWN"):
-                        bias_price = up_ask if bias == "UP" else down_ask
-                        if bias_price > 0 and bias_price < self.config.bargain_pair_threshold:
-                            candidates = [(bias, bias_price,
-                                           market.up_token_id if bias == "UP" else market.down_token_id,
-                                           market.down_token_id if bias == "UP" else market.up_token_id)]
-                        else:
-                            biased = [c for c in candidates if c[0] == bias]
-                            if biased:
-                                candidates = biased
+                        biased = [c for c in candidates if c[0] == bias]
+                        if biased:
+                            candidates = biased
                     # 買最便宜的那側（或偏好側）
                     candidates.sort(key=lambda c: c[1])
                     side, ask, token_id, comp_id = candidates[0]
@@ -1360,6 +1356,8 @@ class ArbitrageEngine:
                 from datetime import timedelta
                 try:
                     created_at = datetime.fromisoformat(holding.timestamp)
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
                 except Exception:
                     created_at = datetime.now(timezone.utc)
                 holding_age = (datetime.now(timezone.utc) - created_at).total_seconds()
