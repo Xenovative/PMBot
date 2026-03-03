@@ -112,6 +112,16 @@ bot_task: Optional[asyncio.Task] = None
 connected_clients: list[WebSocket] = []
 
 
+@app.on_event("startup")
+async def startup_credential_check():
+    """Fail-fast credential check for signature_type/private_key/funder."""
+    result = engine.check_credentials()
+    if result.get("issues"):
+        print("[startup] credential check:", result)  # basic stdout log
+    if result.get("status") == "error":
+        raise RuntimeError(f"credential check failed: {result.get('issues')}")
+
+
 # ─── WebSocket 廣播 ───
 async def broadcast(data: Dict[str, Any]):
     message = json.dumps(data, ensure_ascii=False)
@@ -446,6 +456,13 @@ async def update_config(update: ConfigUpdate, _user=Depends(auth.require_auth)):
     if "dry_run" in updates:
         trade_db.init_db(dry_run=config.dry_run)
     return {"status": "ok", "updated": list(updates.keys())}
+
+
+@app.get("/api/check_credentials")
+async def check_credentials(_user=Depends(auth.require_auth)):
+    """快速驗證簽名配置 (sig type / funder / private key)。"""
+    result = engine.check_credentials()
+    return result
 
 
 @app.post("/api/bot/start")

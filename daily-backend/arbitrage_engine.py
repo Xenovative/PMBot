@@ -378,6 +378,53 @@ class ArbitrageEngine:
             )
         return self._clob_client
 
+    def check_credentials(self) -> Dict[str, Any]:
+        """快速檢查簽名配置，回傳狀態與提示。"""
+        sig_type = self.config.signature_type
+        pk = (self.config.private_key or "").strip()
+        funder = (self.config.funder_address or "").strip()
+
+        issues: list[str] = []
+        status = "ok"
+
+        if sig_type == 0:
+            if not funder:
+                issues.append("signature_type=0 需要 funder_address (投資組合頁的錢包地址)")
+            if pk:
+                issues.append("signature_type=0 不應提供 PRIVATE_KEY（email/custodial 由伺服器簽）")
+        else:
+            if not pk:
+                issues.append("signature_type=1/2 需要 PRIVATE_KEY 來本地簽名")
+
+        # 只在需要本地簽名時嘗試初始化客戶端
+        if sig_type != 0 or pk:
+            try:
+                from py_clob_client.client import ClobClient
+
+                client = ClobClient(
+                    self.config.CLOB_HOST,
+                    key=pk,
+                    chain_id=self.config.CHAIN_ID,
+                    signature_type=sig_type,
+                    funder=funder,
+                )
+                client.set_api_creds(client.create_or_derive_api_creds())
+            except Exception as e:
+                issues.append(f"ClobClient 初始化失敗: {e}")
+
+        if any("需要" in i or "失敗" in i for i in issues):
+            status = "error"
+        elif issues:
+            status = "warn"
+
+        return {
+            "status": status,
+            "signature_type": sig_type,
+            "has_private_key": bool(pk),
+            "funder_address": funder,
+            "issues": issues,
+        }
+
     def _calculate_safe_order_size(self, price_info: PriceInfo, desired_size: float) -> float:
         """根據訂單簿深度計算安全的下單數量，確保兩側 USD 金額都 >= $1"""
         MIN_ORDER_USD = 1.0
