@@ -498,12 +498,17 @@ class ArbitrageEngine:
         fill_shares = 0.0
         fill_cost = 0.0
         fill_price = marginal_price  # fallback
+        order_id = resp.get("orderId") or resp.get("order_id") or resp.get("id")
 
         try:
-            _time.sleep(1)  # 等待成交記錄寫入
-            trades = clob_client.get_trades(
-                TradeParams(asset_id=token_id, after=before_ts)
-            )
+            trades = []
+            # 最多嘗試 3 次，避免寫入延遲
+            for _ in range(3):
+                _time.sleep(0.4)
+                params = TradeParams(order_id=order_id) if order_id else TradeParams(asset_id=token_id, after=before_ts)
+                trades = clob_client.get_trades(params)
+                if trades:
+                    break
             if trades:
                 for t in trades:
                     t_size = float(t.get("size", 0))
