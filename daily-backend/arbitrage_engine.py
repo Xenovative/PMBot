@@ -1111,6 +1111,9 @@ class ArbitrageEngine:
                         biased = [c for c in candidates if c[0] == bias]
                         if biased:
                             candidates = biased
+                        else:
+                            # 偏好側未達條件 → 不開倉，等待價格進入區間
+                            continue
                     # 買最便宜的那側（或偏好側）
                     candidates.sort(key=lambda c: c[1])
                     side, ask, token_id, comp_id = candidates[0]
