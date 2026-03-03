@@ -298,6 +298,8 @@ class PositionMerger:
             return None
 
         merge_amount = amount or pos.mergeable_amount
+        # 以鏈上實際可合併數量為準，避免本地高估
+        merge_amount = min(merge_amount, pos.mergeable_amount)
         if merge_amount < self.min_merge_amount:
             self.add_log(f"⚠️ 合併數量不足: {merge_amount:.2f} < {self.min_merge_amount}")
             return None
