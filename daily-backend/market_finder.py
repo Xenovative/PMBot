@@ -153,6 +153,8 @@ class MarketFinder:
                                             market = MarketInfo(m)
                                             if market.active and not market.closed:
                                                 markets.append(market)
+                    else:
+                        print(f"[搜尋] slug={slug} HTTP {resp.status_code}: {resp.text[:200]}")
                 except Exception as e:
                     print(f"[搜尋] slug={slug} 錯誤: {e}")
 
@@ -181,6 +183,8 @@ class MarketFinder:
                             market = MarketInfo(data)
                             if market.active and not market.closed:
                                 markets.append(market)
+                    else:
+                        print(f"[搜尋] direct slug={slug} HTTP {resp.status_code}: {resp.text[:200]}")
                 except Exception as e:
                     print(f"[搜尋] direct slug={slug} 錯誤: {e}")
 
@@ -193,6 +197,8 @@ class MarketFinder:
 
         for crypto in self.config.crypto_symbols:
             crypto = crypto.strip().lower()
+            if not crypto:
+                continue
 
             # 方法 1: 透過 events API 精確 slug 匹配
             slug_markets = await self.find_markets_by_slug(crypto)
