@@ -367,6 +367,82 @@ class ArbitrageEngine:
             )
         return self._clob_client
 
+    async def enforce_late_liquidation(self, markets: List[MarketInfo]):
+        """強制平倉未配對持倉，避免到期歸零並記錄 PnL。"""
+        threshold = getattr(self.config, "late_liquidation_seconds", 0)
+        if threshold <= 0:
+            return
+
+        market_map = {m.slug: m for m in markets}
+        remaining_holdings = []
+
+        for h in self.status.bargain_holdings:
+            if h.status != "holding" or h.market_slug not in market_map:
+                remaining_holdings.append(h)
+                continue
+
+            m = market_map[h.market_slug]
+            if m.time_remaining_seconds is None or m.time_remaining_seconds > threshold:
+                remaining_holdings.append(h)
+                continue
+
+            price_info = self.status.market_prices.get(m.slug)
+            if not price_info:
+                price_info = await self.get_prices(m)
+            if not price_info:
+                self.status.add_log(f"🛑 [到期平倉] {m.slug} 無法取得價格，跳過")
+                remaining_holdings.append(h)
+                continue
+
+            sell_price = price_info.up_best_ask if h.side == "UP" else price_info.down_best_ask
+            if sell_price <= 0:
+                self.status.add_log(f"🛑 [到期平倉] {m.slug} {h.side} 無有效賣價，跳過")
+                remaining_holdings.append(h)
+                continue
+
+            shares = max(round(h.shares, 2), 0)
+            if shares <= 0:
+                continue
+
+            pnl = (sell_price - h.buy_price) * shares
+            self.status.add_log(
+                f"🛑 [到期平倉] {m.slug} {h.side} | {shares:.2f} 股 @ {sell_price:.4f} | PnL {pnl:.4f}"
+            )
+
+            status = "simulated" if self.config.dry_run else "executed"
+            if not self.config.dry_run:
+                try:
+                    clob_client = self._get_clob_client()
+                    if clob_client:
+                        self._try_unwind_position(clob_client, h.token_id, shares, sell_price, f"到期平倉-{h.side}")
+                except Exception as e:
+                    self.status.add_log(f"⚠️ [到期平倉] 執行失敗: {str(e)[:120]}")
+
+            try:
+                trade_db.record_trade(
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    market_slug=m.slug,
+                    trade_type="late_liquidation",
+                    side=h.side,
+                    up_price=price_info.up_price,
+                    down_price=price_info.down_price,
+                    total_cost=sell_price,
+                    order_size=shares,
+                    profit=pnl,
+                    profit_pct=(pnl / (h.buy_price * shares) * 100) if h.buy_price * shares > 0 else 0,
+                    status=status,
+                    details=f"到期前強制平倉 {h.side}@{sell_price:.4f} vs cost {h.buy_price:.4f}"
+                )
+                trade_db.rebuild_daily_summary()
+            except Exception:
+                pass
+
+            h.status = "stopped_out"
+            h.details = "late_liquidation"
+            # 不加入 remaining_holdings → 移除
+
+        self.status.bargain_holdings = remaining_holdings
+
     def check_credentials(self) -> Dict[str, Any]:
         """快速檢查簽名配置，回傳狀態與提示。"""
         sig_type = self.config.signature_type

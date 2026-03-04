@@ -27,6 +27,8 @@ class BotConfig(BaseModel):
     bargain_stop_loss_cents: float = float(os.getenv("BARGAIN_STOP_LOSS_CENTS", "0.02"))
     bargain_future_min_seconds: int = int(os.getenv("BARGAIN_FUTURE_MIN_SECONDS", "900"))
     bargain_min_price: float = float(os.getenv("BARGAIN_MIN_PRICE", "0.10"))
+    # Late liquidation threshold (seconds before expiry to force sell holdings)
+    late_liquidation_seconds: int = int(os.getenv("LATE_LIQUIDATION_SECONDS", "90"))
 
     CLOB_HOST: str = "https://clob.polymarket.com"
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"

@@ -1,5 +1,5 @@
 """
-Polymarket 套利機器人 - 5 分鐘市場版本 - FastAPI 後端
+Polymarket 套利機器人 - 每小時 Up or Down 市場版本 - FastAPI 後端
 """
 import asyncio
 import json
@@ -23,8 +23,7 @@ import trade_db
 import auth
 
 
-# ─── Request size limit (app-level guard, complementary to Nginx) ───
-MAX_BODY_BYTES = 512 * 1024  # 512 KB
+MAX_BODY_BYTES = 512 * 1024
 
 LOGIN_AUDIT_FILE = os.getenv("LOGIN_AUDIT_FILE", "login_audit.log")
 LOGIN_AUDIT_GEO_LOOKUP = os.getenv("LOGIN_AUDIT_GEO_LOOKUP", "1") == "1"
@@ -32,12 +31,10 @@ LOGIN_AUDIT_GEO_LOOKUP = os.getenv("LOGIN_AUDIT_GEO_LOOKUP", "1") == "1"
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        # Only enforce for requests with body (ignore GET/HEAD/etc.)
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             body = await request.body()
             if len(body) > MAX_BODY_BYTES:
                 return JSONResponse({"error": "Request body too large"}, status_code=413)
-            # reattach body for downstream handlers
             async def receive():
                 return {"type": "http.request", "body": body, "more_body": False}
             request._receive = receive
@@ -45,7 +42,6 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
 
 
 async def geo_lookup(ip: str) -> dict:
-    """Lightweight geolocation lookup; best-effort and safe to fail silently."""
     if not LOGIN_AUDIT_GEO_LOOKUP:
         return {}
     try:
@@ -81,11 +77,16 @@ async def log_login_event(ip: str, success: bool, method: str, reason: str = "")
     except Exception:
         pass
 
-app = FastAPI(title="Polymarket 5 分鐘套利機器人")
+
+app = FastAPI(title="Polymarket 每小時套利機器人")
 
 _default_origins = [
-    "http://localhost:5176",
-    "http://127.0.0.1:5176",
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+    "http://127.0.0.1:5175",
 ]
 _extra = os.environ.get("ALLOWED_ORIGINS", "")
 _allowed_origins = _default_origins + [o.strip() for o in _extra.split(",") if o.strip()]
@@ -98,10 +99,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 全域狀態
 config = get_config()
 
-# 初始化 SQLite（模擬/真實分開存檔）
 trade_db.init_db(dry_run=config.dry_run)
 
 market_finder = MarketFinder(config)
@@ -112,21 +111,13 @@ connected_clients: list[WebSocket] = []
 
 @app.on_event("startup")
 async def startup_credential_check():
-    """Fail-fast credential check for signature_type/private_key/funder."""
     result = engine.check_credentials()
     if result.get("issues"):
         print("[startup] credential check:", result)
-    if result.get("status") == "error":
-        raise RuntimeError(f"credential check failed: {result.get('issues')}")
+        # 記錄但不阻塞啟動，避免缺少 funder/private_key 時直接崩潰
+        engine.status.add_log(f"⚠️ 憑證檢查: {result.get('issues')}")
 
 
-@app.get("/api/check_credentials")
-async def check_credentials(_user=Depends(auth.require_auth)):
-    """快速驗證簽名配置 (sig type / funder / private key)。"""
-    return engine.check_credentials()
-
-
-# ─── WebSocket 廣播 ───
 async def broadcast(data: Dict[str, Any]):
     message = json.dumps(data, ensure_ascii=False)
     disconnected = []
@@ -139,7 +130,7 @@ async def broadcast(data: Dict[str, Any]):
         connected_clients.remove(ws)
 
 
-# ─── Auth API (公開路由，不需要 token) ───
+# ─── Auth API ───
 
 class SetupRequest(BaseModel):
     password: str
@@ -160,7 +151,6 @@ class DeviceRemoveRequest(BaseModel):
 
 @app.get("/api/auth/status")
 async def auth_status():
-    """Check if initial setup is done and 2FA is enabled"""
     return {
         "setup_complete": auth.is_setup_complete(),
         "totp_enabled": auth.is_2fa_enabled(),
@@ -169,7 +159,6 @@ async def auth_status():
 
 @app.post("/api/auth/setup")
 async def auth_setup(req: SetupRequest):
-    """First-time password setup (only works if no password set yet)"""
     if auth.is_setup_complete():
         return {"error": "Already set up. Use login instead."}
     try:
@@ -182,11 +171,9 @@ async def auth_setup(req: SetupRequest):
 
 @app.post("/api/auth/login")
 async def auth_login(req: LoginRequest, request: Request):
-    """Login with password + optional TOTP"""
     client_ip = request.client.host if request.client else "unknown"
     method = "password+totp" if req.totp_code else "password"
 
-    # Rate limit check
     lockout = auth._check_rate_limit(client_ip)
     if lockout:
         await log_login_event(client_ip, success=False, method=method, reason="rate_limit")
@@ -218,14 +205,12 @@ async def auth_login(req: LoginRequest, request: Request):
 
 @app.post("/api/auth/2fa/setup")
 async def auth_2fa_setup(req: TotpSetupRequest = TotpSetupRequest(), _user=Depends(auth.require_auth)):
-    """Start 2FA setup for a new device"""
     result = auth.setup_2fa(req.device_name or "Authenticator")
     return result
 
 
 @app.post("/api/auth/2fa/verify")
 async def auth_2fa_verify(req: TotpVerifyRequest, _user=Depends(auth.require_auth)):
-    """Verify 2FA setup with a code from authenticator"""
     device = auth.verify_2fa_setup(req.code)
     if device:
         return {"status": "ok", "totp_enabled": True, "device": device}
@@ -234,13 +219,11 @@ async def auth_2fa_verify(req: TotpVerifyRequest, _user=Depends(auth.require_aut
 
 @app.get("/api/auth/2fa/devices")
 async def auth_2fa_devices(_user=Depends(auth.require_auth)):
-    """List all registered 2FA devices"""
     return {"devices": auth.list_devices()}
 
 
 @app.post("/api/auth/2fa/remove")
 async def auth_2fa_remove(req: DeviceRemoveRequest, _user=Depends(auth.require_auth)):
-    """Remove a specific 2FA device"""
     if auth.remove_device(req.device_id):
         return {"status": "ok", "totp_enabled": auth.is_2fa_enabled()}
     return {"error": "Device not found"}
@@ -248,14 +231,12 @@ async def auth_2fa_remove(req: DeviceRemoveRequest, _user=Depends(auth.require_a
 
 @app.post("/api/auth/2fa/disable")
 async def auth_2fa_disable(_user=Depends(auth.require_auth)):
-    """Remove all 2FA devices"""
     auth.disable_2fa()
     return {"status": "ok", "totp_enabled": False}
 
 
 @app.post("/api/auth/change-password")
 async def auth_change_password(req: SetupRequest, _user=Depends(auth.require_auth)):
-    """Change password (requires auth)"""
     try:
         auth.setup_password(req.password)
         return {"status": "ok"}
@@ -265,7 +246,6 @@ async def auth_change_password(req: SetupRequest, _user=Depends(auth.require_aut
 
 @app.get("/api/auth/verify")
 async def auth_verify_token(_user=Depends(auth.require_auth)):
-    """Verify current token is valid"""
     return {"status": "ok", "user": _user}
 
 
@@ -274,7 +254,7 @@ async def bot_loop():
     engine.status.running = True
     engine.status.start_time = datetime.now(timezone.utc).isoformat()
     engine.status.mode = "模擬" if config.dry_run else "🔴 真實交易"
-    engine.status.add_log(f"🚀 每日套利機器人啟動 | 模式: {engine.status.mode}")
+    engine.status.add_log(f"🚀 每小時套利機器人啟動 | 模式: {engine.status.mode}")
     engine.status.add_log(f"⚙️ 目標成本: {config.target_pair_cost} | 每筆數量: {config.order_size}")
     engine.status.add_log(f"🔍 監控幣種: {', '.join(config.crypto_symbols)}")
 
@@ -282,11 +262,10 @@ async def bot_loop():
 
     try:
         while engine.status.running:
-            # 搜尋市場
             all_markets = await market_finder.find_all_crypto_markets()
 
             if not all_markets:
-                engine.status.add_log("⏳ 未找到活躍市場，5 秒後重試...")
+                engine.status.add_log("⏳ 未找到活躍每小時市場，5 秒後重試...")
                 engine.status.current_market = None
                 engine.status.active_markets = []
                 await broadcast({"type": "status", "data": engine.status.to_dict()})
@@ -296,7 +275,6 @@ async def bot_loop():
                     await asyncio.sleep(1)
                 continue
 
-            # 過濾有效市場
             valid_markets = [
                 m for m in all_markets
                 if m.time_remaining_seconds >= config.min_time_remaining_seconds
@@ -304,7 +282,7 @@ async def bot_loop():
             ]
 
             if not valid_markets:
-                engine.status.add_log("⏳ 無符合條件的市場，5 秒後重試...")
+                engine.status.add_log("⏳ 無符合條件的每小時市場，5 秒後重試...")
                 engine.status.active_markets = []
                 await broadcast({"type": "status", "data": engine.status.to_dict()})
                 for _ in range(5):
@@ -313,7 +291,6 @@ async def bot_loop():
                     await asyncio.sleep(1)
                 continue
 
-            # 更新活躍市場列表，清除過期市場價格
             valid_slugs = {m.slug for m in valid_markets}
             engine.status.active_markets = list(valid_slugs)
             engine.status.current_market = f"{len(valid_markets)} 個市場"
@@ -321,20 +298,17 @@ async def bot_loop():
             for s in stale:
                 del engine.status.market_prices[s]
 
-            # 廣播找到的市場
             await broadcast({
                 "type": "markets",
                 "data": [m.to_dict() for m in valid_markets]
             })
 
             if engine.status.scan_count % 10 == 0:
-                engine.status.add_log(f"📊 監控 {len(valid_markets)} 個活躍每日市場")
+                engine.status.add_log(f"📊 監控 {len(valid_markets)} 個活躍每小時市場")
 
-            # 並行掃描所有市場
             scan_tasks = [engine.scan_market(m) for m in valid_markets]
             results = await asyncio.gather(*scan_tasks, return_exceptions=True)
 
-            # 收集所有機會
             all_opportunities = []
             for market, result in zip(valid_markets, results):
                 if isinstance(result, Exception):
@@ -345,7 +319,6 @@ async def bot_loop():
 
             engine.status.current_opportunities = all_opportunities
 
-            # 依利潤排序，逐一執行（避免同時下單衝突）
             all_opportunities.sort(key=lambda o: o.potential_profit, reverse=True)
             for opportunity in all_opportunities:
                 if not engine.status.running:
@@ -356,7 +329,10 @@ async def bot_loop():
                     "data": trade.to_dict()
                 })
 
-            # ─── 撿便宜策略: 掃描當前市場低價機會 ───
+            # 強制到期平倉（撿便宜未配對持倉）
+            await engine.enforce_late_liquidation(valid_markets)
+
+            # ─── 撿便宜策略 ───
             if engine.status.running and config.bargain_enabled:
                 bargain_opps = await engine.check_bargain_opportunities(all_markets)
                 for opp in bargain_opps:
@@ -369,14 +345,12 @@ async def bot_loop():
                             "data": holding.to_dict()
                         })
 
-            # ─── 撿便宜策略: 監控持倉（配對 or 止損）───
             if engine.status.running:
                 await engine.scan_bargain_holdings()
 
             await broadcast({"type": "status", "data": engine.status.to_dict()})
             await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
 
-            # 掃描間隔
             for _ in range(5):
                 if not engine.status.running:
                     break
@@ -426,6 +400,7 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "bargain_stop_loss_defer_minutes": config.bargain_stop_loss_defer_minutes,
         "bargain_first_buy_bias": config.bargain_first_buy_bias,
         "bargain_pair_escalation_minutes": config.bargain_pair_escalation_minutes,
+        "late_liquidation_seconds": config.late_liquidation_seconds,
     }
 
 
@@ -447,6 +422,7 @@ class ConfigUpdate(BaseModel):
     bargain_stop_loss_defer_minutes: Optional[int] = None
     bargain_first_buy_bias: Optional[str] = None
     bargain_pair_escalation_minutes: Optional[int] = None
+    late_liquidation_seconds: Optional[int] = None
 
 
 @app.post("/api/config")
@@ -456,10 +432,14 @@ async def update_config(update: ConfigUpdate, _user=Depends(auth.require_auth)):
     for k, v in updates.items():
         if hasattr(config, k):
             setattr(config, k, v)
-    # 切換模式時重新初始化 DB（模擬/真實分開存檔）
     if "dry_run" in updates:
         trade_db.init_db(dry_run=config.dry_run)
     return {"status": "ok", "updated": list(updates.keys())}
+
+
+@app.get("/api/check_credentials")
+async def check_credentials(_user=Depends(auth.require_auth)):
+    return engine.check_credentials()
 
 
 @app.post("/api/bot/start")
@@ -467,7 +447,6 @@ async def start_bot(_user=Depends(auth.require_auth)):
     global bot_task
     if engine.status.running:
         return {"status": "already_running"}
-
     engine.status = type(engine.status)()
     bot_task = asyncio.create_task(bot_loop())
     return {"status": "started"}
@@ -478,7 +457,6 @@ async def stop_bot(_user=Depends(auth.require_auth)):
     global bot_task
     if not engine.status.running:
         return {"status": "not_running"}
-
     engine.status.running = False
     engine.status.add_log("⛔ 正在停止機器人...")
     if bot_task:
@@ -572,24 +550,17 @@ async def analytics_merges(limit: int = 50, _user=Depends(auth.require_auth)):
 
 @app.get("/api/price/{crypto}")
 async def get_price(crypto: str, _user=Depends(auth.require_auth)):
-    """手動獲取指定加密貨幣的當前市場價格"""
     market = await market_finder.find_active_tradeable_market(crypto.lower())
     if not market:
-        return {"error": f"未找到 {crypto.upper()} 的活躍市場"}
-
+        return {"error": f"未找到 {crypto.upper()} 的活躍每小時市場"}
     price_info = await engine.get_prices(market)
     if not price_info:
         return {"error": "無法獲取價格"}
-
-    return {
-        "market": market.to_dict(),
-        "price": price_info.to_dict(),
-    }
+    return {"market": market.to_dict(), "price": price_info.to_dict()}
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
-    # Always require auth — block if no password set or invalid token
     if not auth.is_setup_complete() or not token or not auth._jwt_verify(token):
         await websocket.close(code=4001, reason="Unauthorized")
         return
@@ -599,18 +570,15 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
 
     try:
         await websocket.send_text(json.dumps(
-            {"type": "status", "data": engine.status.to_dict()},
-            ensure_ascii=False
+            {"type": "status", "data": engine.status.to_dict()}, ensure_ascii=False
         ))
         await websocket.send_text(json.dumps(
-            {"type": "merge_status", "data": engine.merger.get_status()},
-            ensure_ascii=False
+            {"type": "merge_status", "data": engine.merger.get_status()}, ensure_ascii=False
         ))
 
         while True:
             data = await websocket.receive_text()
             msg = json.loads(data)
-
             if msg.get("type") == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
 
@@ -624,5 +592,5 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8889))
+    port = int(os.environ.get("PORT", 8890))
     uvicorn.run(app, host="0.0.0.0", port=port)

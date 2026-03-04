@@ -13,17 +13,17 @@ import {
 const API = ''
 
 function App() {
-  const [token, setToken] = useState(() => localStorage.getItem('pmbot_token'))
+  const [token, setToken] = useState(() => localStorage.getItem('pmbot_hourly_token'))
   const [verified, setVerified] = useState(false)
 
   function handleLogin(newToken) {
-    localStorage.setItem('pmbot_token', newToken)
+    localStorage.setItem('pmbot_hourly_token', newToken)
     setToken(newToken)
     setVerified(true)
   }
 
   function handleLogout() {
-    localStorage.removeItem('pmbot_token')
+    localStorage.removeItem('pmbot_hourly_token')
     setToken(null)
     setVerified(false)
   }
@@ -190,8 +190,8 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 <Zap className="w-4 h-4 sm:w-5 sm:h-5 text-neon-cyan" />
               </div>
               <div className="min-w-0">
-                <h1 className="text-sm sm:text-lg font-bold tracking-wider font-cyber neon-text-cyan truncate">PM 套利機器人</h1>
-                <p className="text-[10px] sm:text-xs text-neon-cyan/40 tracking-widest uppercase hidden sm:block">Daily Crypto Arbitrage</p>
+                <h1 className="text-sm sm:text-lg font-bold tracking-wider font-cyber neon-text-cyan truncate">PM 1 小時套利機器人</h1>
+                <p className="text-[10px] sm:text-xs text-neon-cyan/40 tracking-widest uppercase hidden sm:block">Hourly Crypto Arbitrage</p>
               </div>
             </div>
 
@@ -737,7 +737,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 type="number"
                 value={configForm.min_time_remaining_seconds ?? 3600}
                 onChange={(v) => setConfigForm({ ...configForm, min_time_remaining_seconds: parseInt(v) })}
-                hint="5 分鐘市場建議 300 秒 (5 分鐘)"
+                hint="每小時市場建議 600 秒 (10 分鐘)"
               />
               <ConfigField
                 label="每市場最大交易次數"
@@ -750,7 +750,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 type="number"
                 value={configForm.trade_cooldown_seconds ?? 300}
                 onChange={(v) => setConfigForm({ ...configForm, trade_cooldown_seconds: parseInt(v) })}
-                hint="5 分鐘市場建議 60 秒 (1 分鐘)"
+                hint="每小時市場建議 120 秒 (2 分鐘)"
               />
               <ConfigField
                 label="最低流動性"
@@ -858,7 +858,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 <ConfigField
                   label="配對加價時限 (分鐘)"
                   type="number"
-                  value={configForm.bargain_pair_escalation_minutes ?? 60}
+                  value={configForm.bargain_pair_escalation_minutes ?? 15}
                   onChange={(v) => setConfigForm({ ...configForm, bargain_pair_escalation_minutes: parseInt(v) })}
                   hint="未配對超過此分鐘數，配對價格上限 +5¢"
                 />
@@ -898,7 +898,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
 
       {/* Footer */}
       <footer className="border-t border-neon-cyan/10 mt-8 py-4 text-center text-xs text-neon-cyan/30 relative z-10">
-        <span className="font-cyber tracking-wider">PM DAILY ARB BOT</span> v1.0 | 僅供教育和研究用途 | 交易有風險，請謹慎操作
+        <span className="font-cyber tracking-wider">PM HOURLY ARB BOT</span> v1.0 | 僅供教育和研究用途 | 交易有風險，請謹慎操作
       </footer>
     </div>
   )

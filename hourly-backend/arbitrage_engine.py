@@ -352,20 +352,24 @@ class ArbitrageEngine:
             return (0.0, 0.0)
         return (sweep_price, total_cost)
 
-    def _get_clob_client(self):
-        """建立並返回 CLOB 客戶端"""
-        from py_clob_client.client import ClobClient
-        if not hasattr(self, '_clob_client') or self._clob_client is None:
-            funder = self.config.funder_address or None  # avoid empty-string normalization errors
-            # Debug: log signer/funder/sig type to help diagnose signature errors
+    def _ensure_clob_client(self):
+        if self._clob_client is None:
+            # dry_run 不需要初始化 CLOB client
+            if self.config.dry_run:
+                self.status.add_log("🧪 dry_run 模式，跳過簽名客戶端初始化")
+                return None
+
+            from py_clob_client.client import ClobClient
+            funder = (self.config.funder_address or "").strip()
+            # Debug: log signer/funder/sig type
             try:
                 from eth_account import Account
                 signer_addr = Account.from_key(self.config.private_key).address if self.config.private_key else ""
             except Exception:
                 signer_addr = "<invalid key>"
-            debug_line = f"🔑 Clob signer={signer_addr[:10]}..., sig_type={self.config.signature_type}, funder={funder or '<none>'}"
-            print(debug_line)
-            self.status.add_log(debug_line)
+            self.status.add_log(
+                f"🔑 Clob signer={signer_addr[:10]}..., sig_type={self.config.signature_type}, funder={funder or '<none>'}"
+            )
             self._clob_client = ClobClient(
                 self.config.CLOB_HOST,
                 key=self.config.private_key,
@@ -378,14 +382,100 @@ class ArbitrageEngine:
             )
         return self._clob_client
 
+    async def enforce_late_liquidation(self, markets: List[MarketInfo]):
+        """強制平倉未配對持倉，避免到期歸零。"""
+        threshold = getattr(self.config, "late_liquidation_seconds", 0)
+        if threshold <= 0:
+            return
+        # 建立 slug -> market 快速查詢
+        market_map = {m.slug: m for m in markets}
+        remaining_holdings = []
+        for h in self.status.bargain_holdings:
+            if h.status != "holding" or h.market_slug not in market_map:
+                remaining_holdings.append(h)
+                continue
+            m = market_map[h.market_slug]
+            if m.time_remaining_seconds is None or m.time_remaining_seconds > threshold:
+                remaining_holdings.append(h)
+                continue
+
+            # 取得最新價格，用 best_ask 作為可賣出價
+            price_info = self.status.market_prices.get(m.slug)
+            if not price_info:
+                price_info = await self.get_prices(m)
+            if not price_info:
+                self.status.add_log(f"🛑 [到期平倉] {m.slug} 無法取得價格，跳過")
+                remaining_holdings.append(h)
+                continue
+
+            sell_price = price_info.up_best_ask if h.side == "UP" else price_info.down_best_ask
+            if sell_price <= 0:
+                self.status.add_log(f"🛑 [到期平倉] {m.slug} {h.side} 無有效賣價，跳過")
+                remaining_holdings.append(h)
+                continue
+
+            shares = max(round(h.shares, 2), 0)
+            if shares <= 0:
+                continue
+            pnl = (sell_price - h.buy_price) * shares
+
+            self.status.add_log(
+                f"🛑 [到期平倉] {m.slug} {h.side} | {shares:.2f} 股 @ {sell_price:.4f} | PnL {pnl:.4f}"
+            )
+
+            status = "simulated" if self.config.dry_run else "executed"
+            if not self.config.dry_run:
+                try:
+                    clob_client = self._get_clob_client()
+                    if clob_client:
+                        self._try_unwind_position(clob_client, h.token_id, shares, sell_price, f"到期平倉-{h.side}")
+                except Exception as e:
+                    self.status.add_log(f"⚠️ [到期平倉] 執行失敗: {str(e)[:120]}")
+
+            # 記錄交易
+            try:
+                trade_db.record_trade(
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    market_slug=m.slug,
+                    trade_type="late_liquidation",
+                    side=h.side,
+                    up_price=price_info.up_price,
+                    down_price=price_info.down_price,
+                    total_cost=sell_price,
+                    order_size=shares,
+                    profit=pnl,
+                    profit_pct=(pnl / (h.buy_price * shares) * 100) if h.buy_price * shares > 0 else 0,
+                    status=status,
+                    details=f"到期前強制平倉 {h.side}@{sell_price:.4f} vs cost {h.buy_price:.4f}"
+                )
+                trade_db.rebuild_daily_summary()
+            except Exception:
+                pass
+
+            h.status = "stopped_out"
+            h.details = "late_liquidation"
+            # 不加入 remaining_holdings，等於移除持倉
+
+        self.status.bargain_holdings = remaining_holdings
+
     def check_credentials(self) -> Dict[str, Any]:
-        """快速檢查簽名配置，回傳狀態與提示。"""
+        """快速檢查簽名配置，回傳狀態與提示。dry_run=True 時跳過簽名需求。"""
         sig_type = self.config.signature_type
         pk = (self.config.private_key or "").strip()
         funder = (self.config.funder_address or "").strip()
 
         issues: list[str] = []
         status = "ok"
+
+        # 在 dry_run 時，不需要任何簽名/錢包即可啟動
+        if self.config.dry_run:
+            return {
+                "status": "ok",
+                "signature_type": sig_type,
+                "has_private_key": bool(pk),
+                "funder_address": funder,
+                "issues": ["dry_run 模式，已跳過簽名檢查"],
+            }
 
         if sig_type == 0:
             if not funder:
@@ -396,7 +486,8 @@ class ArbitrageEngine:
             if not pk:
                 issues.append("signature_type=1/2 需要 PRIVATE_KEY 來本地簽名")
 
-        if sig_type != 0 or pk:
+        # 只在需要本地簽名時嘗試初始化客戶端（dry_run 跳過）
+        if not self.config.dry_run and (sig_type != 0 or pk):
             try:
                 from py_clob_client.client import ClobClient
 
@@ -446,7 +537,8 @@ class ArbitrageEngine:
                           price: float, side_label: str) -> dict:
         """
         FOK 買入 — price 僅用於估算股數，不傳入 MarketOrderArgs
-        讓 CLOB 自動從訂單簿計算真實成交價，並用 get_trades 取實際均價
+        讓 CLOB 自動從訂單簿計算真實成交價（避免限價過緊導致 FOK 失敗）
+        成交後透過 get_trades 取得真實成交均價與股數
         """
         from py_clob_client.clob_types import MarketOrderArgs, OrderType, TradeParams
         from py_clob_client.order_builder.constants import BUY
@@ -454,10 +546,13 @@ class ArbitrageEngine:
 
         estimated_shares = amount_usd / price if price > 0 else 0
 
+        # 確保 amount >= $1
         if amount_usd < 1.0:
             self.status.add_log(f"  ⚠️ {side_label} 金額 ${amount_usd:.2f} < $1 最低限制，跳過")
             return {"success": False, "error": "amount below $1 minimum", "shares": 0, "price": price}
 
+        # price=None → CLOB 自動呼叫 calculate_market_price 從訂單簿取得真實價格
+        # 先記錄 CLOB 自動計算的邊際價格（用於診斷，注意: 這是最差價位，非均價）
         try:
             marginal_price = clob_client.calculate_market_price(
                 token_id, "BUY", amount_usd, OrderType.FOK
@@ -470,6 +565,7 @@ class ArbitrageEngine:
             self.status.add_log(f"  ⚠️ {side_label} 訂單簿深度不足: {str(e)[:80]}")
             return {"success": False, "error": f"orderbook depth: {str(e)[:80]}", "shares": 0, "price": price}
 
+        # 記錄下單前時間戳（用於篩選成交記錄）
         before_ts = int(_time.time())
 
         try:
@@ -488,13 +584,15 @@ class ArbitrageEngine:
             self.status.add_log(f"  ⚠️ {side_label} FOK 失敗: {last_error[:120]}")
             return {"success": False, "error": last_error[:120], "shares": 0, "price": price}
 
+        # ── 從 get_trades 取得真實成交數據 ──
         fill_shares = 0.0
         fill_cost = 0.0
-        fill_price = marginal_price
+        fill_price = marginal_price  # fallback
         order_id = resp.get("orderId") or resp.get("order_id") or resp.get("id")
 
         try:
             trades = []
+            # 最多嘗試 3 次，避免寫入延遲
             for _ in range(3):
                 _time.sleep(0.4)
                 params = TradeParams(order_id=order_id) if order_id else TradeParams(asset_id=token_id, after=before_ts)
@@ -514,12 +612,14 @@ class ArbitrageEngine:
                     f"(${fill_cost:.2f}) | {len(trades)} 筆成交"
                 )
             else:
+                # 沒拿到成交記錄，用估算值
                 fill_shares = amount_usd / marginal_price if marginal_price > 0 else estimated_shares
                 fill_price = marginal_price
                 self.status.add_log(
                     f"  ⚠️ {side_label} 未取得成交記錄，使用估算: {fill_shares:.2f} 股 @ {fill_price:.4f}"
                 )
         except Exception as e:
+            # get_trades 失敗，用估算值
             fill_shares = amount_usd / marginal_price if marginal_price > 0 else estimated_shares
             fill_price = marginal_price
             self.status.add_log(
@@ -1122,6 +1222,13 @@ class ArbitrageEngine:
                         })
             else:
                 # ── 無未配對持倉: 開始新一輪 ──
+                # 如果其他市場有未配對持倉，不開新倉（避免跨市場重複開倉）
+                other_unpaired = any(
+                    h.status == "holding" and h.market_slug != market.slug
+                    for h in self.status.bargain_holdings
+                )
+                if other_unpaired:
+                    continue
                 next_round = stack["round"] + 1
                 if next_round > self.config.bargain_max_rounds:
                     continue  # 已達堆疊上限
@@ -1149,6 +1256,7 @@ class ArbitrageEngine:
                         else:
                             # 偏好側未達條件 → 不開倉，等待價格進入區間
                             continue
+                    # 買最便宜的那側（或偏好側）
                     candidates.sort(key=lambda c: c[1])
                     side, ask, token_id, comp_id = candidates[0]
                     opportunities.append({
@@ -1180,7 +1288,16 @@ class ArbitrageEngine:
         pair_with: Optional[BargainHolding] = opp.get("pair_with")
 
         # 即時檢查: 非配對開倉時，若其他市場有未配對持倉則跳過（防止跨市場重複開倉）
-        # 多市場允許同時持倉
+        if not is_pairing:
+            other_unpaired = any(
+                h.status == "holding" and h.market_slug != market.slug
+                for h in self.status.bargain_holdings
+            )
+            if other_unpaired:
+                self.status.add_log(
+                    f"🏷️ [撿便宜] 跳過 {market.slug} {side} — 其他市場有未配對持倉"
+                )
+                return None
 
         order_size = self.config.order_size
         amount_usd = round(order_size * price, 2)
@@ -1358,30 +1475,6 @@ class ArbitrageEngine:
                 current_price = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
             else:
                 current_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
-
-            # ── 4 分鐘強平：距離到期 ≤60s 就直接清算未配對持倉 ──
-            if holding.market.time_remaining_seconds <= 60:
-                self.status.add_log(
-                    f"⏰ [4m強平] {holding.market_slug} {holding.side} | 剩餘 {int(holding.market.time_remaining_seconds)}s，"
-                    f"賣出 {holding.shares:.1f} 股 @ ~{current_price:.4f}"
-                )
-                if self.config.dry_run:
-                    holding.status = "stopped_out"
-                else:
-                    try:
-                        clob_client = self._get_clob_client()
-                        unwind_ok = self._try_unwind_position(
-                            clob_client, holding.token_id, holding.shares,
-                            current_price, "4m auto-liquidate"
-                        )
-                        holding.status = "stopped_out"
-                        if unwind_ok:
-                            self.status.add_log("⏰ [4m強平成功]")
-                        else:
-                            self.status.add_log("⏰ [4m強平失敗] 需手動處理!")
-                    except Exception as e:
-                        self.status.add_log(f"⏰ [4m強平異常] {str(e)[:120]}")
-                continue
 
             # ── 價格回升 → 重置延遲計時器 ──
             if current_price >= holding.buy_price:
