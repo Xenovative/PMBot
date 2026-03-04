@@ -373,9 +373,9 @@ for stack in "${SELECTED_STACKS[@]}"; do
     if [[ "$CURRENT_PY" != *"3.12"* ]]; then
         rm -rf "$APP_DIR/venv"
     fi
-    sudo -u "$APP_USER" $PYTHON_BIN -m venv "$APP_DIR/venv"
-    sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install -q --upgrade pip
-    sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/backend/requirements.txt"
+    runuser -u "$APP_USER" -- $PYTHON_BIN -m venv "$APP_DIR/venv"
+    runuser -u "$APP_USER" -- "$APP_DIR/venv/bin/pip" install -q --upgrade pip
+    runuser -u "$APP_USER" -- "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/backend/requirements.txt"
     ok "Python venv ready"
 
     # ── .env setup ──
@@ -420,10 +420,9 @@ for stack in "${SELECTED_STACKS[@]}"; do
     # ── Frontend build ──
     if [ "$HAS_FRONTEND" = true ]; then
         header "frontend" "Building frontend..."
-        cd "$APP_DIR/frontend"
-        rm -rf dist node_modules/.vite
-        sudo -u "$APP_USER" env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm install --no-audit --no-fund
-        sudo -u "$APP_USER" env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm run build
+        rm -rf "$APP_DIR/frontend/dist" "$APP_DIR/frontend/node_modules/.vite"
+        runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$APP_DIR/frontend" install --no-audit --no-fund
+        runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$APP_DIR/frontend" run build
         ok "Frontend built"
     fi
 

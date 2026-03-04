@@ -305,17 +305,16 @@ action_update() {
         chown -R "$APP_USER:$APP_USER" "$app_dir"
 
         echo "55"; echo "# Reinstalling Python deps..."
-        sudo -u "$APP_USER" "$app_dir/venv/bin/pip" install -q --upgrade pip
-        sudo -u "$APP_USER" "$app_dir/venv/bin/pip" install -q -r "$app_dir/backend/requirements.txt"
+        runuser -u "$APP_USER" -- "$app_dir/venv/bin/pip" install -q --upgrade pip
+        runuser -u "$APP_USER" -- "$app_dir/venv/bin/pip" install -q -r "$app_dir/backend/requirements.txt"
 
         if [ -d "$app_dir/frontend" ]; then
             echo "70"; echo "# Rebuilding frontend..."
             mkdir -p "$NPM_CACHE_DIR"
             chown -R "$APP_USER:$APP_USER" "$NPM_CACHE_DIR"
-            cd "$app_dir/frontend"
-            rm -rf dist node_modules/.vite
-            sudo -u "$APP_USER" env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm install --no-audit --no-fund
-            sudo -u "$APP_USER" env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm run build
+            rm -rf "$app_dir/frontend/dist" "$app_dir/frontend/node_modules/.vite"
+            runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$app_dir/frontend" install --no-audit --no-fund
+            runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$app_dir/frontend" run build
         fi
 
         echo "85"; echo "# Restarting services..."
