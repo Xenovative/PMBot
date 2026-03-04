@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, field_validator
 from typing import List
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 def validate_private_key(v: str) -> str:
@@ -16,7 +16,7 @@ def validate_private_key(v: str) -> str:
     if not re.fullmatch(r"[0-9a-fA-F]{64}", raw):
         raise ValueError(
             f"PRIVATE_KEY must be a 32-byte hex string (64 hex chars, optional 0x prefix). "
-            f"Got {len(raw)} hex chars — did you paste a wallet address instead?"
+            f"Got {len(raw)} hex chars ??did you paste a wallet address instead?"
         )
     return v
 

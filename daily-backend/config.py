@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import List
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 class BotConfig(BaseModel):
