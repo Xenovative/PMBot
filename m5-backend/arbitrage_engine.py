@@ -1563,15 +1563,15 @@ class ArbitrageEngine:
             self.status.add_log("✅ CLOB API 憑證已驗證/註冊")
         except Exception as e:
             self.status.add_log(f"⚠️ CLOB 啟動連線失敗: {e}")
-        self.ensure_approvals()
+        self._approvals_ok = self.ensure_approvals()
 
-    def ensure_approvals(self):
+    def ensure_approvals(self) -> bool:
         """確保 EOA 錢包已對 Polymarket 合約設定 USDC 和 CTF ERC-1155 授權。dry_run / sig_type=0 時跳過。"""
         if self.config.dry_run or self.config.signature_type == 0:
-            return
+            return True
         pk = (self.config.private_key or "").strip()
         if not pk:
-            return
+            return False
         try:
             from web3 import Web3
             from web3.middleware import ExtraDataToPOAMiddleware
@@ -1580,7 +1580,7 @@ class ArbitrageEngine:
             w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
             if not w3.is_connected():
                 self.status.add_log("⚠️ 無法連線 Polygon RPC，跳過授權檢查")
-                return
+                return False
             wallet = Account.from_key(pk).address
             USDC = Web3.to_checksum_address("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174")
             CTF  = Web3.to_checksum_address("0x4D97DCd97eC945f40cF65F87097ACe5EA0476045")
@@ -1645,13 +1645,19 @@ class ArbitrageEngine:
                     ok = send(ctf_c.functions.setApprovalForAll(op_cs, True).build_transaction({"from": wallet}))
                     self.status.add_log("✅ CTF approved" if ok else f"❌ CTF approval failed for {name}")
 
+            self.status.add_log("✅ 授權檢查完成")
+            return True
         except Exception as e:
             self.status.add_log(f"⚠️ 授權檢查失敗: {e}")
+            return False
 
     async def test_connection(self, markets: List[MarketInfo]):
-        """執行最小測試單（$1 買入後立即平倉）驗證錢包連線。dry_run 時跳過。"""
+        """執行最小測試單（$1 買入後立匉）驗證錢包連線。dry_run 時跳過。"""
         if self.config.dry_run:
             self.status.add_log("🧪 dry_run 模式，跳過連線測試")
+            return
+        if not getattr(self, '_approvals_ok', True):
+            self.status.add_log("⚠️ 授權未完成，跳過連線測試以避免遺留持倉")
             return
         self.status.add_log("🔌 開始連線測試（$1 測試單）...")
         clob = self._get_clob_client()
