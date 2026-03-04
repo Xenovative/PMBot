@@ -386,28 +386,33 @@ async def get_markets(_user=Depends(auth.require_auth)):
 
 @app.get("/api/config")
 async def get_current_config(_user=Depends(auth.require_auth)):
-    return {
-        "target_pair_cost": config.target_pair_cost,
-        "order_size": config.order_size,
-        "dry_run": config.dry_run,
-        "min_time_remaining_seconds": config.min_time_remaining_seconds,
-        "max_trades_per_market": config.max_trades_per_market,
-        "trade_cooldown_seconds": config.trade_cooldown_seconds,
-        "min_liquidity": config.min_liquidity,
-        "crypto_symbols": config.crypto_symbols,
-        "private_key_set": bool(config.private_key),
-        "funder_address_set": bool(config.funder_address),
-        "bargain_enabled": config.bargain_enabled,
-        "bargain_price_threshold": config.bargain_price_threshold,
-        "bargain_pair_threshold": config.bargain_pair_threshold,
-        "bargain_stop_loss_cents": config.bargain_stop_loss_cents,
-        "bargain_min_price": config.bargain_min_price,
-        "bargain_max_rounds": config.bargain_max_rounds,
-        "bargain_stop_loss_defer_minutes": config.bargain_stop_loss_defer_minutes,
-        "bargain_first_buy_bias": config.bargain_first_buy_bias,
-        "bargain_pair_escalation_minutes": config.bargain_pair_escalation_minutes,
-        "late_liquidation_seconds": config.late_liquidation_seconds,
-    }
+    try:
+        return {
+            "target_pair_cost": config.target_pair_cost,
+            "order_size": config.order_size,
+            "dry_run": config.dry_run,
+            "min_time_remaining_seconds": config.min_time_remaining_seconds,
+            "max_trades_per_market": config.max_trades_per_market,
+            "trade_cooldown_seconds": config.trade_cooldown_seconds,
+            "min_liquidity": config.min_liquidity,
+            "crypto_symbols": config.crypto_symbols,
+            "private_key_set": bool(config.private_key),
+            "funder_address_set": bool(config.funder_address),
+            "bargain_enabled": config.bargain_enabled,
+            "bargain_price_threshold": config.bargain_price_threshold,
+            "bargain_pair_threshold": config.bargain_pair_threshold,
+            "bargain_stop_loss_cents": config.bargain_stop_loss_cents,
+            "bargain_min_price": config.bargain_min_price,
+            "bargain_max_rounds": config.bargain_max_rounds,
+            "bargain_stop_loss_defer_minutes": config.bargain_stop_loss_defer_minutes,
+            "bargain_first_buy_bias": config.bargain_first_buy_bias,
+            "bargain_pair_escalation_minutes": config.bargain_pair_escalation_minutes,
+            "late_liquidation_seconds": config.late_liquidation_seconds,
+        }
+    except Exception as e:
+        import traceback
+        print(f"[get_current_config] ERROR: {e}\n{traceback.format_exc()}")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 class ConfigUpdate(BaseModel):
