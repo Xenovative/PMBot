@@ -478,16 +478,18 @@ class ArbitrageEngine:
             }
 
         if sig_type == 0:
-            if not funder:
-                issues.append("signature_type=0 需要 funder_address (投資組合頁的錢包地址)")
-            if pk:
-                issues.append("signature_type=0 不應提供 PRIVATE_KEY（email/custodial 由伺服器簽）")
-        else:
+            # EOA: private key required, funder address optional
             if not pk:
-                issues.append("signature_type=1/2 需要 PRIVATE_KEY 來本地簽名")
+                issues.append("signature_type=0 (EOA) 需要 PRIVATE_KEY")
+        else:
+            # Custodial/Magic/Gnosis: proxy signer key + funder address both required
+            if not pk:
+                issues.append("signature_type=1/2 (托管帳戶) 需要代理簽名者的 PRIVATE_KEY")
+            if not funder:
+                issues.append("signature_type=1/2 (托管帳戶) 需要 FUNDER_ADDRESS（Polymarket 帳戶的錢包地址）")
 
-        # 只在需要本地簽名時嘗試初始化客戶端（dry_run 跳過）
-        if not self.config.dry_run and (sig_type != 0 or pk):
+        # 只在有 private key 時嘗試初始化客戶端（dry_run 跳過）
+        if not self.config.dry_run and pk:
             try:
                 from py_clob_client.client import ClobClient
 
