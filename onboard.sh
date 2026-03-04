@@ -217,7 +217,7 @@ for stack in "${SELECTED_STACKS[@]}"; do
 
     # Per-stack wallet
     echo ""
-    local pk fa st raw_pk
+    pk="" fa="" st="" raw_pk=""
     while true; do
         read -p "    Private key for ${inst_name} (blank = dry-run): " pk
         if [ -z "$pk" ]; then break; fi
