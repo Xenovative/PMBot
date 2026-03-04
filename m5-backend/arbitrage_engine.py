@@ -1615,6 +1615,9 @@ class ArbitrageEngine:
             MAX    = 2**256 - 1
 
             def send(tx):
+                tx.pop("maxFeePerGas", None)
+                tx.pop("maxPriorityFeePerGas", None)
+                tx.pop("type", None)
                 tx["nonce"]    = w3.eth.get_transaction_count(wallet)
                 tx["chainId"]  = 137
                 tx["gasPrice"] = w3.eth.gas_price
