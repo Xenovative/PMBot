@@ -1664,6 +1664,15 @@ class ArbitrageEngine:
         if not getattr(self, '_approvals_ok', True):
             self.status.add_log("⚠️ 授權未完成，跳過連線測試以避免遺留持倉")
             return
+        import hashlib
+        import trade_db
+        _wallet_key = hashlib.sha256(
+            f"{self.config.private_key}:{self.config.funder_address}".encode()
+        ).hexdigest()[:16]
+        _kv_key = f"conn_tested:{_wallet_key}"
+        if trade_db.kv_get(_kv_key) == "ok":
+            self.status.add_log("✅ 此錢包已通過連線測試，跳過重複測試")
+            return
         self.status.add_log("🔌 開始連線測試（$1 測試單）...")
         clob = self._get_clob_client()
         if not clob:
@@ -1710,6 +1719,7 @@ class ArbitrageEngine:
         await asyncio.sleep(8)
         unwound = self._try_unwind_position(clob, token_id, shares, buy_price, f"[測試]{side}")
         if unwound:
+            trade_db.kv_set(_kv_key, "ok")
             self.status.add_log("✅ 連線測試完成：買入+平倉成功，錢包連線正常")
         else:
             self.status.add_log("⚠️ 連線測試：買入成功但平倉失敗，請手動檢查持倉")

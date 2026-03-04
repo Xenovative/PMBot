@@ -107,8 +107,30 @@ def init_db(dry_run: bool = True):
         CREATE INDEX IF NOT EXISTS idx_merges_timestamp ON merges(timestamp);
         CREATE INDEX IF NOT EXISTS idx_scans_timestamp ON scans(timestamp);
         CREATE INDEX IF NOT EXISTS idx_daily_date ON daily_summary(date);
+
+        CREATE TABLE IF NOT EXISTS kv_store (
+            key     TEXT PRIMARY KEY,
+            value   TEXT NOT NULL,
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
     """)
     conn.commit()
+
+
+def kv_set(key: str, value: str):
+    conn = _get_conn()
+    conn.execute(
+        "INSERT INTO kv_store(key, value, updated_at) VALUES(?,?,datetime('now'))"
+        " ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+        (key, value),
+    )
+    conn.commit()
+
+
+def kv_get(key: str, default: str = "") -> str:
+    conn = _get_conn()
+    row = conn.execute("SELECT value FROM kv_store WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
 
 
 def record_trade(
