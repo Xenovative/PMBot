@@ -1,7 +1,7 @@
 import os
 import re
 from dotenv import load_dotenv
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from typing import List
 
 load_dotenv(override=True)
@@ -63,16 +63,6 @@ class BotConfig(BaseModel):
     bargain_pair_escalation_minutes: int = int(os.getenv("BARGAIN_PAIR_ESCALATION_MINUTES", "15"))
     # Late liquidation threshold (seconds before expiry to force sell holdings)
     late_liquidation_seconds: int = int(os.getenv("LATE_LIQUIDATION_SECONDS", "90"))
-
-    @field_validator("private_key", mode="before")
-    @classmethod
-    def _validate_private_key(cls, v):
-        return validate_private_key(str(v) if v is not None else "")
-
-    @field_validator("funder_address", mode="before")
-    @classmethod
-    def _validate_funder_address(cls, v):
-        return validate_funder_address(str(v) if v is not None else "")
 
     CLOB_HOST: str = "https://clob.polymarket.com"
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"
