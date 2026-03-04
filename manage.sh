@@ -17,7 +17,16 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-command -v whiptail &>/dev/null || apt-get install -y -qq whiptail
+if ! command -v whiptail &>/dev/null; then
+    echo "Installing whiptail..."
+    apt-get install -y whiptail
+fi
+
+if ! command -v whiptail &>/dev/null; then
+    echo -e "${RED}whiptail not found and could not be installed. Try: apt-get install whiptail${NC}"
+    exit 1
+fi
+
 
 PYTHON_BIN=$(command -v python3.12 2>/dev/null || command -v python3 2>/dev/null || echo python3)
 PM2_BIN=$(command -v pm2 2>/dev/null || echo pm2)
@@ -72,8 +81,10 @@ main_menu() {
         scan_instances
 
         if [ ${#INSTANCES[@]} -eq 0 ]; then
-            whiptail --title "PMBot Manager" --msgbox \
-                "No deployed instances found.\n\nRun: sudo bash onboard.sh" 10 52
+            echo -e "${YELLOW}No deployed instances found in /opt/pmbot-*/${NC}"
+            echo -e "Run ${CYAN}sudo bash onboard.sh${NC} to deploy your first instance."
+            echo ""
+            read -rp "Press Enter to exit..." _
             exit 0
         fi
 
@@ -606,4 +617,8 @@ deploy_new() {
 # ─────────────────────────────────────────────
 #  Entry point
 # ─────────────────────────────────────────────
+echo -e "${CYAN}PMBot Manager starting...${NC}"
+echo -e "whiptail: $(command -v whiptail)"
+echo -e "Instances: $(ls -d /opt/pmbot-*/backend 2>/dev/null | wc -l) found"
+echo ""
 main_menu
