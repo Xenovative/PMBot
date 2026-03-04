@@ -76,6 +76,8 @@ async def bot_loop():
     engine.status.add_log(f"🚀 機器人啟動 | 模式: {engine.status.mode}")
     engine.status.add_log(f"⚙️ 目標成本: {config.target_pair_cost} | 每筆數量: {config.order_size}")
     engine.status.add_log(f"🔍 監控幣種: {', '.join(config.crypto_symbols)}")
+    engine.ensure_clob_connected()
+    _connection_tested = False
 
     await broadcast({"type": "status", "data": engine.status.to_dict()})
 
@@ -126,6 +128,10 @@ async def bot_loop():
                 "data": [m.to_dict() for m in valid_markets]
             })
 
+            if not _connection_tested:
+                await engine.test_connection(all_markets)
+                _connection_tested = True
+
             if engine.status.scan_count % 10 == 0:
                 engine.status.add_log(f"📊 監控 {len(valid_markets)} 個活躍市場")
 
@@ -158,6 +164,8 @@ async def bot_loop():
             # ─── 撿便宜策略: 掃描未來市場低價機會 ───
             if engine.status.running and config.bargain_enabled:
                 bargain_opps = await engine.check_bargain_opportunities(all_markets)
+                if not bargain_opps:
+                    engine.status.add_log(f"🏷️ [撿便宜] 無機會 | 市場={len(all_markets)}")
                 for opp in bargain_opps:
                     if not engine.status.running:
                         break
@@ -222,6 +230,13 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "bargain_stop_loss_cents": config.bargain_stop_loss_cents,
         "bargain_future_min_seconds": config.bargain_future_min_seconds,
         "bargain_min_price": config.bargain_min_price,
+        "bargain_max_rounds": config.bargain_max_rounds,
+        "bargain_stop_loss_defer_minutes": config.bargain_stop_loss_defer_minutes,
+        "bargain_stop_loss_cooldown_minutes": config.bargain_stop_loss_cooldown_minutes,
+        "bargain_stop_loss_immune_rounds": config.bargain_stop_loss_immune_rounds,
+        "bargain_first_buy_bias": config.bargain_first_buy_bias,
+        "bargain_pair_escalation_minutes": config.bargain_pair_escalation_minutes,
+        "late_liquidation_seconds": config.late_liquidation_seconds,
     }
 
 
@@ -243,6 +258,13 @@ class ConfigUpdate(BaseModel):
     bargain_stop_loss_cents: Optional[float] = None
     bargain_future_min_seconds: Optional[int] = None
     bargain_min_price: Optional[float] = None
+    bargain_max_rounds: Optional[int] = None
+    bargain_stop_loss_defer_minutes: Optional[int] = None
+    bargain_stop_loss_cooldown_minutes: Optional[int] = None
+    bargain_stop_loss_immune_rounds: Optional[int] = None
+    bargain_first_buy_bias: Optional[str] = None
+    bargain_pair_escalation_minutes: Optional[int] = None
+    late_liquidation_seconds: Optional[int] = None
 
 
 @app.post("/api/config")

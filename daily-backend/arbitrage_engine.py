@@ -1547,8 +1547,151 @@ class ArbitrageEngine:
 
     def update_config(self, new_config: Dict[str, Any]):
         """動態更新配置"""
+        cred_keys = {"private_key", "funder_address", "signature_type"}
+        if cred_keys & new_config.keys():
+            self._clob_client = None
+            self.status.add_log("🔑 憑證已變更，將重新建立 CLOB 連線")
         for key, value in new_config.items():
             if hasattr(self.config, key):
                 setattr(self.config, key, value)
         self.status.mode = "模擬" if self.config.dry_run else "🔴 真實交易"
         self.status.add_log(f"⚙️ 配置已更新: {new_config}")
+
+    def ensure_clob_connected(self):
+        """啟動時主動建立 CLOB 連線（非 dry_run）。"""
+        if self.config.dry_run:
+            return
+        try:
+            self._get_clob_client()
+            self.status.add_log("✅ CLOB API 憑證已驗證/註冊")
+        except Exception as e:
+            self.status.add_log(f"⚠️ CLOB 啟動連線失敗: {e}")
+        self.ensure_approvals()
+
+    def ensure_approvals(self):
+        """確保 EOA 錢包已對 Polymarket 合約設定 USDC 和 CTF ERC-1155 授權。dry_run / sig_type=0 時跳過。"""
+        if self.config.dry_run or self.config.signature_type == 0:
+            return
+        pk = (self.config.private_key or "").strip()
+        if not pk:
+            return
+        try:
+            from web3 import Web3
+            from eth_account import Account
+            w3 = Web3(Web3.HTTPProvider("https://polygon-bor.publicnode.com"))
+            if not w3.is_connected():
+                self.status.add_log("⚠️ 無法連線 Polygon RPC，跳過授權檢查")
+                return
+            wallet = Account.from_key(pk).address
+            USDC = Web3.to_checksum_address("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174")
+            CTF  = Web3.to_checksum_address("0x4D97DCd97eC945f40cF65F87097ACe5EA0476045")
+            SPENDERS = [
+                ("CTF Exchange",         "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"),
+                ("NegRisk CTF Exchange", "0xC5d563A36AE78145C45a50134d48A1215220f80a"),
+                ("NegRisk Adapter",      "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"),
+            ]
+            CTF_OPERATORS = [
+                ("CTF Exchange",         "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"),
+                ("NegRisk CTF Exchange", "0xC5d563A36AE78145C45a50134d48A1215220f80a"),
+            ]
+            erc20_abi = [
+                {"name": "approve",   "type": "function", "stateMutability": "nonpayable",
+                 "inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}],
+                 "outputs": [{"name": "", "type": "bool"}]},
+                {"name": "allowance", "type": "function", "stateMutability": "view",
+                 "inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}],
+                 "outputs": [{"name": "", "type": "uint256"}]},
+            ]
+            erc1155_abi = [
+                {"name": "setApprovalForAll", "type": "function", "stateMutability": "nonpayable",
+                 "inputs": [{"name": "operator", "type": "address"}, {"name": "approved", "type": "bool"}],
+                 "outputs": []},
+                {"name": "isApprovedForAll", "type": "function", "stateMutability": "view",
+                 "inputs": [{"name": "account", "type": "address"}, {"name": "operator", "type": "address"}],
+                 "outputs": [{"name": "", "type": "bool"}]},
+            ]
+            usdc_c = w3.eth.contract(address=USDC, abi=erc20_abi)
+            ctf_c  = w3.eth.contract(address=CTF,  abi=erc1155_abi)
+            acct   = Account.from_key(pk)
+            MAX    = 2**256 - 1
+
+            def send(tx):
+                tx["nonce"]    = w3.eth.get_transaction_count(wallet)
+                tx["chainId"]  = 137
+                tx["gasPrice"] = w3.eth.gas_price
+                try:
+                    tx["gas"] = int(w3.eth.estimate_gas(tx) * 1.3)
+                except Exception:
+                    tx["gas"] = 120_000
+                signed = acct.sign_transaction(tx)
+                raw = getattr(signed, "rawTransaction", None) or getattr(signed, "raw_transaction", None)
+                h = w3.eth.send_raw_transaction(raw)
+                r = w3.eth.wait_for_transaction_receipt(h, timeout=90)
+                return r.status == 1
+
+            for name, sp in SPENDERS:
+                sp_cs = Web3.to_checksum_address(sp)
+                if usdc_c.functions.allowance(wallet, sp_cs).call() < 10**18:
+                    self.status.add_log(f"🔓 USDC approve → {name}...")
+                    ok = send(usdc_c.functions.approve(sp_cs, MAX).build_transaction({"from": wallet}))
+                    self.status.add_log("✅ USDC approved" if ok else f"❌ USDC approve failed for {name}")
+
+            for name, op in CTF_OPERATORS:
+                op_cs = Web3.to_checksum_address(op)
+                if not ctf_c.functions.isApprovedForAll(wallet, op_cs).call():
+                    self.status.add_log(f"🔓 CTF setApprovalForAll → {name}...")
+                    ok = send(ctf_c.functions.setApprovalForAll(op_cs, True).build_transaction({"from": wallet}))
+                    self.status.add_log("✅ CTF approved" if ok else f"❌ CTF approval failed for {name}")
+
+        except Exception as e:
+            self.status.add_log(f"⚠️ 授權檢查失敗: {e}")
+
+    async def test_connection(self, markets: List[MarketInfo]):
+        """執行最小測試單（$1 買入後立立即平倉）驗證錢包連線。dry_run 時跳過。"""
+        if self.config.dry_run:
+            self.status.add_log("🧪 dry_run 模式，跳過連線測試")
+            return
+        self.status.add_log("🔌 開始連線測試（$1 測試單）...")
+        clob = self._get_clob_client()
+        if not clob:
+            self.status.add_log("⚠️ 無法取得 CLOB 客戶端，跳過測試")
+            return
+
+        test_market = None
+        price_info = None
+        for m in markets:
+            if not m.up_token_id or not m.down_token_id:
+                continue
+            pi = await self.get_prices(m)
+            if pi and (pi.up_best_ask > 0 or pi.down_best_ask > 0):
+                test_market = m
+                price_info = pi
+                break
+
+        if not test_market or not price_info:
+            self.status.add_log("⚠️ 找不到可用市場進行連線測試")
+            return
+
+        up_ask = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
+        down_ask = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
+        if up_ask <= down_ask and up_ask > 0:
+            side, token_id = "UP", test_market.up_token_id
+            ask = up_ask
+        else:
+            side, token_id = "DOWN", test_market.down_token_id
+            ask = down_ask
+
+        self.status.add_log(f"🔌 測試市場: {test_market.slug} | {side} @ {ask:.4f}")
+        result = self._try_buy_one_side(clob, token_id, 1.0, ask, f"[測試]{side}")
+        if not result.get("success"):
+            self.status.add_log(f"❌ 連線測試買入失敗: {result.get('error')}")
+            return
+
+        shares = result.get("shares", 0)
+        buy_price = result.get("price", ask)
+        self.status.add_log(f"✅ 測試買入成功 {shares:.2f} 股 @ {buy_price:.4f}，立即平倉...")
+        unwound = self._try_unwind_position(clob, token_id, shares, buy_price, f"[測試]{side}")
+        if unwound:
+            self.status.add_log("✅ 連線測試完成：買入+平倉成功，錢包連線正常")
+        else:
+            self.status.add_log("⚠️ 連線測試：買入成功但平倉失敗，請手動檢查持倉")

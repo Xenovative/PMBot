@@ -273,6 +273,8 @@ async def bot_loop():
     engine.status.add_log(f"🚀 每日套利機器人啟動 | 模式: {engine.status.mode}")
     engine.status.add_log(f"⚙️ 目標成本: {config.target_pair_cost} | 每筆數量: {config.order_size}")
     engine.status.add_log(f"🔍 監控幣種: {', '.join(config.crypto_symbols)}")
+    engine.ensure_clob_connected()
+    _connection_tested = False
 
     await broadcast({"type": "status", "data": engine.status.to_dict()})
 
@@ -322,6 +324,10 @@ async def bot_loop():
                 "type": "markets",
                 "data": [m.to_dict() for m in valid_markets]
             })
+
+            if not _connection_tested:
+                await engine.test_connection(all_markets)
+                _connection_tested = True
 
             if engine.status.scan_count % 10 == 0:
                 engine.status.add_log(f"📊 監控 {len(valid_markets)} 個活躍每日市場")

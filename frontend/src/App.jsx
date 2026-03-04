@@ -444,6 +444,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   <ConfigField label="配對成本閾值" value={configForm.bargain_pair_threshold ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_pair_threshold: v === '' ? '' : parseFloat(v) })} type="number" step="0.01" />
                   <ConfigField label="止損幅度" value={configForm.bargain_stop_loss_cents ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_cents: v === '' ? '' : parseFloat(v) })} type="number" step="0.01" />
                   <ConfigField label="未來市場最少秒數" value={configForm.bargain_future_min_seconds ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_future_min_seconds: v === '' ? '' : parseInt(v) })} type="number" />
+                  <ConfigField label="止損延後 (分鐘)" value={configForm.bargain_stop_loss_defer_minutes ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_defer_minutes: v === '' ? '' : parseInt(v) })} type="number" />
+                  <ConfigField label="止損冷卻 (分鐘)" value={configForm.bargain_stop_loss_cooldown_minutes ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_cooldown_minutes: v === '' ? '' : parseInt(v) })} type="number" />
+                  <ConfigField label="止損免疫輪數" value={configForm.bargain_stop_loss_immune_rounds ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_immune_rounds: v === '' ? '' : parseInt(v) })} type="number" />
                   <div>
                     <label className="text-xs text-gray-400 block mb-1">首單偏好</label>
                     <select
@@ -456,6 +459,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
                       <option value="DOWN">DOWN</option>
                     </select>
                   </div>
+                  <ConfigField label="配對加價時限 (分鐘)" value={configForm.bargain_pair_escalation_minutes ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_pair_escalation_minutes: v === '' ? '' : parseInt(v) })} type="number" />
+                  <ConfigField label="堆疊上限" value={configForm.bargain_max_rounds ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_max_rounds: v === '' ? '' : parseInt(v) })} type="number" />
+                  <ConfigField label="到期前強制平倉 (秒)" value={configForm.late_liquidation_seconds ?? ''} onChange={(v) => setConfigForm({ ...configForm, late_liquidation_seconds: v === '' ? '' : parseInt(v) })} type="number" />
                 </div>
               </div>
 

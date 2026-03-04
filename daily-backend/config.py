@@ -37,6 +37,7 @@ class BotConfig(BaseModel):
     CLOB_HOST: str = "https://clob.polymarket.com"
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"
     CHAIN_ID: int = 137
+    POLYGON_RPC_URL: str = os.getenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
 
 
 def get_config() -> BotConfig:

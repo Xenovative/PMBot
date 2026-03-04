@@ -25,14 +25,22 @@ class BotConfig(BaseModel):
     bargain_price_threshold: float = float(os.getenv("BARGAIN_PRICE_THRESHOLD", "0.49"))
     bargain_pair_threshold: float = float(os.getenv("BARGAIN_PAIR_THRESHOLD", "0.99"))
     bargain_stop_loss_cents: float = float(os.getenv("BARGAIN_STOP_LOSS_CENTS", "0.02"))
-    bargain_future_min_seconds: int = int(os.getenv("BARGAIN_FUTURE_MIN_SECONDS", "900"))
+    # 15m: allow bargain on all markets by default; set to >0 to limit to future markets only
+    bargain_future_min_seconds: int = int(os.getenv("BARGAIN_FUTURE_MIN_SECONDS", "0"))
     bargain_min_price: float = float(os.getenv("BARGAIN_MIN_PRICE", "0.10"))
+    bargain_max_rounds: int = int(os.getenv("BARGAIN_MAX_ROUNDS", "56"))
+    bargain_stop_loss_defer_minutes: int = int(os.getenv("BARGAIN_STOP_LOSS_DEFER_MINUTES", "5"))
+    bargain_stop_loss_cooldown_minutes: int = int(os.getenv("BARGAIN_STOP_LOSS_COOLDOWN_MINUTES", "5"))
+    bargain_stop_loss_immune_rounds: int = int(os.getenv("BARGAIN_STOP_LOSS_IMMUNE_ROUNDS", "3"))
+    bargain_first_buy_bias: str = os.getenv("BARGAIN_FIRST_BUY_BIAS", "AUTO")  # AUTO|UP|DOWN
+    bargain_pair_escalation_minutes: int = int(os.getenv("BARGAIN_PAIR_ESCALATION_MINUTES", "15"))
     # Late liquidation threshold (seconds before expiry to force sell holdings)
     late_liquidation_seconds: int = int(os.getenv("LATE_LIQUIDATION_SECONDS", "90"))
 
     CLOB_HOST: str = "https://clob.polymarket.com"
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"
     CHAIN_ID: int = 137
+    POLYGON_RPC_URL: str = os.getenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
 
 
 def get_config() -> BotConfig:
