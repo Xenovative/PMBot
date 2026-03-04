@@ -455,6 +455,34 @@ class ConfigUpdate(BaseModel):
     bargain_pair_escalation_minutes: Optional[int] = None
 
 
+def _persist_env(updates: dict):
+    """Write updated key=value pairs back to the .env file next to main.py."""
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        lines = []
+    env_key_map = {k.upper(): str(v) for k, v in updates.items()}
+    written = set()
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            new_lines.append(line); continue
+        if "=" in stripped:
+            key = stripped.split("=", 1)[0].strip()
+            if key in env_key_map:
+                new_lines.append(f"{key}={env_key_map[key]}\n")
+                written.add(key); continue
+        new_lines.append(line)
+    for key, val in env_key_map.items():
+        if key not in written:
+            new_lines.append(f"{key}={val}\n")
+    with open(env_path, "w", encoding="utf-8") as f:
+        f.writelines(new_lines)
+
+
 @app.post("/api/config")
 async def update_config(update: ConfigUpdate, _user=Depends(auth.require_auth)):
     updates = {k: v for k, v in update.model_dump().items() if v is not None}
@@ -465,6 +493,10 @@ async def update_config(update: ConfigUpdate, _user=Depends(auth.require_auth)):
     # 切換模式時重新初始化 DB（模擬/真實分開存檔）
     if "dry_run" in updates:
         trade_db.init_db(dry_run=config.dry_run)
+    try:
+        _persist_env(updates)
+    except Exception as e:
+        print(f"[config] Failed to persist .env: {e}")
     return {"status": "ok", "updated": list(updates.keys())}
 
 
