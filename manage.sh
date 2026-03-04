@@ -129,8 +129,9 @@ main_menu() {
             label="$(printf '%-8s %-5s  API:%-6s Nginx:%-6s' "$status" "[$mode]" ":$bport" ":$nport")"
             menu_items+=("$name" "$label")
         done
-        menu_items+=("─────" "──────────────────────────────")
-        menu_items+=("[new]" "Deploy a new instance")
+        menu_items+=("─────"  "──────────────────────────────")
+        menu_items+=("[bulk]" "Select multiple instances for bulk action")
+        menu_items+=("[new]"  "Deploy a new instance")
         menu_items+=("[quit]" "Exit")
 
         local choice
@@ -142,8 +143,9 @@ main_menu() {
 
         case "$choice" in
             "[quit]"|"─────") exit 0 ;;
-            "[new]") deploy_new_instance ;;
-            *) instance_menu "$choice" ;;
+            "[new]")  deploy_new_instance ;;
+            "[bulk]") bulk_select_menu ;;
+            *)        instance_menu "$choice" ;;
         esac
     done
 }
@@ -183,6 +185,7 @@ instance_menu() {
             "env"       "Edit .env configuration" \
             "wallet"    "Change wallet / private key" \
             "logs"      "Tail live logs (last 50 lines)" \
+            "pentest"   "Run security pentest" \
             "remove"    "Remove this instance entirely" \
             "back"      "← Back to instance list" \
             3>&1 1>&2 2>&3) || return
@@ -196,6 +199,7 @@ instance_menu() {
             "env")      action_edit_env "$name" ;;
             "wallet")   action_change_wallet "$name" ;;
             "logs")     action_logs "$name" ;;
+            "pentest")  clear; run_pentest "$name" ;;
             "remove")   action_remove "$name" && return ;;
             "back"|*)   return ;;
         esac
@@ -470,6 +474,268 @@ action_remove() {
 
     whiptail --title "Remove: $name" --msgbox "Instance '$name' removed." 8 50
     return 0
+}
+
+# ============================================
+#  Pentest runner
+# ============================================
+run_pentest() {
+    local name="$1"
+    local nport bp target
+    nport=$(inst_nginx_port "$name")
+    bp=$(inst_backend_port "$name")
+    [ "$nport" = "?" ] && target="http://127.0.0.1:${bp}" || target="http://127.0.0.1:${nport}"
+
+    local pdir="$SCRIPT_DIR/pentest"
+    local pvenv="$pdir/venv"
+    local pscript="$pdir/pentest_bot.py"
+
+    if [ ! -f "$pscript" ]; then
+        echo -e "${RED}pentest/pentest_bot.py not found${NC}"
+        read -rp "Press Enter..." _; return
+    fi
+    if [ ! -f "$pvenv/bin/python" ]; then
+        echo -e "${CYAN}Setting up pentest venv...${NC}"
+        $PYTHON_BIN -m venv "$pvenv"
+        "$pvenv/bin/pip" install -q --upgrade pip
+        "$pvenv/bin/pip" install -q -r "$pdir/requirements.txt"
+    fi
+
+    echo -e "${CYAN}Waiting for $target to be ready...${NC}"
+    local r=12
+    while [ $r -gt 0 ]; do
+        curl -sf "${target}/api/auth/status" >/dev/null 2>&1 && break
+        sleep 2; ((r--))
+    done
+    [ $r -eq 0 ] && echo -e "${YELLOW}⚠️  Not responding — results may be incomplete${NC}"
+
+    local logfile="/opt/pmbot-${name}/pentest-$(date +%Y%m%d-%H%M%S).log"
+    echo -e "\n${BOLD}${CYAN}━━━ Pentest: $name @ $target ━━━${NC}\n"
+    "$pvenv/bin/python" "$pscript" --target "$target" --logfile "$logfile"
+    local rc=$?
+    echo -e "\n  Log: $logfile\n"
+    case $rc in
+        0) echo -e "${GREEN}✅ Clean — no critical/high/medium issues.${NC}" ;;
+        1) echo -e "${YELLOW}⚠️  Medium issues found — review above.${NC}" ;;
+        2) echo -e "${RED}🔴 Critical/High issues — action required!${NC}" ;;
+    esac
+    echo ""; read -rp "Press Enter to continue..." _
+}
+
+# ============================================
+#  Bulk select + actions
+# ============================================
+bulk_select_menu() {
+    scan_instances
+    [ ${#INSTANCES[@]} -eq 0 ] && return
+
+    local check_items=()
+    for name in "${INSTANCES[@]}"; do
+        local status mode bport nport
+        status=$(inst_status "$name"); mode=$(inst_dry_run "$name")
+        bport=$(inst_backend_port "$name"); nport=$(inst_nginx_port "$name")
+        local label; label="$(printf '%-8s [%-4s]  API:%-6s Nginx:%-6s' "$status" "$mode" ":$bport" ":$nport")"
+        check_items+=("$name" "$label" "OFF")
+    done
+
+    local raw
+    raw=$(whiptail --title "Bulk Select" \
+        --checklist "SPACE to select instances, then ENTER:" \
+        20 72 12 \
+        "${check_items[@]}" \
+        3>&1 1>&2 2>&3) || return
+
+    # Parse selection
+    local selected=()
+    for w in $raw; do selected+=("${w//\"/}"); done
+    [ ${#selected[@]} -eq 0 ] && return
+
+    bulk_action_menu "${selected[@]}"
+}
+
+bulk_action_menu() {
+    local sel=("$@")
+    local names_display; names_display=$(printf '%s  ' "${sel[@]}")
+
+    while true; do
+        local action
+        action=$(whiptail --title "Bulk Actions — ${#sel[@]} selected" \
+            --menu "Instances: $names_display\n\nApply to ALL:" \
+            20 72 8 \
+            "start"   "Start all backends" \
+            "stop"    "Stop all backends" \
+            "restart" "Restart all backends" \
+            "status"  "Status summary + recent logs" \
+            "update"  "Update code on all" \
+            "pentest" "Pentest all" \
+            "logs"    "Tail logs (tmux panes or sequential)" \
+            "back"    "← Back" \
+            3>&1 1>&2 2>&3) || return
+
+        case "$action" in
+            "start")   bulk_start   "${sel[@]}" ;;
+            "stop")    bulk_stop    "${sel[@]}" ;;
+            "restart") bulk_restart "${sel[@]}" ;;
+            "status")  bulk_status  "${sel[@]}" ;;
+            "update")  bulk_update  "${sel[@]}" ;;
+            "pentest") bulk_pentest "${sel[@]}" ;;
+            "logs")    bulk_logs    "${sel[@]}" ;;
+            "back"|*)  return ;;
+        esac
+    done
+}
+
+bulk_start() {
+    clear; echo -e "${BOLD}${CYAN}━━━ Start ━━━${NC}\n"
+    for n in "$@"; do
+        printf "  %-30s" "pmbot-${n}-backend..."
+        systemctl start "pmbot-${n}-backend" 2>/dev/null \
+            && echo -e "${GREEN}ok${NC}" || echo -e "${RED}failed${NC}"
+    done; echo ""; read -rp "Press Enter..." _
+}
+
+bulk_stop() {
+    whiptail --title "Bulk Stop" --yesno "Stop all ${#@} backends?" 7 48 || return
+    clear; echo -e "${BOLD}${CYAN}━━━ Stop ━━━${NC}\n"
+    for n in "$@"; do
+        printf "  %-30s" "pmbot-${n}-backend..."
+        systemctl stop "pmbot-${n}-backend" 2>/dev/null \
+            && echo -e "${GREEN}ok${NC}" || echo -e "${RED}failed${NC}"
+    done; echo ""; read -rp "Press Enter..." _
+}
+
+bulk_restart() {
+    clear; echo -e "${BOLD}${CYAN}━━━ Restart ━━━${NC}\n"
+    for n in "$@"; do
+        printf "  %-30s" "pmbot-${n}-backend..."
+        systemctl restart "pmbot-${n}-backend" 2>/dev/null \
+            && echo -e "${GREEN}$(inst_status "$n")${NC}" || echo -e "${RED}failed${NC}"
+    done; echo ""; read -rp "Press Enter..." _
+}
+
+bulk_status() {
+    clear; echo -e "${BOLD}${CYAN}━━━ Status Summary ━━━${NC}\n"
+    printf "  ${BOLD}%-22s %-10s %-6s :%-5s :%-5s${NC}\n" \
+        "Instance" "Status" "Mode" "API" "Nginx"
+    printf "  %-22s %-10s %-6s %-6s %-6s\n" \
+        "────────" "──────" "────" "───" "─────"
+    for n in "$@"; do
+        local st mode bp np
+        st=$(inst_status "$n"); mode=$(inst_dry_run "$n")
+        bp=$(inst_backend_port "$n"); np=$(inst_nginx_port "$n")
+        if [ "$st" = "running" ]; then
+            printf "  ${GREEN}▶ %-20s${NC} %-10s %-6s :%-5s :%-5s\n" "$n" "$st" "$mode" "$bp" "$np"
+        else
+            printf "  ${RED}■ %-20s${NC} %-10s %-6s :%-5s :%-5s\n" "$n" "$st" "$mode" "$bp" "$np"
+        fi
+    done
+    echo ""
+    for n in "$@"; do
+        echo -e "${CYAN}  ── $n last 3 lines:${NC}"
+        journalctl -u "pmbot-${n}-backend" --no-pager -n 3 --output=cat 2>/dev/null | sed 's/^/    /'
+        echo ""
+    done
+    read -rp "Press Enter..." _
+}
+
+bulk_update() {
+    local sel=("$@")
+    local src_items=()
+    for c in backend m5-backend hourly-backend 4h-backend daily-backend; do
+        [ -d "$SCRIPT_DIR/$c" ] && src_items+=("$c" "")
+    done
+    [ ${#src_items[@]} -eq 0 ] && { whiptail --title "Bulk Update" --msgbox "No source dirs found." 7 44; return; }
+
+    local selected_src
+    selected_src=$(whiptail --title "Bulk Update" \
+        --menu "Source for ALL ${#sel[@]} instances:" \
+        14 54 6 "${src_items[@]}" \
+        3>&1 1>&2 2>&3) || return
+
+    whiptail --title "Bulk Update" --yesno \
+        "Update ALL ${#sel[@]} instances from '${selected_src}'?" \
+        8 58 || return
+
+    for n in "${sel[@]}"; do
+        clear
+        echo -e "${BOLD}${CYAN}━━━ Updating $n ━━━${NC}\n"
+        local app_dir="/opt/pmbot-${n}"
+        local svc="pmbot-${n}-backend"
+
+        echo -e "${CYAN}[1/5] Stopping...${NC}"
+        systemctl stop "$svc" 2>/dev/null || true
+        $PM2_BIN stop "pmbot-${n}-frontend" 2>/dev/null || true; echo "      done"
+
+        echo -e "${CYAN}[2/5] Syncing code...${NC}"
+        rsync -a --delete \
+            --exclude '.env' --exclude '.auth.json' \
+            --exclude '*.db' --exclude '*.db-shm' --exclude '*.db-wal' \
+            --exclude '__pycache__' --exclude '*.pyc' \
+            "$SCRIPT_DIR/$selected_src/" "$app_dir/backend/"
+        local fsrc="${selected_src/backend/frontend}"
+        [ -d "$SCRIPT_DIR/$fsrc" ] && rsync -a --delete \
+            --exclude 'node_modules' --exclude 'dist' \
+            "$SCRIPT_DIR/$fsrc/" "$app_dir/frontend/"
+        chown -R "$APP_USER:$APP_USER" "$app_dir"; echo "      done"
+
+        echo -e "${CYAN}[3/5] Reinstalling deps...${NC}"
+        runuser -u "$APP_USER" -- "$app_dir/venv/bin/pip" install -q --upgrade pip
+        runuser -u "$APP_USER" -- "$app_dir/venv/bin/pip" install -q -r "$app_dir/backend/requirements.txt"
+        echo "      done"
+
+        if [ -d "$app_dir/frontend" ]; then
+            echo -e "${CYAN}[4/5] Rebuilding frontend...${NC}"
+            mkdir -p "$NPM_CACHE_DIR"; chown -R "$APP_USER:$APP_USER" "$NPM_CACHE_DIR"
+            rm -rf "$app_dir/frontend/dist" "$app_dir/frontend/node_modules/.vite"
+            runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$app_dir/frontend" install --no-audit --no-fund
+            runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$app_dir/frontend" run build
+            echo "      done"
+        else echo -e "${CYAN}[4/5] No frontend — skip${NC}"; fi
+
+        echo -e "${CYAN}[5/5] Restarting...${NC}"
+        systemctl start "$svc"
+        if [ -d "$app_dir/frontend" ]; then
+            $PM2_BIN delete "pmbot-${n}-frontend" 2>/dev/null || true
+            $PM2_BIN start "npx vite preview --host 0.0.0.0 --port 3000" \
+                --name "pmbot-${n}-frontend" --cwd "$app_dir/frontend" --uid "$APP_USER"
+            $PM2_BIN save
+        fi
+        echo "      done"
+        echo -e "${GREEN}✓ $n done ($(inst_status "$n"))${NC}\n"
+    done
+
+    read -rp "Pentest all? [Y/n]: " pt; pt=${pt:-Y}
+    [[ "$pt" =~ ^[Yy]$ ]] && bulk_pentest "${sel[@]}" || read -rp "Press Enter..." _
+}
+
+bulk_pentest() {
+    for n in "$@"; do clear; run_pentest "$n"; done
+}
+
+bulk_logs() {
+    if command -v tmux &>/dev/null; then
+        local sess="pmbot-logs-$$"
+        tmux new-session -d -s "$sess" -x 220 -y 50
+        local first=true
+        for n in "$@"; do
+            if [ "$first" = true ]; then
+                tmux send-keys -t "$sess" "journalctl -u pmbot-${n}-backend -f --no-pager -n 30" Enter
+                first=false
+            else
+                tmux split-window -t "$sess" "journalctl -u pmbot-${n}-backend -f --no-pager -n 30"
+                tmux select-layout -t "$sess" tiled
+            fi
+        done
+        echo -e "${CYAN}tmux '$sess' opened — Ctrl+B D to detach${NC}"; sleep 1
+        tmux attach-session -t "$sess"
+    else
+        clear
+        for n in "$@"; do
+            echo -e "${CYAN}━━━ $n (Ctrl+C for next) ━━━${NC}"
+            journalctl -u "pmbot-${n}-backend" -f --no-pager -n 20 || true
+        done
+        read -rp "Press Enter..." _
+    fi
 }
 
 # ============================================
