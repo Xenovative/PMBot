@@ -10,10 +10,28 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8888 " ^| findstr "LISTENIN
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5173 " ^| findstr "LISTENING"') do taskkill /PID %%a /F >nul 2>&1
 timeout /t 1 /nobreak >nul
 
+set "ROOT=%~dp0"
+set "PY_EXE=C:\Users\Cyber Beast Tech\AppData\Local\Programs\Python\Python312\python.exe"
+set "VENV_PY=%ROOT%.venv\Scripts\python.exe"
+
+if not exist "%VENV_PY%" (
+  echo Creating venv with %PY_EXE% ...
+  "%PY_EXE%" -m venv "%ROOT%.venv"
+)
+
+echo Ensuring dependencies...
+"%VENV_PY%" -m pip install -q --upgrade pip
+"%VENV_PY%" -m pip install -q -r "%ROOT%backend\requirements.txt"
+
 echo [1/2] Starting backend (port 8888)...
-start "PMBot-Backend" /D "%~dp0backend" "C:\Users\Cyber Beast Tech\AppData\Local\Programs\Python\Python312\python.exe" main.py
+start "PMBot-Backend" /D "%~dp0backend" cmd /c ""%VENV_PY%" main.py"
 
 timeout /t 3 /nobreak >nul
+
+echo [2/2] Building frontend...
+pushd "%~dp0frontend" >nul
+call npm run build >nul
+popd >nul
 
 echo [2/2] Starting frontend (port 5173)...
 start "PMBot-Frontend" /D "%~dp0frontend" npm run dev

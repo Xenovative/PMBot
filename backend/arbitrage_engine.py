@@ -367,6 +367,52 @@ class ArbitrageEngine:
             )
         return self._clob_client
 
+    def check_credentials(self) -> Dict[str, Any]:
+        """快速檢查簽名配置，回傳狀態與提示。"""
+        sig_type = self.config.signature_type
+        pk = (self.config.private_key or "").strip()
+        funder = (self.config.funder_address or "").strip()
+
+        issues: list[str] = []
+        status = "ok"
+
+        if sig_type == 0:
+            if not funder:
+                issues.append("signature_type=0 需要 funder_address (投資組合頁的錢包地址)")
+            if pk:
+                issues.append("signature_type=0 不應提供 PRIVATE_KEY（email/custodial 由伺服器簽）")
+        else:
+            if not pk:
+                issues.append("signature_type=1/2 需要 PRIVATE_KEY 來本地簽名")
+
+        if sig_type != 0 or pk:
+            try:
+                from py_clob_client.client import ClobClient
+
+                client = ClobClient(
+                    self.config.CLOB_HOST,
+                    key=pk,
+                    chain_id=self.config.CHAIN_ID,
+                    signature_type=sig_type,
+                    funder=funder,
+                )
+                client.set_api_creds(client.create_or_derive_api_creds())
+            except Exception as e:
+                issues.append(f"ClobClient 初始化失敗: {e}")
+
+        if any("需要" in i or "失敗" in i for i in issues):
+            status = "error"
+        elif issues:
+            status = "warn"
+
+        return {
+            "status": status,
+            "signature_type": sig_type,
+            "has_private_key": bool(pk),
+            "funder_address": funder,
+            "issues": issues,
+        }
+
     def _calculate_safe_order_size(self, price_info: PriceInfo, desired_size: float) -> float:
         """
         根據訂單簿深度計算安全的下單數量，確保兩側 USD 金額都 >= $1
@@ -392,33 +438,31 @@ class ArbitrageEngine:
                           price: float, side_label: str) -> dict:
         """
         FOK 買入 — price 僅用於估算股數，不傳入 MarketOrderArgs
-        讓 CLOB 自動從訂單簿計算真實成交價（避免限價過緊導致 FOK 失敗）
+        讓 CLOB 自動從訂單簿計算真實成交價，並用 get_trades 取實際均價
         """
-        from py_clob_client.clob_types import MarketOrderArgs, OrderType
+        from py_clob_client.clob_types import MarketOrderArgs, OrderType, TradeParams
         from py_clob_client.order_builder.constants import BUY
+        import time as _time
 
         estimated_shares = amount_usd / price if price > 0 else 0
 
-        # 確保 amount >= $1
         if amount_usd < 1.0:
             self.status.add_log(f"  ⚠️ {side_label} 金額 ${amount_usd:.2f} < $1 最低限制，跳過")
             return {"success": False, "error": "amount below $1 minimum", "shares": 0, "price": price}
 
-        # price=None → CLOB 自動呼叫 calculate_market_price 從訂單簿取得真實價格
-        # 先記錄 CLOB 自動計算的價格（用於診斷）
         try:
-            auto_price = clob_client.calculate_market_price(
+            marginal_price = clob_client.calculate_market_price(
                 token_id, "BUY", amount_usd, OrderType.FOK
             )
-            actual_shares = amount_usd / auto_price if auto_price > 0 else 0
             self.status.add_log(
-                f"  📖 {side_label} 訂單簿價格={auto_price:.4f} | "
-                f"${amount_usd:.2f}/{auto_price:.4f}={actual_shares:.2f}股 "
-                f"(effective估算: {estimated_shares:.2f}股)"
+                f"  📖 {side_label} 訂單簿邊際價={marginal_price:.4f} | "
+                f"${amount_usd:.2f} (估算: {estimated_shares:.2f}股 @ {price:.4f})"
             )
         except Exception as e:
             self.status.add_log(f"  ⚠️ {side_label} 訂單簿深度不足: {str(e)[:80]}")
             return {"success": False, "error": f"orderbook depth: {str(e)[:80]}", "shares": 0, "price": price}
+
+        before_ts = int(_time.time())
 
         try:
             order = MarketOrderArgs(
@@ -430,15 +474,51 @@ class ArbitrageEngine:
             )
             signed = clob_client.create_market_order(order)
             resp = clob_client.post_order(signed, OrderType.FOK)
-            self.status.add_log(
-                f"  ✅ {side_label} FOK 成交 | ${amount_usd:.2f} @ {auto_price:.4f} ≈ {actual_shares:.1f} 股"
-            )
-            return {"success": True, "response": resp, "shares": actual_shares, "price": auto_price}
+            self.status.add_log(f"  📋 {side_label} post_order 回應: {str(resp)[:200]}")
         except Exception as e:
             last_error = str(e)
             self.status.add_log(f"  ⚠️ {side_label} FOK 失敗: {last_error[:120]}")
+            return {"success": False, "error": last_error[:120], "shares": 0, "price": price}
 
-        return {"success": False, "error": last_error[:120], "shares": 0, "price": price}
+        fill_shares = 0.0
+        fill_cost = 0.0
+        fill_price = marginal_price
+        order_id = resp.get("orderId") or resp.get("order_id") or resp.get("id")
+
+        try:
+            trades = []
+            for _ in range(3):
+                _time.sleep(0.4)
+                params = TradeParams(order_id=order_id) if order_id else TradeParams(asset_id=token_id, after=before_ts)
+                trades = clob_client.get_trades(params)
+                if trades:
+                    break
+            if trades:
+                for t in trades:
+                    t_size = float(t.get("size", 0))
+                    t_price = float(t.get("price", 0))
+                    fill_shares += t_size
+                    fill_cost += t_size * t_price
+                if fill_shares > 0:
+                    fill_price = fill_cost / fill_shares
+                self.status.add_log(
+                    f"  ✅ {side_label} 實際成交 | {fill_shares:.2f} 股 @ 均價 {fill_price:.4f} "
+                    f"(${fill_cost:.2f}) | {len(trades)} 筆成交"
+                )
+            else:
+                fill_shares = amount_usd / marginal_price if marginal_price > 0 else estimated_shares
+                fill_price = marginal_price
+                self.status.add_log(
+                    f"  ⚠️ {side_label} 未取得成交記錄，使用估算: {fill_shares:.2f} 股 @ {fill_price:.4f}"
+                )
+        except Exception as e:
+            fill_shares = amount_usd / marginal_price if marginal_price > 0 else estimated_shares
+            fill_price = marginal_price
+            self.status.add_log(
+                f"  ⚠️ {side_label} 取得成交記錄失敗: {str(e)[:80]} | 使用估算: {fill_shares:.2f} 股 @ {fill_price:.4f}"
+            )
+
+        return {"success": True, "response": resp, "shares": fill_shares, "price": fill_price}
 
     def _try_unwind_position(self, clob_client, token_id: str, shares: float,
                              buy_price: float, side_label: str):
@@ -1061,6 +1141,15 @@ class ArbitrageEngine:
                     candidates.append(("DOWN", down_ask, market.down_token_id, market.up_token_id))
 
                 if candidates:
+                    # R1 開倉: 套用偏好方向（但仍須滿足閾值與天花板）
+                    bias = self.config.bargain_first_buy_bias.upper()
+                    if next_round == 1 and bias in ("UP", "DOWN"):
+                        biased = [c for c in candidates if c[0] == bias]
+                        if biased:
+                            candidates = biased
+                        else:
+                            # 偏好側未達條件 → 不開倉，等待價格進入區間
+                            continue
                     candidates.sort(key=lambda c: c[1])
                     side, ask, token_id, comp_id = candidates[0]
                     opportunities.append({

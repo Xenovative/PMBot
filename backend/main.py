@@ -7,7 +7,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -16,7 +16,9 @@ from market_finder import MarketFinder, MarketInfo
 from arbitrage_engine import ArbitrageEngine
 from position_merger import PositionMerger
 import trade_db
+import auth
 
+config = get_config()
 app = FastAPI(title="Polymarket 套利機器人")
 
 # 初始化 SQLite
@@ -36,6 +38,21 @@ market_finder = MarketFinder(config)
 engine = ArbitrageEngine(config)
 bot_task: Optional[asyncio.Task] = None
 connected_clients: list[WebSocket] = []
+
+
+@app.on_event("startup")
+async def startup_credential_check():
+    """Fail-fast credential check for signature_type/private_key/funder."""
+    result = engine.check_credentials()
+    if result.get("issues"):
+        print("[startup] credential check:", result)
+    if result.get("status") == "error":
+        raise RuntimeError(f"credential check failed: {result.get('issues')}")
+
+
+@app.get("/api/check_credentials")
+async def check_credentials():
+    return engine.check_credentials()
 
 
 # ─── WebSocket 廣播 ───
@@ -176,18 +193,18 @@ async def bot_loop():
 # ─── API 路由 ───
 
 @app.get("/api/status")
-async def get_status():
+async def get_status(_user=Depends(auth.require_auth)):
     return engine.status.to_dict()
 
 
 @app.get("/api/markets")
-async def get_markets():
+async def get_markets(_user=Depends(auth.require_auth)):
     markets = await market_finder.find_all_crypto_markets()
     return [m.to_dict() for m in markets]
 
 
 @app.get("/api/config")
-async def get_current_config():
+async def get_current_config(_user=Depends(auth.require_auth)):
     return {
         "target_pair_cost": config.target_pair_cost,
         "order_size": config.order_size,
@@ -229,7 +246,7 @@ class ConfigUpdate(BaseModel):
 
 
 @app.post("/api/config")
-async def update_config(update: ConfigUpdate):
+async def update_config(update: ConfigUpdate, _user=Depends(auth.require_auth)):
     updates = {k: v for k, v in update.model_dump().items() if v is not None}
     engine.update_config(updates)
     # Also update the module-level config
@@ -239,8 +256,104 @@ async def update_config(update: ConfigUpdate):
     return {"status": "ok", "updated": list(updates.keys())}
 
 
+# ─── Auth API (公開路由: setup/login; 保護路由: 2FA mgmt) ───
+
+class SetupRequest(BaseModel):
+    password: str
+
+
+class LoginRequest(BaseModel):
+    password: str
+    totp_code: Optional[str] = None
+
+
+class TotpSetupRequest(BaseModel):
+    device_name: Optional[str] = "Authenticator"
+
+
+class TotpVerifyRequest(BaseModel):
+    code: str
+
+
+class DeviceRemoveRequest(BaseModel):
+    device_id: str
+
+
+@app.get("/api/auth/status")
+async def auth_status():
+    return {
+        "setup_complete": auth.is_setup_complete(),
+        "totp_enabled": auth.is_2fa_enabled(),
+    }
+
+
+@app.post("/api/auth/setup")
+async def auth_setup(req: SetupRequest):
+    if auth.is_setup_complete():
+        return {"error": "Already set up. Use login instead."}
+    try:
+        auth.setup_password(req.password)
+        token = auth.create_token()
+        return {"status": "ok", "token": token}
+    except ValueError as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/auth/login")
+async def auth_login(req: LoginRequest, request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    method = "password+totp" if req.totp_code else "password"
+
+    lockout = auth._check_rate_limit(client_ip)
+    if lockout:
+        return {"error": f"Too many attempts. Try again in {lockout}s.", "locked": True}
+
+    if not auth.is_setup_complete():
+        return {"error": "Not set up yet. Use /api/auth/setup first."}
+
+    if not auth.verify_password(req.password):
+        auth._record_login_attempt(client_ip)
+        return {"error": "Invalid credentials"}
+
+    if auth.is_2fa_enabled():
+        if not req.totp_code:
+            return {"error": "2FA code required", "needs_totp": True}
+        if not auth.verify_totp(req.totp_code):
+            auth._record_login_attempt(client_ip)
+            return {"error": "Invalid credentials"}
+
+    auth._clear_login_attempts(client_ip)
+    token = auth.create_token()
+    return {"status": "ok", "token": token}
+
+
+@app.post("/api/auth/2fa/setup")
+async def auth_2fa_setup(req: TotpSetupRequest = TotpSetupRequest(), _user=Depends(auth.require_auth)):
+    return auth.setup_2fa(req.device_name or "Authenticator")
+
+
+@app.post("/api/auth/2fa/verify")
+async def auth_2fa_verify(req: TotpVerifyRequest, _user=Depends(auth.require_auth)):
+    device = auth.verify_2fa_setup(req.code)
+    if device:
+        return {"status": "ok", "totp_enabled": True, "device": device}
+    return {"error": "Invalid code. Try again."}
+
+
+@app.get("/api/auth/2fa/devices")
+async def auth_2fa_devices(_user=Depends(auth.require_auth)):
+    return {"devices": auth.list_devices()}
+
+
+@app.post("/api/auth/2fa/remove")
+async def auth_2fa_remove(req: DeviceRemoveRequest, _user=Depends(auth.require_auth)):
+    if auth.remove_device(req.device_id):
+        return {"status": "ok"}
+    return {"error": "Device not found"}
+
+
 @app.post("/api/bot/start")
-async def start_bot():
+async def start_bot(_user=Depends(auth.require_auth)):
     global bot_task
     if engine.status.running:
         return {"status": "already_running"}
@@ -251,7 +364,7 @@ async def start_bot():
 
 
 @app.post("/api/bot/stop")
-async def stop_bot():
+async def stop_bot(_user=Depends(auth.require_auth)):
     global bot_task
     if not engine.status.running:
         return {"status": "not_running"}
@@ -271,12 +384,12 @@ async def stop_bot():
 # ─── 合併 API ───
 
 @app.get("/api/merge/status")
-async def get_merge_status():
+async def get_merge_status(_user=Depends(auth.require_auth)):
     return engine.merger.get_status()
 
 
 @app.post("/api/merge/toggle")
-async def toggle_auto_merge():
+async def toggle_auto_merge(_user=Depends(auth.require_auth)):
     engine.merger.auto_merge_enabled = not engine.merger.auto_merge_enabled
     state = "啟用" if engine.merger.auto_merge_enabled else "停用"
     engine.status.add_log(f"🔄 自動合併已{state}")
@@ -289,7 +402,7 @@ class MergeRequest(BaseModel):
 
 
 @app.post("/api/merge/execute")
-async def execute_merge(req: MergeRequest):
+async def execute_merge(req: MergeRequest, _user=Depends(auth.require_auth)):
     record = await engine.merger.merge_positions(req.condition_id, req.amount)
     if record:
         await broadcast({"type": "merge", "data": record.to_dict()})
@@ -298,7 +411,7 @@ async def execute_merge(req: MergeRequest):
 
 
 @app.post("/api/merge/all")
-async def merge_all_positions():
+async def merge_all_positions(_user=Depends(auth.require_auth)):
     results = await engine.merger.auto_merge_all()
     for r in results:
         await broadcast({"type": "merge", "data": r.to_dict()})
@@ -308,47 +421,47 @@ async def merge_all_positions():
 # ─── Analytics API ───
 
 @app.get("/api/analytics/overview")
-async def analytics_overview():
+async def analytics_overview(_user=Depends(auth.require_auth)):
     return trade_db.get_overview()
 
 
 @app.get("/api/analytics/cumulative-profit")
-async def analytics_cumulative_profit(days: int = 30):
+async def analytics_cumulative_profit(days: int = 30, _user=Depends(auth.require_auth)):
     return trade_db.get_cumulative_profit(days)
 
 
 @app.get("/api/analytics/daily-pnl")
-async def analytics_daily_pnl(days: int = 30):
+async def analytics_daily_pnl(days: int = 30, _user=Depends(auth.require_auth)):
     return trade_db.get_daily_pnl(days)
 
 
 @app.get("/api/analytics/trade-frequency")
-async def analytics_trade_frequency(days: int = 30):
+async def analytics_trade_frequency(days: int = 30, _user=Depends(auth.require_auth)):
     return trade_db.get_trade_frequency(days)
 
 
 @app.get("/api/analytics/win-rate")
-async def analytics_win_rate(days: int = 30):
+async def analytics_win_rate(days: int = 30, _user=Depends(auth.require_auth)):
     return trade_db.get_win_rate_over_time(days)
 
 
 @app.get("/api/analytics/per-market")
-async def analytics_per_market():
+async def analytics_per_market(_user=Depends(auth.require_auth)):
     return trade_db.get_per_market_stats()
 
 
 @app.get("/api/analytics/trades")
-async def analytics_trades(limit: int = 100, offset: int = 0, status: Optional[str] = None):
+async def analytics_trades(limit: int = 100, offset: int = 0, status: Optional[str] = None, _user=Depends(auth.require_auth)):
     return trade_db.get_trades(limit, offset, status)
 
 
 @app.get("/api/analytics/merges")
-async def analytics_merges(limit: int = 50):
+async def analytics_merges(limit: int = 50, _user=Depends(auth.require_auth)):
     return trade_db.get_merges(limit)
 
 
 @app.get("/api/price/{crypto}")
-async def get_price(crypto: str):
+async def get_price(crypto: str, _user=Depends(auth.require_auth)):
     """手動獲取指定加密貨幣的當前市場價格"""
     market = await market_finder.find_active_tradeable_market(crypto.lower())
     if not market:
@@ -366,6 +479,13 @@ async def get_price(crypto: str):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    token = websocket.query_params.get("token") if websocket.query_params else None
+    try:
+        auth.require_auth_ws(token)
+    except Exception:
+        await websocket.close(code=4401)
+        return
+
     await websocket.accept()
     connected_clients.append(websocket)
     engine.status.add_log("🔗 新的 WebSocket 連接")

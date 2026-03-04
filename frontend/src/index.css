@@ -1,24 +1,103 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans TC', sans-serif;
+  font-family: 'Rajdhani', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans TC', sans-serif;
 }
 
+/* ── Neon scrollbar ── */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
-
 ::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.4);
 }
-
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
+  background: linear-gradient(180deg, #0ff, #f0f);
+  border-radius: 4px;
+  box-shadow: 0 0 6px rgba(0, 255, 255, 0.4);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #0ff, #ff0);
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.7);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+/* ── Utility: glassmorphism panel ── */
+@layer components {
+  .cyber-panel {
+    background: rgba(5, 5, 20, 0.75);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(0, 255, 255, 0.12);
+    border-radius: 0.75rem;
+    box-shadow:
+      0 0 8px rgba(0, 255, 255, 0.06),
+      inset 0 1px 0 rgba(0, 255, 255, 0.08);
+  }
+  .cyber-panel-magenta {
+    background: rgba(5, 5, 20, 0.75);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 0, 255, 0.15);
+    border-radius: 0.75rem;
+    box-shadow:
+      0 0 8px rgba(255, 0, 255, 0.08),
+      inset 0 1px 0 rgba(255, 0, 255, 0.08);
+  }
+  .cyber-panel-amber {
+    background: rgba(5, 5, 20, 0.75);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 200, 0, 0.15);
+    border-radius: 0.75rem;
+    box-shadow:
+      0 0 8px rgba(255, 200, 0, 0.06),
+      inset 0 1px 0 rgba(255, 200, 0, 0.08);
+  }
+  .neon-text-cyan {
+    color: #0ff;
+    text-shadow: 0 0 7px rgba(0, 255, 255, 0.6), 0 0 20px rgba(0, 255, 255, 0.3);
+  }
+  .neon-text-magenta {
+    color: #f0f;
+    text-shadow: 0 0 7px rgba(255, 0, 255, 0.6), 0 0 20px rgba(255, 0, 255, 0.3);
+  }
+  .neon-text-green {
+    color: #0f0;
+    text-shadow: 0 0 7px rgba(0, 255, 0, 0.5), 0 0 20px rgba(0, 255, 0, 0.2);
+  }
+  .neon-text-amber {
+    color: #ffc800;
+    text-shadow: 0 0 7px rgba(255, 200, 0, 0.5), 0 0 20px rgba(255, 200, 0, 0.2);
+  }
+}
+
+/* ── Scanline overlay (subtle) ── */
+.scanlines::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+}
+
+/* ── Neon border pulse animation ── */
+@keyframes neon-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.neon-pulse {
+  animation: neon-pulse 2s ease-in-out infinite;
+}
+
+/* ── Orbitron for headings ── */
+.font-cyber {
+  font-family: 'Orbitron', monospace;
 }

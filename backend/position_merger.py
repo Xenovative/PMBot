@@ -187,11 +187,41 @@ class PositionMerger:
                 address=Web3.to_checksum_address(CTF_ADDRESS),
                 abi=CTF_ABI,
             )
+            if not self._ensure_merge_approval():
+                self.add_log("❌ setApprovalForAll 失敗，無法合併")
+                return False
             self._initialized = True
             self.add_log(f"✅ 合併器初始化完成 | 錢包: {self.account.address[:10]}...")
             return True
         except Exception as e:
             self.add_log(f"❌ 初始化失敗: {e}")
+            return False
+
+    def _ensure_merge_approval(self) -> bool:
+        """確保 CTF 合約已被授權為 operator (ERC1155 setApprovalForAll)。"""
+        try:
+            owner = self.account.address
+            operator = Web3.to_checksum_address(CTF_ADDRESS)
+            approved = self.ctf_contract.functions.isApprovedForAll(owner, operator).call()
+            if approved:
+                return True
+            tx = self.ctf_contract.functions.setApprovalForAll(operator, True).build_transaction({
+                "from": owner,
+                "nonce": self.w3.eth.get_transaction_count(owner),
+                "gas": 120000,
+                "gasPrice": self.w3.eth.gas_price,
+                "chainId": 137,
+            })
+            signed = self.w3.eth.account.sign_transaction(tx, self.config.private_key)
+            tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+            if receipt.status != 1:
+                self.add_log(f"❌ setApprovalForAll 失敗 (reverted) | TX: {tx_hash.hex()[:16]}...")
+                return False
+            self.add_log(f"✅ setApprovalForAll 完成 | TX: {tx_hash.hex()[:16]}...")
+            return True
+        except Exception as e:
+            self.add_log(f"❌ setApprovalForAll 發送失敗: {e}")
             return False
 
     def track_trade(self, market_slug: str, condition_id: str,
@@ -261,12 +291,15 @@ class PositionMerger:
             if not self.initialize():
                 return None
 
-        pos = self.tracked_positions.get(condition_id)
+        # 同步鏈上餘額，避免本地狀態失真導致 revert
+        pos = await self.check_on_chain_balances(condition_id)
         if not pos:
             self.add_log(f"❌ 未找到持倉: {condition_id[:16]}...")
             return None
 
         merge_amount = amount or pos.mergeable_amount
+        # 以鏈上實際可合併數量為準，避免本地高估
+        merge_amount = min(merge_amount, pos.mergeable_amount)
         if merge_amount < self.min_merge_amount:
             self.add_log(f"⚠️ 合併數量不足: {merge_amount:.2f} < {self.min_merge_amount}")
             return None
@@ -308,19 +341,34 @@ class PositionMerger:
             condition_id_bytes = bytes.fromhex(condition_id.replace("0x", ""))
 
             # 構建交易
-            tx = self.ctf_contract.functions.mergePositions(
+            tx_func = self.ctf_contract.functions.mergePositions(
                 Web3.to_checksum_address(USDC_ADDRESS),  # collateralToken
                 b'\x00' * 32,                             # parentCollectionId (null)
                 condition_id_bytes,                       # conditionId
                 [1, 2],                                   # partition (YES|NO)
                 amount_raw,                               # amount
-            ).build_transaction({
+            )
+
+            tx_params = {
                 "from": wallet,
                 "nonce": self.w3.eth.get_transaction_count(wallet),
-                "gas": 300000,
                 "gasPrice": self.w3.eth.gas_price,
                 "chainId": 137,
-            })
+            }
+
+            # 估算 gas，若失敗提早報錯
+            try:
+                gas_est = self.w3.eth.estimate_gas({
+                    "from": wallet,
+                    "to": CTF_ADDRESS,
+                    "data": tx_func._encode_transaction_data(),
+                })
+                tx_params["gas"] = int(gas_est * 1.2)
+            except Exception as e:
+                self.add_log(f"❌ merge estimateGas 失敗: {e}")
+                return None
+
+            tx = tx_func.build_transaction(tx_params)
 
             # 簽名並發送
             signed_tx = self.w3.eth.account.sign_transaction(tx, self.config.private_key)

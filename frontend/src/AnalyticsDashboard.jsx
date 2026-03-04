@@ -11,7 +11,7 @@ import {
 
 const API = ''
 
-function AnalyticsDashboard() {
+function AnalyticsDashboard({ token }) {
   const [overview, setOverview] = useState(null)
   const [cumProfit, setCumProfit] = useState([])
   const [dailyPnl, setDailyPnl] = useState([])
@@ -25,18 +25,28 @@ function AnalyticsDashboard() {
   const [tradesOpen, setTradesOpen] = useState(false)
   const [days, setDays] = useState(30)
 
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
+
+  const fetchJson = useCallback(async (url) => {
+    const res = await fetch(url, { headers: authHeaders })
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`)
+    }
+    return res.json()
+  }, [authHeaders])
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
       const [ov, cp, dp, tf, wr, pm, tr, mr] = await Promise.all([
-        fetch(`${API}/api/analytics/overview`).then(r => r.json()),
-        fetch(`${API}/api/analytics/cumulative-profit?days=${days}`).then(r => r.json()),
-        fetch(`${API}/api/analytics/daily-pnl?days=${days}`).then(r => r.json()),
-        fetch(`${API}/api/analytics/trade-frequency?days=${days}`).then(r => r.json()),
-        fetch(`${API}/api/analytics/win-rate?days=${days}`).then(r => r.json()),
-        fetch(`${API}/api/analytics/per-market`).then(r => r.json()),
-        fetch(`${API}/api/analytics/trades?limit=50`).then(r => r.json()),
-        fetch(`${API}/api/analytics/merges?limit=20`).then(r => r.json()),
+        fetchJson(`${API}/api/analytics/overview`),
+        fetchJson(`${API}/api/analytics/cumulative-profit?days=${days}`),
+        fetchJson(`${API}/api/analytics/daily-pnl?days=${days}`),
+        fetchJson(`${API}/api/analytics/trade-frequency?days=${days}`),
+        fetchJson(`${API}/api/analytics/win-rate?days=${days}`),
+        fetchJson(`${API}/api/analytics/per-market`),
+        fetchJson(`${API}/api/analytics/trades?limit=50`),
+        fetchJson(`${API}/api/analytics/merges?limit=20`),
       ])
       setOverview(ov)
       setCumProfit(cp)
@@ -48,9 +58,17 @@ function AnalyticsDashboard() {
       setRecentMerges(mr)
     } catch (e) {
       console.error('Analytics fetch error:', e)
+      setOverview(null)
+      setCumProfit([])
+      setDailyPnl([])
+      setTradeFreq([])
+      setWinRate([])
+      setPerMarket([])
+      setRecentTrades([])
+      setRecentMerges([])
     }
     setLoading(false)
-  }, [days])
+  }, [days, fetchJson])
 
   useEffect(() => {
     fetchAll()
@@ -144,14 +162,14 @@ function AnalyticsDashboard() {
       </div>
 
       {/* Overview Tab */}
-      {activeTab === 'overview' && overview && (
+      {activeTab === 'overview' && overview && overview.total_profit !== undefined && (
         <div className="space-y-4">
           {/* Stat Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <MiniStat
               icon={<DollarSign className="w-4 h-4" />}
               label="總利潤"
-              value={`$${overview.total_profit.toFixed(4)}`}
+              value={`$${Number(overview.total_profit || 0).toFixed(4)}`}
               color={overview.total_profit >= 0 ? 'emerald' : 'red'}
             />
             <MiniStat
@@ -163,13 +181,13 @@ function AnalyticsDashboard() {
             <MiniStat
               icon={<Target className="w-4 h-4" />}
               label="勝率"
-              value={`${overview.win_rate}%`}
+              value={`${overview.win_rate ?? 0}%`}
               color="violet"
             />
             <MiniStat
               icon={<Layers className="w-4 h-4" />}
               label="合併 USDC"
-              value={`$${overview.total_merge_usdc.toFixed(2)}`}
+              value={`$${Number(overview.total_merge_usdc || 0).toFixed(2)}`}
               color="cyan"
             />
           </div>
@@ -178,7 +196,7 @@ function AnalyticsDashboard() {
             <MiniStat
               icon={<TrendingUp className="w-4 h-4" />}
               label="今日利潤"
-              value={`$${overview.today_profit.toFixed(4)}`}
+              value={`$${Number(overview.today_profit || 0).toFixed(4)}`}
               color={overview.today_profit >= 0 ? 'emerald' : 'red'}
             />
             <MiniStat
@@ -190,13 +208,13 @@ function AnalyticsDashboard() {
             <MiniStat
               icon={<Award className="w-4 h-4" />}
               label="最佳交易"
-              value={`$${overview.best_trade.toFixed(4)}`}
+              value={`$${Number(overview.best_trade || 0).toFixed(4)}`}
               color="emerald"
             />
             <MiniStat
               icon={<TrendingDown className="w-4 h-4" />}
               label="最差交易"
-              value={`$${overview.worst_trade.toFixed(4)}`}
+              value={`$${Number(overview.worst_trade || 0).toFixed(4)}`}
               color="red"
             />
           </div>
@@ -228,6 +246,10 @@ function AnalyticsDashboard() {
               </div>
             </div>
           )}
+
+      {activeTab === 'overview' && (!overview || overview.total_profit === undefined) && (
+        <div className="text-sm text-gray-500">無法載入數據（尚未登入或權限不足）。</div>
+      )}
         </div>
       )}
 

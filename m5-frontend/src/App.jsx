@@ -737,7 +737,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 type="number"
                 value={configForm.min_time_remaining_seconds ?? 3600}
                 onChange={(v) => setConfigForm({ ...configForm, min_time_remaining_seconds: parseInt(v) })}
-                hint="每日市場建議 3600 秒 (1 小時)"
+                hint="5 分鐘市場建議 300 秒 (5 分鐘)"
               />
               <ConfigField
                 label="每市場最大交易次數"
@@ -750,7 +750,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 type="number"
                 value={configForm.trade_cooldown_seconds ?? 300}
                 onChange={(v) => setConfigForm({ ...configForm, trade_cooldown_seconds: parseInt(v) })}
-                hint="每日市場建議 300 秒 (5 分鐘)"
+                hint="5 分鐘市場建議 60 秒 (1 分鐘)"
               />
               <ConfigField
                 label="最低流動性"
