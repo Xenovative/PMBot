@@ -479,12 +479,38 @@ action_remove() {
 # ============================================
 #  Pentest runner
 # ============================================
+inst_public_url() {
+    local name="$1"
+    local conf="/etc/nginx/sites-available/pmbot-${name}"
+    # Prefer server_name with a real domain (not _ or localhost)
+    local domain
+    domain=$(grep -oP 'server_name\s+\K[^;]+' "$conf" 2>/dev/null \
+        | tr ' ' '\n' | grep -v '^_$' | grep -v '^localhost$' | grep '\.' | head -1)
+    if [ -n "$domain" ]; then
+        # Check if SSL cert exists for this domain
+        if [ -f "/etc/letsencrypt/live/${domain}/fullchain.pem" ]; then
+            echo "https://${domain}"
+        else
+            echo "http://${domain}"
+        fi
+    else
+        echo ""
+    fi
+}
+
 run_pentest() {
     local name="$1"
-    local nport bp target
+    local nport bp target pub
     nport=$(inst_nginx_port "$name")
     bp=$(inst_backend_port "$name")
-    [ "$nport" = "?" ] && target="http://127.0.0.1:${bp}" || target="http://127.0.0.1:${nport}"
+    pub=$(inst_public_url "$name")
+    if [ -n "$pub" ]; then
+        target="$pub"
+    elif [ "$nport" != "?" ]; then
+        target="http://127.0.0.1:${nport}"
+    else
+        target="http://127.0.0.1:${bp}"
+    fi
 
     local pdir="$SCRIPT_DIR/pentest"
     local pvenv="$pdir/venv"
