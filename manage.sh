@@ -281,61 +281,67 @@ action_update() {
         "Update $name from $selected_src?\n\nThis will:\n• Sync code (preserving .env, .auth.json, databases)\n• Reinstall Python deps\n• Rebuild frontend\n• Restart service" \
         14 60 || return
 
-    {
-        echo "10"; echo "# Stopping service..."
-        systemctl stop "$svc" 2>/dev/null || true
-        $PM2_BIN stop "pmbot-${name}-frontend" 2>/dev/null || true
+    clear
+    echo -e "${BOLD}${CYAN}━━━ Updating: $name ━━━${NC}"
+    echo ""
 
-        echo "25"; echo "# Syncing backend code..."
+    echo -e "${CYAN}[1/5] Stopping service...${NC}"
+    systemctl stop "$svc" 2>/dev/null || true
+    $PM2_BIN stop "pmbot-${name}-frontend" 2>/dev/null || true
+    echo "    done"
+
+    echo -e "${CYAN}[2/5] Syncing backend code...${NC}"
+    rsync -a --delete \
+        --exclude '.env' --exclude '.auth.json' \
+        --exclude '*.db' --exclude '*.db-shm' --exclude '*.db-wal' \
+        --exclude '__pycache__' --exclude '*.pyc' \
+        "$SCRIPT_DIR/$selected_src/" "$app_dir/backend/"
+
+    local fsrc="${selected_src/backend/frontend}"
+    if [ -d "$SCRIPT_DIR/$fsrc" ]; then
+        echo -e "${CYAN}    Syncing frontend code...${NC}"
         rsync -a --delete \
-            --exclude '.env' --exclude '.auth.json' \
-            --exclude '*.db' --exclude '*.db-shm' --exclude '*.db-wal' \
-            --exclude '__pycache__' --exclude '*.pyc' \
-            "$SCRIPT_DIR/$selected_src/" "$app_dir/backend/"
+            --exclude 'node_modules' --exclude 'dist' \
+            "$SCRIPT_DIR/$fsrc/" "$app_dir/frontend/"
+    fi
+    chown -R "$APP_USER:$APP_USER" "$app_dir"
+    echo "    done"
 
-        # Frontend
-        fsrc="${selected_src/backend/frontend}"
-        if [ -d "$SCRIPT_DIR/$fsrc" ]; then
-            echo "40"; echo "# Syncing frontend code..."
-            rsync -a --delete \
-                --exclude 'node_modules' --exclude 'dist' \
-                "$SCRIPT_DIR/$fsrc/" "$app_dir/frontend/"
-        fi
+    echo -e "${CYAN}[3/5] Reinstalling Python deps...${NC}"
+    runuser -u "$APP_USER" -- "$app_dir/venv/bin/pip" install -q --upgrade pip
+    runuser -u "$APP_USER" -- "$app_dir/venv/bin/pip" install -q -r "$app_dir/backend/requirements.txt"
+    echo "    done"
 
-        chown -R "$APP_USER:$APP_USER" "$app_dir"
+    if [ -d "$app_dir/frontend" ]; then
+        echo -e "${CYAN}[4/5] Rebuilding frontend...${NC}"
+        mkdir -p "$NPM_CACHE_DIR"
+        chown -R "$APP_USER:$APP_USER" "$NPM_CACHE_DIR"
+        rm -rf "$app_dir/frontend/dist" "$app_dir/frontend/node_modules/.vite"
+        runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$app_dir/frontend" install --no-audit --no-fund
+        runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$app_dir/frontend" run build
+        echo "    done"
+    else
+        echo -e "${CYAN}[4/5] No frontend — skipping${NC}"
+    fi
 
-        echo "55"; echo "# Reinstalling Python deps..."
-        runuser -u "$APP_USER" -- "$app_dir/venv/bin/pip" install -q --upgrade pip
-        runuser -u "$APP_USER" -- "$app_dir/venv/bin/pip" install -q -r "$app_dir/backend/requirements.txt"
+    echo -e "${CYAN}[5/5] Restarting services...${NC}"
+    systemctl start "$svc"
+    if [ -d "$app_dir/frontend" ]; then
+        $PM2_BIN delete "pmbot-${name}-frontend" 2>/dev/null || true
+        $PM2_BIN start "npx vite preview --host 0.0.0.0 --port 3000" \
+            --name "pmbot-${name}-frontend" \
+            --cwd "$app_dir/frontend" \
+            --uid "$APP_USER"
+        $PM2_BIN save
+    fi
+    echo "    done"
 
-        if [ -d "$app_dir/frontend" ]; then
-            echo "70"; echo "# Rebuilding frontend..."
-            mkdir -p "$NPM_CACHE_DIR"
-            chown -R "$APP_USER:$APP_USER" "$NPM_CACHE_DIR"
-            rm -rf "$app_dir/frontend/dist" "$app_dir/frontend/node_modules/.vite"
-            runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$app_dir/frontend" install --no-audit --no-fund
-            runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$app_dir/frontend" run build
-        fi
-
-        echo "85"; echo "# Restarting services..."
-        systemctl start "$svc"
-
-        if [ -d "$app_dir/frontend" ]; then
-            $PM2_BIN delete "pmbot-${name}-frontend" 2>/dev/null || true
-            $PM2_BIN start "npx vite preview --host 0.0.0.0 --port 3000" \
-                --name "pmbot-${name}-frontend" \
-                --cwd "$app_dir/frontend" \
-                --uid "$APP_USER"
-            $PM2_BIN save
-        fi
-
-        echo "100"; echo "# Done!"
-    } | whiptail --title "Updating: $name" --gauge "Starting update..." 8 65 0
-
-    sleep 1
+    echo ""
     local status
     status=$(inst_status "$name")
-    whiptail --title "Update: $name" --msgbox "Update complete!\nService status: $status" 9 50
+    echo -e "${GREEN}✓ Update complete! Service status: ${status}${NC}"
+    echo ""
+    read -p "Press Enter to return to manager..." _
 }
 
 action_edit_env() {
