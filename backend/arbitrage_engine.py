@@ -1583,8 +1583,13 @@ class ArbitrageEngine:
         self._approvals_ok = self.ensure_approvals()
 
     def ensure_approvals(self) -> bool:
-        """確保 EOA 錢包已對 Polymarket 合約設定 USDC 和 CTF ERC-1155 授權。dry_run / sig_type=0 時跳過。"""
-        if self.config.dry_run or self.config.signature_type == 0:
+        """確保 EOA 錢包已對 Polymarket 合約設定 USDC 和 CTF ERC-1155 授權。dry_run 時跳過。"""
+        if self.config.dry_run:
+            return True
+        if self.config.signature_type != 0:
+            self.status.add_log(
+                f"ℹ️ sig_type={self.config.signature_type} (托管帳戶)，跟上授權需將 Funder 錢包與 Polymarket 合約連線手動設定，跳過自動授權"
+            )
             return True
         pk = (self.config.private_key or "").strip()
         if not pk:

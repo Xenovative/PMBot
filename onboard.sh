@@ -217,9 +217,16 @@ for stack in "${SELECTED_STACKS[@]}"; do
 
     # Per-stack wallet
     echo ""
+    echo -e "    ${BOLD}Wallet setup:${NC}"
+    echo -e "    • ${CYAN}EOA wallet${NC}: enter the private key directly (sig type 0)"
+    echo -e "    • ${CYAN}Custodial/Magic/email account${NC}: enter the ${BOLD}proxy signer${NC} private key"
+    echo -e "      (a separate EOA you created — NOT your email account password)."
+    echo -e "      Then provide your Polymarket funder address and select sig type 1."
+    echo -e "      Note: you must manually approve contracts in the Polymarket UI first."
+    echo ""
     pk="" fa="" st="" raw_pk=""
     while true; do
-        read -p "    Private key for ${inst_name} (blank = dry-run): " pk
+        read -p "    Private key (blank = dry-run): " pk
         if [ -z "$pk" ]; then break; fi
         raw_pk="${pk#0x}"; raw_pk="${raw_pk#0X}"
         if echo "$raw_pk" | grep -qP '^[0-9a-fA-F]{64}$'; then break; fi
@@ -228,13 +235,13 @@ for stack in "${SELECTED_STACKS[@]}"; do
     STACK_PRIVATE_KEY[$name]="$pk"
     if [ -n "$pk" ]; then
         while true; do
-            read -p "    Funder address (blank for EOA): " fa
+            read -p "    Funder address (blank for EOA / same wallet): " fa
             if [ -z "$fa" ]; then break; fi
             if echo "$fa" | grep -qP '^0x[0-9a-fA-F]{40}$'; then break; fi
             err "    Invalid funder address: must be 0x + 40 hex chars (42 total). Got: $fa"
         done
         STACK_FUNDER[$name]="$fa"
-        echo -e "    Signature type: ${CYAN}0${NC}=EOA  ${CYAN}1${NC}=Magic  ${CYAN}2${NC}=Gnosis"
+        echo -e "    Signature type: ${CYAN}0${NC}=EOA (direct wallet)  ${CYAN}1${NC}=Magic/email (custodial)  ${CYAN}2${NC}=Gnosis Safe"
         while true; do
             read -p "    Signature type [0]: " st
             st=${st:-0}
