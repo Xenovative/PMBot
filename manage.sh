@@ -390,11 +390,28 @@ action_change_wallet() {
         return
     fi
 
+    # Validate private key: strip optional 0x, must be exactly 64 hex chars
+    local raw_key="${new_key#0x}"; raw_key="${raw_key#0X}"
+    if ! echo "$raw_key" | grep -qP '^[0-9a-fA-F]{64}$'; then
+        whiptail --title "Change Wallet: $name" --msgbox \
+            "❌ Invalid private key.\n\nMust be a 64-character hex string (32 bytes), with or without 0x prefix.\nGot ${#raw_key} hex chars.\n\nDid you paste a wallet address instead of the private key?" \
+            13 65
+        return
+    fi
+
     local new_funder
     new_funder=$(whiptail --title "Change Wallet: $name" \
         --inputbox "Funder address (Gnosis Safe proxy, or leave blank for EOA):" \
         9 65 "" \
         3>&1 1>&2 2>&3) || return
+
+    # Validate funder address: must be empty or 0x + 40 hex chars
+    if [ -n "$new_funder" ] && ! echo "$new_funder" | grep -qP '^0x[0-9a-fA-F]{40}$'; then
+        whiptail --title "Change Wallet: $name" --msgbox \
+            "❌ Invalid funder address.\n\nMust be a 0x-prefixed 20-byte EVM address (42 chars total).\nGot: $new_funder" \
+            11 65
+        return
+    fi
 
     local sig_type
     sig_type=$(whiptail --title "Change Wallet: $name" \

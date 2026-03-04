@@ -74,6 +74,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
   const { status, markets, trades, mergeStatus, connected } = useWebSocket(wsUrl, token)
   const [config, setConfig] = useState(null)
   const [configForm, setConfigForm] = useState({})
+  const [configErrors, setConfigErrors] = useState({})
   const [showKey, setShowKey] = useState(false)
   const [manualMarkets, setManualMarkets] = useState([])
   const [loading, setLoading] = useState(false)
@@ -98,7 +99,27 @@ function Dashboard({ token, authHeaders, onLogout }) {
     }
   }
 
+  function validateConfigForm(form) {
+    const errors = {}
+    const pk = (form.private_key || '').trim()
+    if (pk) {
+      const raw = pk.startsWith('0x') || pk.startsWith('0X') ? pk.slice(2) : pk
+      if (!/^[0-9a-fA-F]{64}$/.test(raw))
+        errors.private_key = `私鑰須為 64 位十六進位字串（32 bytes）。目前 ${raw.length} 位 — 是否貼了錢包地址？`
+    }
+    const fa = (form.funder_address || '').trim()
+    if (fa && !/^0x[0-9a-fA-F]{40}$/.test(fa))
+      errors.funder_address = '資金地址須為 0x 開頭的 40 位十六進位地址（共 42 字元）'
+    const st = form.signature_type
+    if (st !== undefined && st !== null && ![0, 1, 2].includes(Number(st)))
+      errors.signature_type = '簽名類型須為 0、1 或 2'
+    return errors
+  }
+
   async function saveConfig() {
+    const errors = validateConfigForm(configForm)
+    setConfigErrors(errors)
+    if (Object.keys(errors).length > 0) return
     try {
       const res = await fetch(`${API}/api/config`, {
         method: 'POST',
@@ -699,7 +720,8 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 label="私鑰"
                 type={showKey ? 'text' : 'password'}
                 value={configForm.private_key || ''}
-                onChange={(v) => setConfigForm({ ...configForm, private_key: v })}
+                onChange={(v) => { setConfigForm({ ...configForm, private_key: v }); setConfigErrors((e) => ({ ...e, private_key: undefined })) }}
+                error={configErrors.private_key}
                 suffix={
                   <button onClick={() => setShowKey(!showKey)} className="text-gray-500 hover:text-gray-300">
                     {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -709,14 +731,16 @@ function Dashboard({ token, authHeaders, onLogout }) {
               <ConfigField
                 label="資金地址 (Funder)"
                 value={configForm.funder_address || ''}
-                onChange={(v) => setConfigForm({ ...configForm, funder_address: v })}
+                onChange={(v) => { setConfigForm({ ...configForm, funder_address: v }); setConfigErrors((e) => ({ ...e, funder_address: undefined })) }}
+                error={configErrors.funder_address}
               />
               <ConfigField
                 label="簽名類型"
                 type="number"
                 value={configForm.signature_type ?? 0}
-                onChange={(v) => setConfigForm({ ...configForm, signature_type: parseInt(v) })}
+                onChange={(v) => { setConfigForm({ ...configForm, signature_type: parseInt(v) }); setConfigErrors((e) => ({ ...e, signature_type: undefined })) }}
                 hint="0=EOA, 1=Email, 2=Proxy"
+                error={configErrors.signature_type}
               />
               <ConfigField
                 label="目標配對成本"
@@ -927,7 +951,7 @@ function StatCard({ icon, label, value, color = 'gray' }) {
   )
 }
 
-function ConfigField({ label, value, onChange, type = 'text', step, hint, suffix }) {
+function ConfigField({ label, value, onChange, type = 'text', step, hint, suffix, error }) {
   return (
     <div>
       <label className="text-xs text-neon-cyan/50 block mb-1 uppercase tracking-wider">{label}</label>
@@ -937,11 +961,16 @@ function ConfigField({ label, value, onChange, type = 'text', step, hint, suffix
           step={step}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full bg-black/40 border border-neon-cyan/15 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-neon-cyan/50 focus:shadow-neon-cyan transition-all text-gray-200"
+          className={`w-full bg-black/40 border rounded-lg px-3 py-2 text-sm focus:outline-none transition-all text-gray-200 ${
+            error
+              ? 'border-red-500/70 focus:border-red-400 focus:shadow-[0_0_8px_rgba(239,68,68,0.4)]'
+              : 'border-neon-cyan/15 focus:border-neon-cyan/50 focus:shadow-neon-cyan'
+          }`}
         />
         {suffix}
       </div>
-      {hint && <p className="text-xs text-gray-600 mt-0.5">{hint}</p>}
+      {error && <p className="text-xs text-red-400 mt-0.5">{error}</p>}
+      {!error && hint && <p className="text-xs text-gray-600 mt-0.5">{hint}</p>}
     </div>
   )
 }

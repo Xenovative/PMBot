@@ -12,10 +12,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import httpx
 
-from config import get_config, BotConfig
+from config import get_config, BotConfig, validate_private_key, validate_funder_address
 from market_finder import MarketFinder, MarketInfo
 from arbitrage_engine import ArbitrageEngine
 from position_merger import PositionMerger
@@ -411,6 +411,9 @@ async def get_current_config(_user=Depends(auth.require_auth)):
 
 
 class ConfigUpdate(BaseModel):
+    private_key: Optional[str] = None
+    funder_address: Optional[str] = None
+    signature_type: Optional[int] = None
     target_pair_cost: Optional[float] = None
     order_size: Optional[float] = None
     dry_run: Optional[bool] = None
@@ -429,6 +432,23 @@ class ConfigUpdate(BaseModel):
     bargain_first_buy_bias: Optional[str] = None
     bargain_pair_escalation_minutes: Optional[int] = None
     late_liquidation_seconds: Optional[int] = None
+
+    @field_validator("private_key", mode="before")
+    @classmethod
+    def _validate_private_key(cls, v):
+        return validate_private_key(str(v)) if v is not None else None
+
+    @field_validator("funder_address", mode="before")
+    @classmethod
+    def _validate_funder_address(cls, v):
+        return validate_funder_address(str(v)) if v is not None else None
+
+    @field_validator("signature_type", mode="before")
+    @classmethod
+    def _validate_signature_type(cls, v):
+        if v is not None and int(v) not in (0, 1, 2):
+            raise ValueError("signature_type must be 0, 1, or 2")
+        return v
 
 
 @app.post("/api/config")

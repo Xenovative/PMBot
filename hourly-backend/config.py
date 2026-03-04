@@ -1,9 +1,37 @@
 import os
+import re
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List
 
 load_dotenv()
+
+
+def validate_private_key(v: str) -> str:
+    """Accept empty (dry-run / sig_type=0) or a 64-hex-char key with optional 0x prefix."""
+    v = v.strip()
+    if not v:
+        return v
+    raw = v[2:] if v.startswith(("0x", "0X")) else v
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", raw):
+        raise ValueError(
+            f"PRIVATE_KEY must be a 32-byte hex string (64 hex chars, optional 0x prefix). "
+            f"Got {len(raw)} hex chars — did you paste a wallet address instead?"
+        )
+    return v
+
+
+def validate_funder_address(v: str) -> str:
+    """Accept empty or a 0x-prefixed 20-byte EVM address (40 hex chars)."""
+    v = v.strip()
+    if not v:
+        return v
+    if not re.fullmatch(r"0x[0-9a-fA-F]{40}", v):
+        raise ValueError(
+            f"FUNDER_ADDRESS must be a 0x-prefixed 20-byte EVM address (42 chars total). "
+            f"Got: {v!r}"
+        )
+    return v
 
 
 class BotConfig(BaseModel):
@@ -35,6 +63,16 @@ class BotConfig(BaseModel):
     bargain_pair_escalation_minutes: int = int(os.getenv("BARGAIN_PAIR_ESCALATION_MINUTES", "15"))
     # Late liquidation threshold (seconds before expiry to force sell holdings)
     late_liquidation_seconds: int = int(os.getenv("LATE_LIQUIDATION_SECONDS", "90"))
+
+    @field_validator("private_key", mode="before")
+    @classmethod
+    def _validate_private_key(cls, v):
+        return validate_private_key(str(v) if v is not None else "")
+
+    @field_validator("funder_address", mode="before")
+    @classmethod
+    def _validate_funder_address(cls, v):
+        return validate_funder_address(str(v) if v is not None else "")
 
     CLOB_HOST: str = "https://clob.polymarket.com"
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"
