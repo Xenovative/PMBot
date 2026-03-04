@@ -91,6 +91,38 @@ inst_source() {
 }
 
 # ============================================
+#  Migration: ensure all service units load .env
+# ============================================
+migrate_environment_files() {
+    local patched=0
+    for inst_dir in /opt/pmbot-*/; do
+        [ -d "$inst_dir/backend" ] || continue
+        local inst_name env_file svc_file
+        inst_name=$(basename "$inst_dir" | sed 's/^pmbot-//')
+        env_file="${inst_dir}backend/.env"
+        svc_file="/etc/systemd/system/pmbot-${inst_name}-backend.service"
+
+        [ -f "$svc_file" ] || continue
+        grep -q "^EnvironmentFile=" "$svc_file" && continue
+
+        # Patch missing EnvironmentFile line in after Environment=PORT=
+        if grep -q "^Environment=PORT=" "$svc_file"; then
+            sed -i "/^Environment=PORT=/a EnvironmentFile=${env_file}" "$svc_file"
+        else
+            sed -i "/^\[Service\]/a EnvironmentFile=${env_file}" "$svc_file"
+        fi
+        ((patched++))
+    done
+
+    if [ "$patched" -gt 0 ]; then
+        systemctl daemon-reload
+        echo -e "${YELLOW}  ⚠️  Migrated ${patched} service unit(s) to load .env via EnvironmentFile.${NC}"
+        echo -e "${YELLOW}     Restart affected instances for changes to take effect.${NC}"
+        sleep 2
+    fi
+}
+
+# ============================================
 #  Main menu
 # ============================================
 main_menu() {
@@ -436,6 +468,13 @@ action_change_wallet() {
     set_env "SIGNATURE_TYPE" "$sig_type"   "$env_file"
     set_env "DRY_RUN"        "false"       "$env_file"
     chmod 600 "$env_file"
+
+    # Ensure systemd unit has EnvironmentFile= (may be missing on older installs)
+    local svc_file="/etc/systemd/system/${svc}.service"
+    if [ -f "$svc_file" ] && ! grep -q "^EnvironmentFile=" "$svc_file"; then
+        sed -i "/^Environment=PORT=/a EnvironmentFile=${env_file}" "$svc_file"
+        systemctl daemon-reload
+    fi
 
     whiptail --title "Change Wallet: $name" --yesno \
         "Wallet updated.\nRestart service to apply?" 8 50 && \
@@ -804,4 +843,5 @@ deploy_new_instance() {
 # ============================================
 #  Entry point
 # ============================================
+migrate_environment_files
 main_menu

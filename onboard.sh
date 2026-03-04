@@ -217,14 +217,31 @@ for stack in "${SELECTED_STACKS[@]}"; do
 
     # Per-stack wallet
     echo ""
-    read -p "    Private key for ${inst_name} (blank = dry-run): " pk
+    local pk fa st raw_pk
+    while true; do
+        read -p "    Private key for ${inst_name} (blank = dry-run): " pk
+        if [ -z "$pk" ]; then break; fi
+        raw_pk="${pk#0x}"; raw_pk="${raw_pk#0X}"
+        if echo "$raw_pk" | grep -qP '^[0-9a-fA-F]{64}$'; then break; fi
+        err "    Invalid private key: must be 64 hex chars (32 bytes). Got ${#raw_pk} chars. Did you paste a wallet address?"
+    done
     STACK_PRIVATE_KEY[$name]="$pk"
     if [ -n "$pk" ]; then
-        read -p "    Funder address (blank for EOA): " fa
+        while true; do
+            read -p "    Funder address (blank for EOA): " fa
+            if [ -z "$fa" ]; then break; fi
+            if echo "$fa" | grep -qP '^0x[0-9a-fA-F]{40}$'; then break; fi
+            err "    Invalid funder address: must be 0x + 40 hex chars (42 total). Got: $fa"
+        done
         STACK_FUNDER[$name]="$fa"
         echo -e "    Signature type: ${CYAN}0${NC}=EOA  ${CYAN}1${NC}=Magic  ${CYAN}2${NC}=Gnosis"
-        read -p "    Signature type [0]: " st
-        STACK_SIG_TYPE[$name]=${st:-0}
+        while true; do
+            read -p "    Signature type [0]: " st
+            st=${st:-0}
+            if [[ "$st" =~ ^[012]$ ]]; then break; fi
+            err "    Invalid signature type: must be 0, 1, or 2."
+        done
+        STACK_SIG_TYPE[$name]="$st"
         STACK_DRY_RUN[$name]="false"
     else
         warn "No key — ${inst_name} will run in dry-run mode"
@@ -442,6 +459,7 @@ Restart=always
 RestartSec=5
 Environment=PATH=$APP_DIR/venv/bin:/usr/bin:/bin
 Environment=PORT=$BACKEND_PORT
+EnvironmentFile=$APP_DIR/backend/.env
 
 [Install]
 WantedBy=multi-user.target
