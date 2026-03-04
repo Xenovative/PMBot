@@ -1574,8 +1574,10 @@ class ArbitrageEngine:
             return
         try:
             from web3 import Web3
+            from web3.middleware import ExtraDataToPOAMiddleware
             from eth_account import Account
             w3 = Web3(Web3.HTTPProvider("https://polygon-bor.publicnode.com"))
+            w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
             if not w3.is_connected():
                 self.status.add_log("⚠️ 無法連線 Polygon RPC，跳過授權檢查")
                 return
