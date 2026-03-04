@@ -1697,7 +1697,12 @@ class ArbitrageEngine:
 
         shares = result.get("shares", 0)
         buy_price = result.get("price", ask)
-        self.status.add_log(f"✅ 測試買入成功 {shares:.2f} 股 @ {buy_price:.4f}，立即平倉...")
+        shares = math.floor(shares)
+        if shares < 1:
+            self.status.add_log("⚠️ 測試買入股數不足 1，無法平倉")
+            return
+        self.status.add_log(f"✅ 測試買入成功 {shares} 股 @ {buy_price:.4f}，等待結算後平倉...")
+        await asyncio.sleep(8)
         unwound = self._try_unwind_position(clob, token_id, shares, buy_price, f"[測試]{side}")
         if unwound:
             self.status.add_log("✅ 連線測試完成：買入+平倉成功，錢包連線正常")
