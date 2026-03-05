@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PMBot — User Documentation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { DEFAULT: '#6366f1', dark: '#4f46e5', light: '#a5b4fc' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+  <!-- Header -->
+  <header class="border-b border-gray-800 bg-gray-900">
+    <div class="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-brand flex items-center justify-center text-white font-bold text-sm">P</div>
+        <span class="text-lg font-semibold text-white">PMBot Docs</span>
+      </div>
+      <div class="flex items-center gap-1 bg-gray-800 rounded-lg p-1">
+        <button data-lang-btn="en" class="px-3 py-1 rounded-md text-sm font-medium transition-colors">EN</button>
+        <button data-lang-btn="zh" class="px-3 py-1 rounded-md text-sm font-medium transition-colors">中文</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-6 py-14">
+
+    <!-- Hero -->
+    <div class="mb-14 text-center">
+      <h1 class="text-4xl font-bold text-white mb-4" data-i18n="hero_title">Before You Start</h1>
+      <p class="text-gray-400 text-lg max-w-2xl mx-auto" data-i18n="hero_sub">
+        Everything you need to prepare your wallet and configure your bot instance before going live.
+      </p>
+    </div>
+
+    <!-- Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-16">
+
+      <a href="wallet-email.html" class="group block bg-gray-900 border border-gray-800 hover:border-brand rounded-2xl p-6 transition-all hover:shadow-lg hover:shadow-brand/10">
+        <div class="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-4">
+          <svg class="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+          </svg>
+        </div>
+        <h2 class="text-white font-semibold text-lg mb-2 group-hover:text-brand transition-colors" data-i18n="card1_title">Email / Magic Account</h2>
+        <p class="text-gray-400 text-sm leading-relaxed" data-i18n="card1_desc">You signed up to Polymarket with an email address. Learn how to create a proxy signer wallet and link it to your account.</p>
+        <div class="mt-4 text-brand text-sm font-medium flex items-center gap-1">
+          <span data-i18n="read_guide">Read guide</span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </div>
+      </a>
+
+      <a href="wallet-eoa.html" class="group block bg-gray-900 border border-gray-800 hover:border-brand rounded-2xl p-6 transition-all hover:shadow-lg hover:shadow-brand/10">
+        <div class="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-4">
+          <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+          </svg>
+        </div>
+        <h2 class="text-white font-semibold text-lg mb-2 group-hover:text-brand transition-colors" data-i18n="card2_title">MetaMask / EOA Wallet</h2>
+        <p class="text-gray-400 text-sm leading-relaxed" data-i18n="card2_desc">You connected Polymarket with MetaMask or another web3 wallet. Learn how to export your private key safely.</p>
+        <div class="mt-4 text-brand text-sm font-medium flex items-center gap-1">
+          <span data-i18n="read_guide">Read guide</span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </div>
+      </a>
+
+      <a href="settings.html" class="group block bg-gray-900 border border-gray-800 hover:border-brand rounded-2xl p-6 transition-all hover:shadow-lg hover:shadow-brand/10">
+        <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-4">
+          <svg class="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/>
+          </svg>
+        </div>
+        <h2 class="text-white font-semibold text-lg mb-2 group-hover:text-brand transition-colors" data-i18n="card3_title">Bot Settings Reference</h2>
+        <p class="text-gray-400 text-sm leading-relaxed" data-i18n="card3_desc">Every configurable parameter explained — trading thresholds, Bargain Hunter settings, liquidity filters, and more.</p>
+        <div class="mt-4 text-brand text-sm font-medium flex items-center gap-1">
+          <span data-i18n="read_guide">Read guide</span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        </div>
+      </a>
+
+    </div>
+
+    <!-- Quick-pick banner -->
+    <div class="bg-gray-900 border border-gray-800 rounded-2xl p-8 mb-10">
+      <h2 class="text-white font-semibold text-xl mb-6 flex items-center gap-2">
+        <svg class="w-5 h-5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span data-i18n="pick_title">Not sure which guide applies to you?</span>
+      </h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-gray-800/60 rounded-xl p-5">
+          <p class="text-gray-300 text-sm mb-3" data-i18n="pick_q">How did you sign up for Polymarket?</p>
+          <div class="space-y-2 text-sm">
+            <div class="flex items-start gap-2 text-gray-400">
+              <span class="mt-0.5 text-indigo-400">→</span>
+              <span data-i18n="pick_a1"><strong class="text-white">Email / Google / Apple</strong> — use the <a href="wallet-email.html" class="text-brand hover:underline">Email / Magic Account guide</a></span>
+            </div>
+            <div class="flex items-start gap-2 text-gray-400">
+              <span class="mt-0.5 text-purple-400">→</span>
+              <span data-i18n="pick_a2"><strong class="text-white">MetaMask / WalletConnect / any web3 wallet</strong> — use the <a href="wallet-eoa.html" class="text-brand hover:underline">EOA Wallet guide</a></span>
+            </div>
+          </div>
+        </div>
+        <div class="bg-gray-800/60 rounded-xl p-5">
+          <p class="text-gray-300 text-sm mb-3" data-i18n="pick_need">What you'll need before starting:</p>
+          <ul class="space-y-1.5 text-sm text-gray-400">
+            <li class="flex items-center gap-2"><span class="text-emerald-400">✓</span> <span data-i18n="need1">A funded Polymarket account (USDC on Polygon)</span></li>
+            <li class="flex items-center gap-2"><span class="text-emerald-400">✓</span> <span data-i18n="need2">A private key for the bot to sign transactions</span></li>
+            <li class="flex items-center gap-2"><span class="text-emerald-400">✓</span> <span data-i18n="need3">Your funder wallet address (if using email account)</span></li>
+            <li class="flex items-center gap-2"><span class="text-emerald-400">✓</span> <span data-i18n="need4">Access to your bot's web dashboard</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Warning -->
+    <div class="bg-amber-950/40 border border-amber-800/50 rounded-xl p-5 flex gap-4">
+      <svg class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+      </svg>
+      <div>
+        <p class="text-amber-300 font-medium text-sm mb-1" data-i18n="warn_title">Private Key Security</p>
+        <p class="text-amber-200/70 text-sm" data-i18n="warn_body">Never share your private key with anyone. The bot only needs a key for a <strong class="text-amber-200">dedicated signing wallet</strong> — not your main holding wallet. Keep funds in a separate account.</p>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="border-t border-gray-800 mt-16">
+    <div class="max-w-5xl mx-auto px-6 py-6 text-center text-gray-600 text-sm" data-i18n="footer">
+      PMBot Documentation · For internal use only
+    </div>
+  </footer>
+
+<script src="i18n.js"></script>
+<script>
+initI18n({
+  en: {
+    hero_title: "Before You Start",
+    hero_sub: "Everything you need to prepare your wallet and configure your bot instance before going live.",
+    card1_title: "Email / Magic Account",
+    card1_desc: "You signed up to Polymarket with an email address. Learn how to create a proxy signer wallet and link it to your account.",
+    card2_title: "MetaMask / EOA Wallet",
+    card2_desc: "You connected Polymarket with MetaMask or another web3 wallet. Learn how to export your private key safely.",
+    card3_title: "Bot Settings Reference",
+    card3_desc: "Every configurable parameter explained — trading thresholds, Bargain Hunter settings, liquidity filters, and more.",
+    read_guide: "Read guide",
+    pick_title: "Not sure which guide applies to you?",
+    pick_q: "How did you sign up for Polymarket?",
+    pick_a1: '<strong class="text-white">Email / Google / Apple</strong> — use the <a href="wallet-email.html" class="text-brand hover:underline">Email / Magic Account guide</a>',
+    pick_a2: '<strong class="text-white">MetaMask / WalletConnect / any web3 wallet</strong> — use the <a href="wallet-eoa.html" class="text-brand hover:underline">EOA Wallet guide</a>',
+    pick_need: "What you'll need before starting:",
+    need1: "A funded Polymarket account (USDC on Polygon)",
+    need2: "A private key for the bot to sign transactions",
+    need3: "Your funder wallet address (if using email account)",
+    need4: "Access to your bot's web dashboard",
+    warn_title: "Private Key Security",
+    warn_body: 'Never share your private key with anyone. The bot only needs a key for a <strong class="text-amber-200">dedicated signing wallet</strong> — not your main holding wallet. Keep funds in a separate account.',
+    footer: "PMBot Documentation · For internal use only",
+  },
+  zh: {
+    hero_title: "開始之前",
+    hero_sub: "在啟動機器人之前，您需要準備好錢包並完成基本設定。",
+    card1_title: "電子郵件 / Magic 帳戶",
+    card1_desc: "您使用電子郵件註冊 Polymarket。了解如何建立代理簽名錢包並連結至您的帳戶。",
+    card2_title: "MetaMask / EOA 錢包",
+    card2_desc: "您使用 MetaMask 或其他 Web3 錢包連接 Polymarket。了解如何安全匯出私鑰。",
+    card3_title: "機器人設定參數說明",
+    card3_desc: "所有可調整的參數一覽——交易門檻、Bargain Hunter 設定、流動性篩選等。",
+    read_guide: "閱讀指南",
+    pick_title: "不確定適用哪份指南？",
+    pick_q: "您是如何註冊 Polymarket 的？",
+    pick_a1: '<strong class="text-white">電子郵件 / Google / Apple</strong> — 請參閱 <a href="wallet-email.html" class="text-brand hover:underline">電子郵件 / Magic 帳戶指南</a>',
+    pick_a2: '<strong class="text-white">MetaMask / WalletConnect / 其他 Web3 錢包</strong> — 請參閱 <a href="wallet-eoa.html" class="text-brand hover:underline">EOA 錢包指南</a>',
+    pick_need: "開始前您需要準備：",
+    need1: "已入金的 Polymarket 帳戶（Polygon 上的 USDC）",
+    need2: "供機器人簽署交易的私鑰",
+    need3: "您的 Funder 錢包地址（使用電子郵件帳戶時需要）",
+    need4: "能夠存取您機器人的網頁控制台",
+    warn_title: "私鑰安全提醒",
+    warn_body: '請勿將私鑰分享給任何人。機器人只需要<strong class="text-amber-200">專用簽名錢包</strong>的私鑰——而非您的主要持倉錢包。請將資金存放在獨立帳戶中。',
+    footer: "PMBot 文件 · 僅供內部使用",
+  }
+});
+</script>
+</body>
+</html>

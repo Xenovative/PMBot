@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PMBot Docs — Email / Magic Account</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={theme:{extend:{colors:{brand:{DEFAULT:'#6366f1',dark:'#4f46e5',light:'#a5b4fc'}}}}}</script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+<header class="border-b border-gray-800 bg-gray-900">
+  <div class="max-w-4xl mx-auto px-6 py-5 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="index.html" class="text-gray-500 hover:text-gray-300 transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </a>
+      <a href="index.html" class="flex items-center gap-2">
+        <div class="w-7 h-7 rounded-lg bg-brand flex items-center justify-center text-white font-bold text-xs">P</div>
+        <span class="text-gray-400 text-sm">PMBot Docs</span>
+      </a>
+      <span class="text-gray-700">/</span>
+      <span class="text-gray-300 text-sm" data-i18n="breadcrumb">Email / Magic Account</span>
+    </div>
+    <div class="flex items-center gap-1 bg-gray-800 rounded-lg p-1">
+      <button data-lang-btn="en" class="px-3 py-1 rounded-md text-sm font-medium transition-colors">EN</button>
+      <button data-lang-btn="zh" class="px-3 py-1 rounded-md text-sm font-medium transition-colors">中文</button>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-4xl mx-auto px-6 py-12">
+
+  <div class="mb-10">
+    <div class="inline-flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/20 rounded-full px-3 py-1 text-indigo-300 text-xs font-medium mb-4">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+      sig_type = 1 · Magic / Email
+    </div>
+    <h1 class="text-3xl font-bold text-white mb-3" data-i18n="title">Email / Magic Account Setup</h1>
+    <p class="text-gray-400 text-base leading-relaxed max-w-2xl" data-i18n="intro">
+      You signed up to Polymarket with an email address (or Google/Apple). Your funds are held in a Magic-managed custodial wallet. The bot cannot directly access that wallet — instead, you create a separate EOA "proxy signer" wallet and delegate trading permissions to it.
+    </p>
+  </div>
+
+  <!-- How it works -->
+  <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-8">
+    <h2 class="text-white font-semibold text-base mb-4 flex items-center gap-2">
+      <svg class="w-4 h-4 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <span data-i18n="how_title">How this works</span>
+    </h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="bg-gray-800/50 rounded-xl p-4 text-center">
+        <div class="w-10 h-10 rounded-full bg-indigo-500/20 flex items-center justify-center mx-auto mb-3 text-indigo-300 font-bold">1</div>
+        <p class="text-gray-300 text-sm font-medium mb-1" data-i18n="how_box1_title">Your Funder Wallet</p>
+        <p class="text-gray-500 text-xs" data-i18n="how_box1_desc">Polymarket custodial wallet that holds your USDC. You never export this key.</p>
+      </div>
+      <div class="flex items-center justify-center">
+        <div class="text-center">
+          <svg class="w-6 h-6 text-gray-600 mx-auto mb-1 hidden md:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+          <p class="text-xs text-gray-600" data-i18n="how_arrow">delegates to</p>
+        </div>
+      </div>
+      <div class="bg-gray-800/50 rounded-xl p-4 text-center">
+        <div class="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center mx-auto mb-3 text-purple-300 font-bold">2</div>
+        <p class="text-gray-300 text-sm font-medium mb-1" data-i18n="how_box2_title">Proxy Signer Wallet</p>
+        <p class="text-gray-500 text-xs" data-i18n="how_box2_desc">A new EOA wallet you create. The bot uses its private key to sign orders on behalf of the funder.</p>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="text-white font-semibold text-xl mb-6" data-i18n="steps_title">Step-by-step setup</h2>
+
+  <!-- Step 1 -->
+  <div class="mb-6 bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+    <div class="bg-gray-800/60 px-6 py-4 flex items-center gap-3">
+      <span class="w-7 h-7 rounded-full bg-brand flex items-center justify-center text-white text-sm font-bold flex-shrink-0">1</span>
+      <h3 class="text-white font-semibold" data-i18n="s1_title">Find your Polymarket funder wallet address</h3>
+    </div>
+    <div class="px-6 py-5 space-y-4">
+      <p class="text-gray-400 text-sm" data-i18n="s1_intro">This is the wallet address Polymarket created for you. You need it as your <code class="bg-gray-800 text-indigo-300 px-1.5 py-0.5 rounded text-xs">FUNDER_ADDRESS</code>.</p>
+      <ol class="space-y-3 text-sm text-gray-400">
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">a.</span><span data-i18n="s1a">Go to <a href="https://polymarket.com" target="_blank" class="text-brand hover:underline">polymarket.com</a> and log in with your email.</span></li>
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">b.</span><span data-i18n="s1b">Click your profile icon (top right) → <strong class="text-gray-300">Profile</strong>.</span></li>
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">c.</span><span data-i18n="s1c">Your wallet address appears below your username — it looks like <code class="bg-gray-800 text-indigo-300 px-1.5 py-0.5 rounded text-xs">0xABCD...1234</code>. Copy it.</span></li>
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">d.</span><span data-i18n="s1d">Alternatively, go to <strong class="text-gray-300">Settings → Wallet</strong> — the address is shown there too.</span></li>
+      </ol>
+      <div class="bg-gray-800/60 border border-gray-700 rounded-lg p-4">
+        <p class="text-xs text-gray-500 mb-1" data-i18n="s1_label">This will be your</p>
+        <code class="text-indigo-300 text-sm font-mono">FUNDER_ADDRESS=0xYourPolymarketWalletAddress</code>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2 -->
+  <div class="mb-6 bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+    <div class="bg-gray-800/60 px-6 py-4 flex items-center gap-3">
+      <span class="w-7 h-7 rounded-full bg-brand flex items-center justify-center text-white text-sm font-bold flex-shrink-0">2</span>
+      <h3 class="text-white font-semibold" data-i18n="s2_title">Create a new proxy signer wallet (MetaMask)</h3>
+    </div>
+    <div class="px-6 py-5 space-y-4">
+      <p class="text-gray-400 text-sm" data-i18n="s2_intro">You need a <strong class="text-gray-300">brand-new, dedicated</strong> EOA wallet to act as the proxy signer. Do not reuse a wallet that holds significant funds.</p>
+      <ol class="space-y-3 text-sm text-gray-400">
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">a.</span><span data-i18n="s2a">Install <a href="https://metamask.io" target="_blank" class="text-brand hover:underline">MetaMask</a> (browser extension) if you don't have it.</span></li>
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">b.</span><span data-i18n="s2b">Open MetaMask → click the account selector at the top → <strong class="text-gray-300">Add account or hardware wallet → Create a new account</strong>.</span></li>
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">c.</span><span data-i18n="s2c">Give it a name like <em class="text-gray-300">"PMBot Signer"</em>. Note its wallet address — this is the proxy signer address.</span></li>
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">d.</span><span data-i18n="s2d">You do <strong class="text-gray-300">not</strong> need to fund this wallet with USDC — funds come from your Polymarket funder wallet.</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- Step 3 -->
+  <div class="mb-6 bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+    <div class="bg-gray-800/60 px-6 py-4 flex items-center gap-3">
+      <span class="w-7 h-7 rounded-full bg-brand flex items-center justify-center text-white text-sm font-bold flex-shrink-0">3</span>
+      <h3 class="text-white font-semibold" data-i18n="s3_title">Export the proxy signer private key</h3>
+    </div>
+    <div class="px-6 py-5 space-y-4">
+      <div class="bg-red-950/40 border border-red-800/50 rounded-lg p-4 flex gap-3">
+        <svg class="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        <p class="text-red-300 text-sm" data-i18n="s3_warn">Only export the key for the <strong>dedicated proxy signer</strong> wallet you just created — never your main wallet or your Polymarket funder wallet.</p>
+      </div>
+      <ol class="space-y-3 text-sm text-gray-400">
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">a.</span><span data-i18n="s3a">In MetaMask, switch to the proxy signer account.</span></li>
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">b.</span><span data-i18n="s3b">Click the three-dot menu (⋮) → <strong class="text-gray-300">Account details</strong>.</span></li>
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">c.</span><span data-i18n="s3c">Click <strong class="text-gray-300">Show private key</strong>, enter your MetaMask password, and reveal the key.</span></li>
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">d.</span><span data-i18n="s3d">Copy the 64-character hex string (it may or may not start with <code class="bg-gray-800 text-indigo-300 px-1.5 py-0.5 rounded text-xs">0x</code> — both are fine).</span></li>
+      </ol>
+      <div class="bg-gray-800/60 border border-gray-700 rounded-lg p-4">
+        <p class="text-xs text-gray-500 mb-1" data-i18n="s3_label">This will be your</p>
+        <code class="text-indigo-300 text-sm font-mono">PRIVATE_KEY=0xabc123...def456</code>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 4 -->
+  <div class="mb-6 bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+    <div class="bg-gray-800/60 px-6 py-4 flex items-center gap-3">
+      <span class="w-7 h-7 rounded-full bg-brand flex items-center justify-center text-white text-sm font-bold flex-shrink-0">4</span>
+      <h3 class="text-white font-semibold" data-i18n="s4_title">Register the proxy signer on Polymarket</h3>
+    </div>
+    <div class="px-6 py-5 space-y-4">
+      <p class="text-gray-400 text-sm" data-i18n="s4_intro">Polymarket must know that your proxy signer wallet is allowed to trade on behalf of your funder wallet. This is done via one transaction in the Polymarket UI.</p>
+      <ol class="space-y-3 text-sm text-gray-400">
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">a.</span><span data-i18n="s4a">While logged in to Polymarket with your <strong class="text-gray-300">email account</strong>, go to any open market.</span></li>
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">b.</span><span data-i18n="s4b">Place a small trade (e.g. buy $1 of any outcome). This triggers contract approval setup automatically.</span></li>
+        <li class="flex gap-3"><span class="text-brand font-medium flex-shrink-0">c.</span><span data-i18n="s4c">Polymarket will prompt you to link/approve your wallet — follow the on-screen steps.</span></li>
+      </ol>
+      <div class="bg-blue-950/40 border border-blue-800/50 rounded-lg p-4 flex gap-3">
+        <svg class="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <p class="text-blue-300 text-sm" data-i18n="s4_note">The bot (<code class="bg-blue-900/60 px-1 rounded text-xs">sig_type=1</code>) skips automatic approval — this manual step is required once for your account to function.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 5 -->
+  <div class="mb-10 bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+    <div class="bg-gray-800/60 px-6 py-4 flex items-center gap-3">
+      <span class="w-7 h-7 rounded-full bg-brand flex items-center justify-center text-white text-sm font-bold flex-shrink-0">5</span>
+      <h3 class="text-white font-semibold" data-i18n="s5_title">Enter your credentials in the bot dashboard</h3>
+    </div>
+    <div class="px-6 py-5 space-y-4">
+      <p class="text-gray-400 text-sm" data-i18n="s5_intro">In the bot's web dashboard, navigate to <strong class="text-gray-300">Settings</strong> and fill in:</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-800">
+              <th class="text-left text-gray-500 font-medium py-2 pr-4" data-i18n="th_field">Field</th>
+              <th class="text-left text-gray-500 font-medium py-2 pr-4" data-i18n="th_value">Value</th>
+              <th class="text-left text-gray-500 font-medium py-2" data-i18n="th_notes">Notes</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800/60">
+            <tr>
+              <td class="py-3 pr-4"><code class="text-indigo-300 text-xs bg-gray-800 px-2 py-0.5 rounded">PRIVATE_KEY</code></td>
+              <td class="py-3 pr-4 text-gray-300 text-xs" data-i18n="t1v">Your proxy signer key</td>
+              <td class="py-3 text-gray-500 text-xs" data-i18n="t1n">64-char hex, optional 0x prefix</td>
+            </tr>
+            <tr>
+              <td class="py-3 pr-4"><code class="text-indigo-300 text-xs bg-gray-800 px-2 py-0.5 rounded">FUNDER_ADDRESS</code></td>
+              <td class="py-3 pr-4 text-gray-300 text-xs" data-i18n="t2v">Your Polymarket email wallet address</td>
+              <td class="py-3 text-gray-500 text-xs" data-i18n="t2n">0x... 42-char address</td>
+            </tr>
+            <tr>
+              <td class="py-3 pr-4"><code class="text-indigo-300 text-xs bg-gray-800 px-2 py-0.5 rounded">SIGNATURE_TYPE</code></td>
+              <td class="py-3 pr-4"><span class="bg-indigo-500/20 text-indigo-300 text-xs px-2 py-0.5 rounded font-mono">1</span></td>
+              <td class="py-3 text-gray-500 text-xs" data-i18n="t3n">Required for Magic/email accounts</td>
+            </tr>
+            <tr>
+              <td class="py-3 pr-4"><code class="text-indigo-300 text-xs bg-gray-800 px-2 py-0.5 rounded">DRY_RUN</code></td>
+              <td class="py-3 pr-4 text-xs"><span class="bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-mono">true</span> <span class="text-gray-600">→</span> <span class="bg-red-500/20 text-red-300 px-2 py-0.5 rounded font-mono">false</span></td>
+              <td class="py-3 text-gray-500 text-xs" data-i18n="t4n">Start in dry-run to verify, then disable</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Checklist -->
+  <div class="bg-emerald-950/30 border border-emerald-800/40 rounded-2xl p-6 mb-8">
+    <h3 class="text-emerald-300 font-semibold mb-3 flex items-center gap-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <span data-i18n="checklist_title">Checklist</span>
+    </h3>
+    <ul class="space-y-2 text-sm text-emerald-200/80">
+      <li class="flex items-center gap-2"><span class="text-emerald-400">□</span> <span data-i18n="c1">Copied your Polymarket funder wallet address</span></li>
+      <li class="flex items-center gap-2"><span class="text-emerald-400">□</span> <span data-i18n="c2">Created a new dedicated proxy signer wallet in MetaMask</span></li>
+      <li class="flex items-center gap-2"><span class="text-emerald-400">□</span> <span data-i18n="c3">Exported the proxy signer's private key</span></li>
+      <li class="flex items-center gap-2"><span class="text-emerald-400">□</span> <span data-i18n="c4">Completed one manual trade on Polymarket to register contract approvals</span></li>
+      <li class="flex items-center gap-2"><span class="text-emerald-400">□</span> <span data-i18n="c5">Entered PRIVATE_KEY, FUNDER_ADDRESS, and SIGNATURE_TYPE=1 in the dashboard</span></li>
+      <li class="flex items-center gap-2"><span class="text-emerald-400">□</span> <span data-i18n="c6">Verified connection in dry-run mode before going live</span></li>
+    </ul>
+  </div>
+
+  <!-- Nav -->
+  <div class="flex flex-col sm:flex-row gap-4">
+    <a href="settings.html" class="flex-1 bg-gray-900 border border-gray-800 hover:border-brand rounded-xl p-4 flex items-center gap-3 group transition-all">
+      <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+      <div>
+        <p class="text-white text-sm font-medium group-hover:text-brand transition-colors" data-i18n="nav_settings">Next: Bot Settings Reference →</p>
+        <p class="text-gray-500 text-xs" data-i18n="nav_settings_sub">Configure trading parameters</p>
+      </div>
+    </a>
+    <a href="index.html" class="bg-gray-900 border border-gray-800 hover:border-gray-600 rounded-xl p-4 flex items-center gap-3 group transition-all">
+      <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+      <p class="text-white text-sm font-medium group-hover:text-gray-300 transition-colors" data-i18n="nav_home">Back to Docs Home</p>
+    </a>
+  </div>
+
+</main>
+
+<footer class="border-t border-gray-800 mt-16">
+  <div class="max-w-4xl mx-auto px-6 py-6 text-center text-gray-600 text-sm" data-i18n="footer">PMBot Documentation · For internal use only</div>
+</footer>
+
+<script src="i18n.js"></script>
+<script>
+initI18n({
+  en: {
+    breadcrumb: "Email / Magic Account",
+    title: "Email / Magic Account Setup",
+    intro: "You signed up to Polymarket with an email address (or Google/Apple). Your funds are held in a Magic-managed custodial wallet. The bot cannot directly access that wallet — instead, you create a separate EOA \"proxy signer\" wallet and delegate trading permissions to it.",
+    how_title: "How this works",
+    how_box1_title: "Your Funder Wallet",
+    how_box1_desc: "Polymarket custodial wallet that holds your USDC. You never export this key.",
+    how_arrow: "delegates to",
+    how_box2_title: "Proxy Signer Wallet",
+    how_box2_desc: "A new EOA wallet you create. The bot uses its private key to sign orders on behalf of the funder.",
+    steps_title: "Step-by-step setup",
+    s1_title: "Find your Polymarket funder wallet address",
+    s1_intro: 'This is the wallet address Polymarket created for you. You need it as your <code class="bg-gray-800 text-indigo-300 px-1.5 py-0.5 rounded text-xs">FUNDER_ADDRESS</code>.',
+    s1a: 'Go to <a href="https://polymarket.com" target="_blank" class="text-brand hover:underline">polymarket.com</a> and log in with your email.',
+    s1b: 'Click your profile icon (top right) → <strong class="text-gray-300">Profile</strong>.',
+    s1c: 'Your wallet address appears below your username — it looks like <code class="bg-gray-800 text-indigo-300 px-1.5 py-0.5 rounded text-xs">0xABCD...1234</code>. Copy it.',
+    s1d: 'Alternatively, go to <strong class="text-gray-300">Settings → Wallet</strong> — the address is shown there too.',
+    s1_label: "This will be your",
+    s2_title: "Create a new proxy signer wallet (MetaMask)",
+    s2_intro: 'You need a <strong class="text-gray-300">brand-new, dedicated</strong> EOA wallet to act as the proxy signer. Do not reuse a wallet that holds significant funds.',
+    s2a: 'Install <a href="https://metamask.io" target="_blank" class="text-brand hover:underline">MetaMask</a> (browser extension) if you don\'t have it.',
+    s2b: 'Open MetaMask → click the account selector at the top → <strong class="text-gray-300">Add account or hardware wallet → Create a new account</strong>.',
+    s2c: 'Give it a name like <em class="text-gray-300">"PMBot Signer"</em>. Note its wallet address — this is the proxy signer address.',
+    s2d: 'You do <strong class="text-gray-300">not</strong> need to fund this wallet with USDC — funds come from your Polymarket funder wallet.',
+    s3_title: "Export the proxy signer private key",
+    s3_warn: "Only export the key for the <strong>dedicated proxy signer</strong> wallet you just created — never your main wallet or your Polymarket funder wallet.",
+    s3a: "In MetaMask, switch to the proxy signer account.",
+    s3b: 'Click the three-dot menu (⋮) → <strong class="text-gray-300">Account details</strong>.',
+    s3c: 'Click <strong class="text-gray-300">Show private key</strong>, enter your MetaMask password, and reveal the key.',
+    s3d: 'Copy the 64-character hex string (it may or may not start with <code class="bg-gray-800 text-indigo-300 px-1.5 py-0.5 rounded text-xs">0x</code> — both are fine).',
+    s3_label: "This will be your",
+    s4_title: "Register the proxy signer on Polymarket",
+    s4_intro: "Polymarket must know that your proxy signer wallet is allowed to trade on behalf of your funder wallet. This is done via one transaction in the Polymarket UI.",
+    s4a: 'While logged in to Polymarket with your <strong class="text-gray-300">email account</strong>, go to any open market.',
+    s4b: "Place a small trade (e.g. buy $1 of any outcome). This triggers contract approval setup automatically.",
+    s4c: "Polymarket will prompt you to link/approve your wallet — follow the on-screen steps.",
+    s4_note: 'The bot (<code class="bg-blue-900/60 px-1 rounded text-xs">sig_type=1</code>) skips automatic approval — this manual step is required once for your account to function.',
+    s5_title: "Enter your credentials in the bot dashboard",
+    s5_intro: 'In the bot\'s web dashboard, navigate to <strong class="text-gray-300">Settings</strong> and fill in:',
+    th_field: "Field", th_value: "Value", th_notes: "Notes",
+    t1v: "Your proxy signer key", t1n: "64-char hex, optional 0x prefix",
+    t2v: "Your Polymarket email wallet address", t2n: "0x... 42-char address",
+    t3n: "Required for Magic/email accounts",
+    t4n: "Start in dry-run to verify, then disable",
+    checklist_title: "Checklist",
+    c1: "Copied your Polymarket funder wallet address",
+    c2: "Created a new dedicated proxy signer wallet in MetaMask",
+    c3: "Exported the proxy signer's private key",
+    c4: "Completed one manual trade on Polymarket to register contract approvals",
+    c5: "Entered PRIVATE_KEY, FUNDER_ADDRESS, and SIGNATURE_TYPE=1 in the dashboard",
+    c6: "Verified connection in dry-run mode before going live",
+    nav_settings: "Next: Bot Settings Reference →",
+    nav_settings_sub: "Configure trading parameters",
+    nav_home: "Back to Docs Home",
+    footer: "PMBot Documentation · For internal use only",
+  },
+  zh: {
+    breadcrumb: "電子郵件 / Magic 帳戶",
+    title: "電子郵件 / Magic 帳戶設定",
+    intro: "您使用電子郵件（或 Google/Apple）註冊 Polymarket。您的資金存放在 Magic 託管的錢包中，機器人無法直接存取。您需要建立一個獨立的 EOA「代理簽名」錢包，並將交易授權委派給它。",
+    how_title: "運作方式",
+    how_box1_title: "您的 Funder 錢包",
+    how_box1_desc: "Polymarket 託管錢包，持有您的 USDC。您永遠不需要匯出此錢包的私鑰。",
+    how_arrow: "委派給",
+    how_box2_title: "代理簽名錢包",
+    how_box2_desc: "您自行建立的新 EOA 錢包。機器人使用其私鑰代表 Funder 簽署訂單。",
+    steps_title: "逐步設定說明",
+    s1_title: "找到您的 Polymarket Funder 錢包地址",
+    s1_intro: '這是 Polymarket 為您建立的錢包地址，需填入 <code class="bg-gray-800 text-indigo-300 px-1.5 py-0.5 rounded text-xs">FUNDER_ADDRESS</code>。',
+    s1a: '前往 <a href="https://polymarket.com" target="_blank" class="text-brand hover:underline">polymarket.com</a> 並使用電子郵件登入。',
+    s1b: '點擊右上角的個人圖示 → <strong class="text-gray-300">個人資料</strong>。',
+    s1c: '您的錢包地址顯示在用戶名稱下方，格式為 <code class="bg-gray-800 text-indigo-300 px-1.5 py-0.5 rounded text-xs">0xABCD...1234</code>，複製它。',
+    s1d: '或者前往 <strong class="text-gray-300">設定 → 錢包</strong>，地址也會顯示在那裡。',
+    s1_label: "這將是您的",
+    s2_title: "建立新的代理簽名錢包（MetaMask）",
+    s2_intro: '您需要一個<strong class="text-gray-300">全新的專用</strong> EOA 錢包作為代理簽名者。請勿重複使用持有大量資金的錢包。',
+    s2a: '如果尚未安裝，請先安裝 <a href="https://metamask.io" target="_blank" class="text-brand hover:underline">MetaMask</a>（瀏覽器擴充功能）。',
+    s2b: '開啟 MetaMask → 點擊頂部的帳戶選擇器 → <strong class="text-gray-300">新增帳戶或硬體錢包 → 建立新帳戶</strong>。',
+    s2c: '命名為 <em class="text-gray-300">「PMBot Signer」</em>，記錄其錢包地址，這就是代理簽名者地址。',
+    s2d: '此錢包<strong class="text-gray-300">不需要</strong>存入 USDC——資金來自您的 Polymarket Funder 錢包。',
+    s3_title: "匯出代理簽名者的私鑰",
+    s3_warn: "請只匯出您剛建立的<strong>專用代理簽名</strong>錢包的私鑰——絕對不要匯出您的主要錢包或 Polymarket Funder 錢包的私鑰。",
+    s3a: "在 MetaMask 中切換到代理簽名者帳戶。",
+    s3b: '點擊三點選單（⋮）→ <strong class="text-gray-300">帳戶詳情</strong>。',
+    s3c: '點擊 <strong class="text-gray-300">顯示私鑰</strong>，輸入 MetaMask 密碼，顯示私鑰。',
+    s3d: '複製 64 個字元的十六進位字串（可能以 <code class="bg-gray-800 text-indigo-300 px-1.5 py-0.5 rounded text-xs">0x</code> 開頭或不帶，兩種格式均可）。',
+    s3_label: "這將是您的",
+    s4_title: "在 Polymarket 上註冊代理簽名者",
+    s4_intro: "Polymarket 必須知道您的代理簽名錢包有權代表 Funder 錢包進行交易。此步驟需在 Polymarket 網站上完成一筆交易。",
+    s4a: '使用您的<strong class="text-gray-300">電子郵件帳戶</strong>登入 Polymarket，進入任一開放的市場。',
+    s4b: "進行一筆小額交易（例如購買 $1 的任意結果）。這將自動觸發合約授權設定。",
+    s4c: "Polymarket 會提示您連結/授權錢包——按照畫面步驟操作即可。",
+    s4_note: '機器人（<code class="bg-blue-900/60 px-1 rounded text-xs">sig_type=1</code>）不會自動設定授權——此手動步驟僅需執行一次，您的帳戶才能正常運作。',
+    s5_title: "在機器人控制台中填入憑證",
+    s5_intro: '在機器人網頁控制台中，前往 <strong class="text-gray-300">設定</strong> 並填入以下資訊：',
+    th_field: "欄位", th_value: "值", th_notes: "說明",
+    t1v: "您的代理簽名者私鑰", t1n: "64 位元十六進位字串，可選 0x 前綴",
+    t2v: "您的 Polymarket 電子郵件錢包地址", t2n: "0x... 共 42 個字元的地址",
+    t3n: "Magic/電子郵件帳戶必須設為 1",
+    t4n: "先用模擬模式驗證，確認後再關閉",
+    checklist_title: "完成清單",
+    c1: "已複製您的 Polymarket Funder 錢包地址",
+    c2: "已在 MetaMask 中建立專用代理簽名錢包",
+    c3: "已匯出代理簽名者的私鑰",
+    c4: "已在 Polymarket 完成一筆手動交易以設定合約授權",
+    c5: "已在控制台填入 PRIVATE_KEY、FUNDER_ADDRESS 及 SIGNATURE_TYPE=1",
+    c6: "已在模擬模式下驗證連線正常後再切換為正式交易",
+    nav_settings: "下一步：機器人設定參數說明 →",
+    nav_settings_sub: "設定交易參數",
+    nav_home: "返回文件首頁",
+    footer: "PMBot 文件 · 僅供內部使用",
+  }
+});
+</script>
+</body>
+</html>

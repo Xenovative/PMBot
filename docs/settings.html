@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PMBot Docs — Bot Settings Reference</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={theme:{extend:{colors:{brand:{DEFAULT:'#6366f1',dark:'#4f46e5',light:'#a5b4fc'}}}}}</script>
+  <style>.section-anchor{scroll-margin-top:5rem}</style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+<header class="border-b border-gray-800 bg-gray-900 sticky top-0 z-10">
+  <div class="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="index.html" class="text-gray-500 hover:text-gray-300 transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </a>
+      <a href="index.html" class="flex items-center gap-2">
+        <div class="w-7 h-7 rounded-lg bg-brand flex items-center justify-center text-white font-bold text-xs">P</div>
+        <span class="text-gray-400 text-sm">PMBot Docs</span>
+      </a>
+      <span class="text-gray-700">/</span>
+      <span class="text-gray-300 text-sm" data-i18n="breadcrumb">Bot Settings Reference</span>
+    </div>
+    <div class="flex items-center gap-1 bg-gray-800 rounded-lg p-1">
+      <button data-lang-btn="en" class="px-3 py-1 rounded-md text-sm font-medium transition-colors">EN</button>
+      <button data-lang-btn="zh" class="px-3 py-1 rounded-md text-sm font-medium transition-colors">中文</button>
+    </div>
+  </div>
+</header>
+
+<div class="max-w-6xl mx-auto px-6 py-12 flex gap-10">
+
+  <!-- Sidebar -->
+  <aside class="hidden lg:block w-52 flex-shrink-0">
+    <div class="sticky top-24 space-y-1 text-sm">
+      <p class="text-gray-600 text-xs font-medium uppercase tracking-wider mb-3" data-i18n="toc_label">On this page</p>
+      <a href="#credentials" class="block text-gray-400 hover:text-white py-1 transition-colors" data-i18n="toc_cred">Credentials</a>
+      <a href="#trading" class="block text-gray-400 hover:text-white py-1 transition-colors" data-i18n="toc_trade">Trading Controls</a>
+      <a href="#symbols" class="block text-gray-400 hover:text-white py-1 transition-colors" data-i18n="toc_sym">Markets &amp; Symbols</a>
+      <a href="#bargain" class="block text-gray-400 hover:text-white py-1 transition-colors" data-i18n="toc_bargain">Bargain Hunter</a>
+      <a href="#advanced" class="block text-gray-400 hover:text-white py-1 transition-colors" data-i18n="toc_adv">Advanced</a>
+      <a href="#per-bot" class="block text-gray-400 hover:text-white py-1 transition-colors" data-i18n="toc_perbot">Per-Bot Defaults</a>
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0">
+
+    <div class="mb-10">
+      <div class="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-3 py-1 text-emerald-300 text-xs font-medium mb-4">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+        <span data-i18n="badge">All Bots</span>
+      </div>
+      <h1 class="text-3xl font-bold text-white mb-3" data-i18n="title">Bot Settings Reference</h1>
+      <p class="text-gray-400 text-base leading-relaxed max-w-2xl" data-i18n="intro">Every parameter available in the bot's web dashboard Settings panel. Changes take effect immediately — no restart required — unless noted otherwise.</p>
+    </div>
+
+    <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 mb-10 flex gap-4">
+      <svg class="w-5 h-5 text-brand flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <div class="text-sm text-gray-400">
+        <p class="text-gray-200 font-medium mb-1" data-i18n="where_title">Where to change settings</p>
+        <p data-i18n="where_body">Open your bot's web dashboard → click <strong class="text-gray-200">Settings</strong> (gear icon). All fields here map 1:1 to the environment variables listed below. Credentials are write-only — they are never displayed after saving.</p>
+      </div>
+    </div>
+
+    <!-- ── CREDENTIALS ── -->
+    <section id="credentials" class="section-anchor mb-12">
+      <h2 class="text-xl font-bold text-white mb-1 flex items-center gap-2">
+        <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+        <span data-i18n="s_cred">Credentials</span>
+      </h2>
+      <p class="text-gray-500 text-sm mb-5" data-i18n="s_cred_sub">Required for live trading. Leave <code class="bg-gray-800 text-gray-400 px-1 rounded text-xs">PRIVATE_KEY</code> blank to run in dry-run simulation mode.</p>
+
+      <div class="space-y-4">
+
+        <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+            <code class="text-indigo-300 font-mono font-semibold">PRIVATE_KEY</code>
+            <span class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded" data-i18n="type_str">string</span>
+          </div>
+          <div class="px-5 py-4 text-sm text-gray-400 space-y-3">
+            <p data-i18n="pk_desc">The private key used to sign all orders and on-chain transactions. Must be a 32-byte hex string (64 hex characters), with or without the <code class="bg-gray-800 text-gray-300 px-1 rounded text-xs">0x</code> prefix.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div class="bg-gray-800/50 rounded-lg p-3">
+                <p class="text-xs text-gray-500 mb-1">EOA (sig_type=0)</p>
+                <p class="text-gray-300 text-xs" data-i18n="pk_eoa">The private key of your trading wallet — the same wallet you connected to Polymarket.</p>
+              </div>
+              <div class="bg-gray-800/50 rounded-lg p-3">
+                <p class="text-xs text-gray-500 mb-1">Email/Magic (sig_type=1)</p>
+                <p class="text-gray-300 text-xs" data-i18n="pk_magic">The private key of your <strong>proxy signer</strong> wallet — a separate EOA you created, not your email password.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+            <code class="text-indigo-300 font-mono font-semibold">FUNDER_ADDRESS</code>
+            <span class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded" data-i18n="type_str">string</span>
+          </div>
+          <div class="px-5 py-4 text-sm text-gray-400 space-y-3">
+            <p data-i18n="fa_desc">The wallet address that <strong class="text-gray-200">holds funds on Polymarket</strong>. Format: <code class="bg-gray-800 text-gray-300 px-1 rounded text-xs">0x...</code> (42 characters).</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div class="bg-gray-800/50 rounded-lg p-3">
+                <p class="text-xs text-gray-500 mb-1">EOA (sig_type=0)</p>
+                <p class="text-gray-300 text-xs" data-i18n="fa_eoa">Leave blank — the bot derives the address automatically from your private key.</p>
+              </div>
+              <div class="bg-gray-800/50 rounded-lg p-3">
+                <p class="text-xs text-gray-500 mb-1">Email/Magic (sig_type=1)</p>
+                <p class="text-gray-300 text-xs" data-i18n="fa_magic"><strong class="text-white">Required.</strong> Your Polymarket custodial wallet address — find it on your Polymarket profile page.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+            <code class="text-indigo-300 font-mono font-semibold">SIGNATURE_TYPE</code>
+            <div class="flex items-center gap-2">
+              <span class="text-xs bg-emerald-900/60 text-emerald-300 px-2 py-0.5 rounded" data-i18n="default_0">default: 0</span>
+              <span class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded" data-i18n="type_int">integer</span>
+            </div>
+          </div>
+          <div class="px-5 py-4 text-sm text-gray-400 space-y-3">
+            <p data-i18n="st_desc">Tells the bot how to authenticate with the Polymarket CLOB API.</p>
+            <div class="space-y-2">
+              <div class="flex items-start gap-3 bg-gray-800/50 rounded-lg p-3">
+                <span class="font-mono text-purple-300 font-bold text-sm w-4 flex-shrink-0">0</span>
+                <div>
+                  <p class="text-gray-200 text-xs font-medium" data-i18n="st0_title">EOA (default)</p>
+                  <p class="text-gray-500 text-xs" data-i18n="st0_desc">Standard MetaMask / web3 wallet. The private key is the trading wallet key. Bot handles on-chain approvals automatically.</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 bg-gray-800/50 rounded-lg p-3">
+                <span class="font-mono text-indigo-300 font-bold text-sm w-4 flex-shrink-0">1</span>
+                <div>
+                  <p class="text-gray-200 text-xs font-medium" data-i18n="st1_title">Magic / email custodial</p>
+                  <p class="text-gray-500 text-xs" data-i18n="st1_desc">Email-based Polymarket account. Requires both PRIVATE_KEY (proxy signer) and FUNDER_ADDRESS. Contract approvals must be set manually via Polymarket UI.</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-3 bg-gray-800/50 rounded-lg p-3">
+                <span class="font-mono text-emerald-300 font-bold text-sm w-4 flex-shrink-0">2</span>
+                <div>
+                  <p class="text-gray-200 text-xs font-medium" data-i18n="st2_title">Gnosis Safe</p>
+                  <p class="text-gray-500 text-xs" data-i18n="st2_desc">Smart contract multisig wallet. Requires both PRIVATE_KEY (proxy signer EOA) and FUNDER_ADDRESS (Safe address). Bot runs approvals via the proxy signer.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+            <code class="text-indigo-300 font-mono font-semibold">DRY_RUN</code>
+            <div class="flex items-center gap-2">
+              <span class="text-xs bg-emerald-900/60 text-emerald-300 px-2 py-0.5 rounded" data-i18n="default_true">default: true</span>
+              <span class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded" data-i18n="type_bool">boolean</span>
+            </div>
+          </div>
+          <div class="px-5 py-4 text-sm text-gray-400 space-y-2">
+            <p data-i18n="dryrun_desc">When <code class="bg-gray-800 text-gray-200 px-1 rounded text-xs">true</code>, the bot scans markets and logs opportunities but <strong class="text-gray-200">never submits real orders</strong>. No funds are spent. Use this to verify your setup before going live.</p>
+            <p class="text-amber-300/80 text-xs" data-i18n="dryrun_warn">⚠️ Set to false only after confirming the connection test passes in dry-run mode.</p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ── TRADING ── -->
+    <section id="trading" class="section-anchor mb-12">
+      <h2 class="text-xl font-bold text-white mb-1 flex items-center gap-2">
+        <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+        <span data-i18n="s_trade">Trading Controls</span>
+      </h2>
+      <p class="text-gray-500 text-sm mb-5" data-i18n="s_trade_sub">Core parameters that control when and how much the bot trades.</p>
+      <div class="overflow-x-auto rounded-2xl border border-gray-800">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-gray-900 border-b border-gray-800">
+              <th class="text-left text-gray-500 font-medium px-5 py-3 w-64" data-i18n="th_param">Parameter</th>
+              <th class="text-left text-gray-500 font-medium px-5 py-3 w-24" data-i18n="th_default">Default</th>
+              <th class="text-left text-gray-500 font-medium px-5 py-3" data-i18n="th_desc">Description</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800/70 bg-gray-900/40">
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">TARGET_PAIR_COST</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">0.99</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="tpc_desc">Maximum total cost (USD) to trigger an arbitrage trade. When UP ask + DOWN ask ≤ this value, the bot enters. Must be &lt; 1.00 to be profitable. Lower = fewer but higher-profit trades.
+                <div class="mt-2 bg-gray-800/60 rounded p-2 text-gray-500" data-i18n="tpc_example">Example: 0.97 means only trade when the pair costs $0.97 or less, guaranteeing at least $0.03 profit per share.</div>
+              </td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">ORDER_SIZE</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">50</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="os_desc">Number of shares to buy per side in each arbitrage trade. Capped at 80% of available order book depth. Actual spend = ORDER_SIZE × price per side.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">MAX_TRADES_PER_MARKET</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">10</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="mtpm_desc">Maximum number of arbitrage entries the bot will make on a single market within one market window. Prevents over-concentration in one position.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">TRADE_COOLDOWN_SECONDS</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">60</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="tcs_desc">Minimum wait time (seconds) between trades on the same market. Prevents the bot from entering the same market repeatedly when prices are volatile.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">MAX_POSITION_IMBALANCE</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">5</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="mpi_desc">Maximum allowed difference (shares) between your UP and DOWN holdings in a single market. Prevents one-sided exposure if an unwind fails.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">MIN_LIQUIDITY</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">100</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="ml_desc">Minimum order book depth (shares) required on both sides before the bot will enter. Markets thinner than this are skipped to avoid slippage.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── SYMBOLS ── -->
+    <section id="symbols" class="section-anchor mb-12">
+      <h2 class="text-xl font-bold text-white mb-1 flex items-center gap-2">
+        <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <span data-i18n="s_sym">Markets &amp; Symbols</span>
+      </h2>
+      <p class="text-gray-500 text-sm mb-5" data-i18n="s_sym_sub">Control which markets the bot monitors.</p>
+      <div class="space-y-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+            <code class="text-indigo-300 font-mono font-semibold">CRYPTO_SYMBOLS</code>
+            <div class="flex items-center gap-2">
+              <span class="text-xs bg-emerald-900/60 text-emerald-300 px-2 py-0.5 rounded">default: btc,eth,sol</span>
+              <span class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded" data-i18n="type_list">string list</span>
+            </div>
+          </div>
+          <div class="px-5 py-4 text-sm text-gray-400 space-y-3">
+            <p data-i18n="cs_desc">Comma-separated list of crypto symbols to monitor. The bot only scans UP/DOWN markets for these assets.</p>
+            <div class="bg-gray-800/60 border border-gray-700 rounded-lg p-3">
+              <p class="text-xs text-gray-500 mb-2" data-i18n="cs_examples">Examples</p>
+              <div class="space-y-1 font-mono text-xs">
+                <div><code class="text-emerald-300">btc,eth,sol</code> <span class="text-gray-600 ml-2" data-i18n="cs_ex1">— Bitcoin, Ethereum, Solana (default)</span></div>
+                <div><code class="text-emerald-300">btc</code> <span class="text-gray-600 ml-2" data-i18n="cs_ex2">— Bitcoin only</span></div>
+                <div><code class="text-emerald-300">btc,eth,sol,matic,link</code> <span class="text-gray-600 ml-2" data-i18n="cs_ex3">— Extended watchlist</span></div>
+              </div>
+            </div>
+            <p class="text-xs text-gray-500" data-i18n="cs_note">Available symbols depend on what Polymarket currently has active UP/DOWN markets for. Adding a symbol with no active market simply results in it being skipped.</p>
+          </div>
+        </div>
+        <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+            <code class="text-indigo-300 font-mono font-semibold">MIN_TIME_REMAINING_SECONDS</code>
+            <div class="flex items-center gap-2">
+              <span class="text-xs bg-emerald-900/60 text-emerald-300 px-2 py-0.5 rounded" data-i18n="varies">varies by bot</span>
+              <span class="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded" data-i18n="type_int">integer</span>
+            </div>
+          </div>
+          <div class="px-5 py-4 text-sm text-gray-400 space-y-3">
+            <p data-i18n="mtrs_desc">Markets expiring in fewer than this many seconds are skipped. Prevents entering a position just before resolution with no time to capture payout.</p>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+              <div class="bg-gray-800/60 rounded-lg p-2 text-center"><p class="text-gray-500 mb-1" data-i18n="bot_15m">15m bot</p><p class="text-gray-200 font-mono">120s</p></div>
+              <div class="bg-gray-800/60 rounded-lg p-2 text-center"><p class="text-gray-500 mb-1" data-i18n="bot_1h">1h bot</p><p class="text-gray-200 font-mono">600s</p></div>
+              <div class="bg-gray-800/60 rounded-lg p-2 text-center"><p class="text-gray-500 mb-1" data-i18n="bot_4h">4h bot</p><p class="text-gray-200 font-mono">600s</p></div>
+              <div class="bg-gray-800/60 rounded-lg p-2 text-center"><p class="text-gray-500 mb-1" data-i18n="bot_daily">Daily bot</p><p class="text-gray-200 font-mono">3600s</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── BARGAIN HUNTER ── -->
+    <section id="bargain" class="section-anchor mb-12">
+      <h2 class="text-xl font-bold text-white mb-1 flex items-center gap-2">
+        <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <span data-i18n="s_bargain">Bargain Hunter</span>
+      </h2>
+      <p class="text-gray-500 text-sm mb-4" data-i18n="s_bargain_sub">Secondary strategy that buys one side of a market when it's very cheap, expecting the pair to eventually reach an arbitrage-able spread.</p>
+      <div class="bg-amber-950/20 border border-amber-800/30 rounded-xl p-4 mb-5 flex gap-3 text-sm">
+        <svg class="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        <p class="text-amber-200/80" data-i18n="bargain_risk">Bargain Hunter positions carry more risk than pure arbitrage — they are directional bets that one side recovers. Only enable it if you understand the risks and have sufficient balance to hold open positions.</p>
+      </div>
+      <div class="overflow-x-auto rounded-2xl border border-gray-800">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-gray-900 border-b border-gray-800">
+              <th class="text-left text-gray-500 font-medium px-5 py-3 w-72" data-i18n="th_param">Parameter</th>
+              <th class="text-left text-gray-500 font-medium px-5 py-3 w-24" data-i18n="th_default">Default</th>
+              <th class="text-left text-gray-500 font-medium px-5 py-3" data-i18n="th_desc">Description</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800/70 bg-gray-900/40">
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">BARGAIN_ENABLED</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">true</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="be_desc">Master switch. Set to <code class="bg-gray-800 px-1 rounded">false</code> to disable Bargain Hunter entirely and run pure arbitrage only.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">BARGAIN_PRICE_THRESHOLD</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">0.49</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="bpt_desc">The bot buys a single side when its price drops below this threshold. E.g. 0.49 means buy when a side is trading at less than $0.49.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">BARGAIN_MIN_PRICE</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">0.10</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="bmp_desc">Minimum price to enter a Bargain Hunter position. Sides trading below this (e.g. &lt;$0.10) are considered too risky and are skipped.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">BARGAIN_PAIR_THRESHOLD</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">0.99</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="bprt_desc">Once holding one side, watches for the pair sum to fall below this value — then completes the pair to lock in arbitrage profit. Should match or be slightly lower than TARGET_PAIR_COST.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">BARGAIN_MAX_ROUNDS</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">56</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="bmr_desc">Maximum scan rounds to hold a Bargain Hunter position before forcing a close. Prevents positions from being held indefinitely.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">BARGAIN_STOP_LOSS_CENTS</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">0.02</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="bslc_desc">Stop-loss threshold in USD per share. If the held side drops more than this from the entry price, the position is liquidated. Higher = more tolerance.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">BARGAIN_STOP_LOSS_IMMUNE_ROUNDS</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">3</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="bslir_desc">Number of initial scan rounds after entry where stop-loss is not checked. Prevents being stopped out immediately due to normal entry slippage.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">BARGAIN_STOP_LOSS_DEFER_MINUTES</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">5–30</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="bsldm_desc">After a stop-loss is triggered, defers the actual exit by this many minutes. Avoids exiting on a brief spike down that recovers quickly.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">BARGAIN_STOP_LOSS_COOLDOWN_MINUTES</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">5–30</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="bslcm_desc">After a stop-loss exit, waits this many minutes before entering a new Bargain Hunter position on the same market. Prevents re-entering a falling market immediately.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">BARGAIN_FIRST_BUY_BIAS</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">AUTO</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed">
+                <span data-i18n="bfbb_desc">Controls which side the Bargain Hunter prefers to buy first.</span>
+                <div class="mt-2 space-y-1 text-xs">
+                  <div><code class="bg-gray-800 px-1 rounded text-gray-300">AUTO</code> <span data-i18n="bfbb_auto">— buys whichever side is cheaper</span></div>
+                  <div><code class="bg-gray-800 px-1 rounded text-gray-300">UP</code> <span data-i18n="bfbb_up">— always buys the UP side first</span></div>
+                  <div><code class="bg-gray-800 px-1 rounded text-gray-300">DOWN</code> <span data-i18n="bfbb_down">— always buys the DOWN side first</span></div>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">BARGAIN_PAIR_ESCALATION_MINUTES</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">15–180</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="bpem_desc">After holding a single-side position for this many minutes, lowers the pair completion threshold to close sooner, even at smaller profit. Limits exposure time.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── ADVANCED ── -->
+    <section id="advanced" class="section-anchor mb-12">
+      <h2 class="text-xl font-bold text-white mb-1 flex items-center gap-2">
+        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        <span data-i18n="s_adv">Advanced</span>
+      </h2>
+      <p class="text-gray-500 text-sm mb-5" data-i18n="s_adv_sub">Leave these at defaults unless you know what you're changing.</p>
+      <div class="overflow-x-auto rounded-2xl border border-gray-800">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-gray-900 border-b border-gray-800">
+              <th class="text-left text-gray-500 font-medium px-5 py-3 w-64" data-i18n="th_param">Parameter</th>
+              <th class="text-left text-gray-500 font-medium px-5 py-3 w-24" data-i18n="th_default">Default</th>
+              <th class="text-left text-gray-500 font-medium px-5 py-3" data-i18n="th_desc">Description</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800/70 bg-gray-900/40">
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">LATE_LIQUIDATION_SECONDS</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">90</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="lls_desc">(15m and 1h bots only) When a market has fewer than this many seconds until expiry, the bot force-sells any held positions at market price rather than waiting for on-chain resolution. This recovers capital faster at a small cost.</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-4 align-top"><code class="text-indigo-300 text-xs font-mono">POLYGON_RPC_URL</code></td>
+              <td class="px-5 py-4 align-top"><span class="font-mono text-gray-300 text-xs">polygon-rpc.com</span></td>
+              <td class="px-5 py-4 text-gray-400 text-xs leading-relaxed" data-i18n="rpc_desc">The Polygon RPC endpoint used for on-chain transactions (approvals, CTF merges). Replace with a private RPC (Alchemy, Infura, QuickNode) for better reliability under high load.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── PER-BOT DEFAULTS ── -->
+    <section id="per-bot" class="section-anchor mb-10">
+      <h2 class="text-xl font-bold text-white mb-1 flex items-center gap-2">
+        <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 000 4h6a2 2 0 000-4M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <span data-i18n="s_perbot">Per-Bot Default Values</span>
+      </h2>
+      <p class="text-gray-500 text-sm mb-5" data-i18n="s_perbot_sub">Some defaults differ between bot instances because their market time-frames are different.</p>
+      <div class="overflow-x-auto rounded-2xl border border-gray-800">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-gray-900 border-b border-gray-800">
+              <th class="text-left text-gray-500 font-medium px-5 py-3" data-i18n="th_param">Parameter</th>
+              <th class="text-center text-gray-500 font-medium px-4 py-3" data-i18n="bot_15m">15m</th>
+              <th class="text-center text-gray-500 font-medium px-4 py-3" data-i18n="bot_1h">1h</th>
+              <th class="text-center text-gray-500 font-medium px-4 py-3" data-i18n="bot_4h">4h</th>
+              <th class="text-center text-gray-500 font-medium px-4 py-3" data-i18n="bot_daily">Daily</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800/70 bg-gray-900/40">
+            <tr>
+              <td class="px-5 py-3 text-xs text-gray-400"><code class="text-indigo-300">MIN_TIME_REMAINING_SECONDS</code></td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">120</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">600</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">600</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">3600</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-3 text-xs text-gray-400"><code class="text-indigo-300">TRADE_COOLDOWN_SECONDS</code></td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">60</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">120</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">300</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">300</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-3 text-xs text-gray-400"><code class="text-indigo-300">MIN_LIQUIDITY</code></td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">100</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">50</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">50</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">50</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-3 text-xs text-gray-400"><code class="text-indigo-300">BARGAIN_STOP_LOSS_DEFER_MINUTES</code></td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">5</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">10</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">20</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">30</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-3 text-xs text-gray-400"><code class="text-indigo-300">BARGAIN_PAIR_ESCALATION_MINUTES</code></td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">15</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">15</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">60</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">180</td>
+            </tr>
+            <tr>
+              <td class="px-5 py-3 text-xs text-gray-400"><code class="text-indigo-300">LATE_LIQUIDATION_SECONDS</code></td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">90</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-300">90</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-600">—</td>
+              <td class="px-4 py-3 text-center text-xs font-mono text-gray-600">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Nav -->
+    <div class="flex flex-col sm:flex-row gap-4 pt-4">
+      <a href="wallet-eoa.html" class="flex-1 bg-gray-900 border border-gray-800 hover:border-brand rounded-xl p-4 flex items-center gap-3 group transition-all">
+        <svg class="w-5 h-5 text-purple-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+        <div><p class="text-white text-sm font-medium group-hover:text-brand transition-colors" data-i18n="nav_eoa">← MetaMask / EOA Setup</p><p class="text-gray-500 text-xs" data-i18n="nav_eoa_sub">Wallet preparation guide</p></div>
+      </a>
+      <a href="wallet-email.html" class="flex-1 bg-gray-900 border border-gray-800 hover:border-brand rounded-xl p-4 flex items-center gap-3 group transition-all">
+        <svg class="w-5 h-5 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+        <div><p class="text-white text-sm font-medium group-hover:text-brand transition-colors" data-i18n="nav_email">← Email / Magic Setup</p><p class="text-gray-500 text-xs" data-i18n="nav_email_sub">Proxy signer guide</p></div>
+      </a>
+      <a href="index.html" class="bg-gray-900 border border-gray-800 hover:border-gray-600 rounded-xl p-4 flex items-center gap-3 group transition-all">
+        <svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        <p class="text-white text-sm font-medium group-hover:text-gray-300 transition-colors" data-i18n="nav_home">Docs Home</p>
+      </a>
+    </div>
+
+  </main>
+</div>
+
+<footer class="border-t border-gray-800 mt-8">
+  <div class="max-w-6xl mx-auto px-6 py-6 text-center text-gray-600 text-sm" data-i18n="footer">PMBot Documentation · For internal use only</div>
+</footer>
+
+<script src="i18n.js"></script>
+<script>
+initI18n({
+  en: {
+    breadcrumb: "Bot Settings Reference",
+    badge: "All Bots",
+    title: "Bot Settings Reference",
+    intro: "Every parameter available in the bot's web dashboard Settings panel. Changes take effect immediately — no restart required — unless noted otherwise.",
+    toc_label: "On this page",
+    toc_cred: "Credentials", toc_trade: "Trading Controls", toc_sym: "Markets & Symbols",
+    toc_bargain: "Bargain Hunter", toc_adv: "Advanced", toc_perbot: "Per-Bot Defaults",
+    where_title: "Where to change settings",
+    where_body: "Open your bot's web dashboard → click <strong class=\"text-gray-200\">Settings</strong> (gear icon). All fields here map 1:1 to the environment variables listed below. Credentials are write-only — they are never displayed after saving.",
+    s_cred: "Credentials",
+    s_cred_sub: "Required for live trading. Leave <code class=\"bg-gray-800 text-gray-400 px-1 rounded text-xs\">PRIVATE_KEY</code> blank to run in dry-run simulation mode.",
+    type_str: "string", type_int: "integer", type_bool: "boolean", type_list: "string list",
+    default_0: "default: 0", default_true: "default: true", varies: "varies by bot",
+    pk_desc: "The private key used to sign all orders and on-chain transactions. Must be a 32-byte hex string (64 hex characters), with or without the <code class=\"bg-gray-800 text-gray-300 px-1 rounded text-xs\">0x</code> prefix.",
+    pk_eoa: "The private key of your trading wallet — the same wallet you connected to Polymarket.",
+    pk_magic: "The private key of your <strong>proxy signer</strong> wallet — a separate EOA you created, not your email password.",
+    fa_desc: "The wallet address that <strong class=\"text-gray-200\">holds funds on Polymarket</strong>. Format: <code class=\"bg-gray-800 text-gray-300 px-1 rounded text-xs\">0x...</code> (42 characters).",
+    fa_eoa: "Leave blank — the bot derives the address automatically from your private key.",
+    fa_magic: "<strong class=\"text-white\">Required.</strong> Your Polymarket custodial wallet address — find it on your Polymarket profile page.",
+    st_desc: "Tells the bot how to authenticate with the Polymarket CLOB API.",
+    st0_title: "EOA (default)", st0_desc: "Standard MetaMask / web3 wallet. The private key is the trading wallet key. Bot handles on-chain approvals automatically.",
+    st1_title: "Magic / email custodial", st1_desc: "Email-based Polymarket account. Requires both PRIVATE_KEY (proxy signer) and FUNDER_ADDRESS. Contract approvals must be set manually via Polymarket UI.",
+    st2_title: "Gnosis Safe", st2_desc: "Smart contract multisig wallet. Requires both PRIVATE_KEY (proxy signer EOA) and FUNDER_ADDRESS (Safe address). Bot runs approvals via the proxy signer.",
+    dryrun_desc: "When <code class=\"bg-gray-800 text-gray-200 px-1 rounded text-xs\">true</code>, the bot scans markets and logs opportunities but <strong class=\"text-gray-200\">never submits real orders</strong>. No funds are spent. Use this to verify your setup before going live.",
+    dryrun_warn: "⚠️ Set to false only after confirming the connection test passes in dry-run mode.",
+    s_trade: "Trading Controls", s_trade_sub: "Core parameters that control when and how much the bot trades.",
+    th_param: "Parameter", th_default: "Default", th_desc: "Description",
+    tpc_desc: "Maximum total cost (USD) to trigger an arbitrage trade. When UP ask + DOWN ask ≤ this value, the bot enters. Must be < 1.00 to be profitable. Lower = fewer but higher-profit trades.",
+    tpc_example: "Example: 0.97 means only trade when the pair costs $0.97 or less, guaranteeing at least $0.03 profit per share.",
+    os_desc: "Number of shares to buy per side in each arbitrage trade. Capped at 80% of available order book depth. Actual spend = ORDER_SIZE × price per side.",
+    mtpm_desc: "Maximum number of arbitrage entries the bot will make on a single market within one market window. Prevents over-concentration in one position.",
+    tcs_desc: "Minimum wait time (seconds) between trades on the same market. Prevents the bot from entering the same market repeatedly when prices are volatile.",
+    mpi_desc: "Maximum allowed difference (shares) between your UP and DOWN holdings in a single market. Prevents one-sided exposure if an unwind fails.",
+    ml_desc: "Minimum order book depth (shares) required on both sides before the bot will enter. Markets thinner than this are skipped to avoid slippage.",
+    s_sym: "Markets & Symbols", s_sym_sub: "Control which markets the bot monitors.",
+    cs_desc: "Comma-separated list of crypto symbols to monitor. The bot only scans UP/DOWN markets for these assets.",
+    cs_examples: "Examples", cs_ex1: "— Bitcoin, Ethereum, Solana (default)", cs_ex2: "— Bitcoin only", cs_ex3: "— Extended watchlist",
+    cs_note: "Available symbols depend on what Polymarket currently has active UP/DOWN markets for. Adding a symbol with no active market simply results in it being skipped.",
+    mtrs_desc: "Markets expiring in fewer than this many seconds are skipped. Prevents entering a position just before resolution with no time to capture payout.",
+    bot_15m: "15m", bot_1h: "1h", bot_4h: "4h", bot_daily: "Daily",
+    s_bargain: "Bargain Hunter",
+    s_bargain_sub: "Secondary strategy that buys one side of a market when it's very cheap, expecting the pair to eventually reach an arbitrage-able spread.",
+    bargain_risk: "Bargain Hunter positions carry more risk than pure arbitrage — they are directional bets that one side recovers. Only enable it if you understand the risks and have sufficient balance to hold open positions.",
+    be_desc: "Master switch. Set to <code class=\"bg-gray-800 px-1 rounded\">false</code> to disable Bargain Hunter entirely and run pure arbitrage only.",
+    bpt_desc: "The bot buys a single side when its price drops below this threshold. E.g. 0.49 means buy when a side is trading at less than $0.49.",
+    bmp_desc: "Minimum price to enter a Bargain Hunter position. Sides trading below this are considered too risky and are skipped.",
+    bprt_desc: "Once holding one side, watches for the pair sum to fall below this value — then completes the pair to lock in arbitrage profit. Should match or be slightly lower than TARGET_PAIR_COST.",
+    bmr_desc: "Maximum scan rounds to hold a Bargain Hunter position before forcing a close. Prevents positions from being held indefinitely.",
+    bslc_desc: "Stop-loss threshold in USD per share. If the held side drops more than this from the entry price, the position is liquidated. Higher = more tolerance.",
+    bslir_desc: "Number of initial scan rounds after entry where stop-loss is not checked. Prevents being stopped out immediately due to normal entry slippage.",
+    bsldm_desc: "After a stop-loss is triggered, defers the actual exit by this many minutes. Avoids exiting on a brief spike down that recovers quickly.",
+    bslcm_desc: "After a stop-loss exit, waits this many minutes before entering a new Bargain Hunter position on the same market. Prevents re-entering a falling market immediately.",
+    bfbb_desc: "Controls which side the Bargain Hunter prefers to buy first.",
+    bfbb_auto: "— buys whichever side is cheaper", bfbb_up: "— always buys the UP side first", bfbb_down: "— always buys the DOWN side first",
+    bpem_desc: "After holding a single-side position for this many minutes, lowers the pair completion threshold to close sooner, even at smaller profit. Limits exposure time.",
+    s_adv: "Advanced", s_adv_sub: "Leave these at defaults unless you know what you're changing.",
+    lls_desc: "(15m and 1h bots only) When a market has fewer than this many seconds until expiry, the bot force-sells any held positions at market price rather than waiting for on-chain resolution. This recovers capital faster at a small cost.",
+    rpc_desc: "The Polygon RPC endpoint used for on-chain transactions (approvals, CTF merges). Replace with a private RPC (Alchemy, Infura, QuickNode) for better reliability under high load.",
+    s_perbot: "Per-Bot Default Values", s_perbot_sub: "Some defaults differ between bot instances because their market time-frames are different.",
+    nav_eoa: "← MetaMask / EOA Setup", nav_eoa_sub: "Wallet preparation guide",
+    nav_email: "← Email / Magic Setup", nav_email_sub: "Proxy signer guide",
+    nav_home: "Docs Home",
+    footer: "PMBot Documentation · For internal use only",
+  },
+  zh: {
+    breadcrumb: "機器人設定參數說明",
+    badge: "所有機器人",
+    title: "機器人設定參數說明",
+    intro: "機器人網頁控制台設定面板中的所有參數。除非特別說明，變更即時生效，無需重啟。",
+    toc_label: "本頁目錄",
+    toc_cred: "憑證", toc_trade: "交易控制", toc_sym: "市場與標的",
+    toc_bargain: "Bargain Hunter", toc_adv: "進階設定", toc_perbot: "各機器人預設值",
+    where_title: "如何修改設定",
+    where_body: "開啟機器人網頁控制台 → 點擊 <strong class=\"text-gray-200\">設定</strong>（齒輪圖示）。所有欄位與下列環境變數一一對應。憑證為唯寫——儲存後不會再次顯示。",
+    s_cred: "憑證",
+    s_cred_sub: "正式交易所必需。將 <code class=\"bg-gray-800 text-gray-400 px-1 rounded text-xs\">PRIVATE_KEY</code> 留空即可以模擬模式運行。",
+    type_str: "字串", type_int: "整數", type_bool: "布林值", type_list: "字串清單",
+    default_0: "預設：0", default_true: "預設：true", varies: "依機器人而異",
+    pk_desc: "用於簽署所有訂單和鏈上交易的私鑰。必須是 32 位元組的十六進位字串（64 個十六進位字元），可選帶或不帶 <code class=\"bg-gray-800 text-gray-300 px-1 rounded text-xs\">0x</code> 前綴。",
+    pk_eoa: "您的交易錢包私鑰——即您連接至 Polymarket 的那個錢包。",
+    pk_magic: "您的<strong>代理簽名者</strong>錢包私鑰——您另外建立的 EOA 錢包，並非電子郵件密碼。",
+    fa_desc: "在 Polymarket 上<strong class=\"text-gray-200\">持有資金的錢包地址</strong>。格式：<code class=\"bg-gray-800 text-gray-300 px-1 rounded text-xs\">0x...</code>（42 個字元）。",
+    fa_eoa: "留空——機器人會自動從私鑰推導出地址。",
+    fa_magic: "<strong class=\"text-white\">必填。</strong>您的 Polymarket 託管錢包地址——可在 Polymarket 個人資料頁面找到。",
+    st_desc: "告知機器人如何向 Polymarket CLOB API 進行身份驗證。",
+    st0_title: "EOA（預設）", st0_desc: "標準 MetaMask / Web3 錢包。私鑰即為交易錢包金鑰。機器人自動處理鏈上授權。",
+    st1_title: "Magic / 電子郵件託管", st1_desc: "電子郵件 Polymarket 帳戶。需同時提供 PRIVATE_KEY（代理簽名者）和 FUNDER_ADDRESS。合約授權需透過 Polymarket 網站手動設定。",
+    st2_title: "Gnosis Safe", st2_desc: "智能合約多簽錢包。需同時提供 PRIVATE_KEY（代理簽名者 EOA）和 FUNDER_ADDRESS（Safe 地址）。機器人透過代理簽名者設定授權。",
+    dryrun_desc: "設為 <code class=\"bg-gray-800 text-gray-200 px-1 rounded text-xs\">true</code> 時，機器人掃描市場並記錄機會，但<strong class=\"text-gray-200\">不提交真實訂單</strong>，不消耗任何資金。啟動前請先用此模式驗證設定。",
+    dryrun_warn: "⚠️ 確認模擬模式下連線測試通過後，再將此值設為 false。",
+    s_trade: "交易控制", s_trade_sub: "控制機器人何時交易及交易量的核心參數。",
+    th_param: "參數", th_default: "預設值", th_desc: "說明",
+    tpc_desc: "觸發套利交易的最高總成本（美元）。當 UP 賣價 + DOWN 賣價 ≤ 此值時，機器人入場。必須 < 1.00 才能獲利。越低 = 交易越少但每筆獲利越高。",
+    tpc_example: "範例：0.97 表示只在一對成本 $0.97 或更低時交易，保證每股至少獲利 $0.03。",
+    os_desc: "每次套利交易每邊買入的股數。上限為可用訂單簿深度的 80%。實際花費 = ORDER_SIZE × 價格（每邊）。",
+    mtpm_desc: "機器人在單一市場窗口內，對同一市場進行套利入場的最大次數。防止在單一倉位過度集中。",
+    tcs_desc: "同一市場兩次交易之間的最短等待時間（秒）。防止在價格波動時機器人反覆進入同一市場。",
+    mpi_desc: "單一市場中，UP 和 DOWN 持倉之間允許的最大差值（股數）。防止平倉失敗時產生單邊曝險。",
+    ml_desc: "機器人入場前，雙邊訂單簿所需的最低深度（股數）。深度不足的市場將被跳過，以避免滑點。",
+    s_sym: "市場與標的", s_sym_sub: "控制機器人監控哪些市場。",
+    cs_desc: "以逗號分隔的加密貨幣代號清單。機器人只掃描這些資產的 UP/DOWN 市場。",
+    cs_examples: "範例", cs_ex1: "— 比特幣、以太坊、Solana（預設）", cs_ex2: "— 僅比特幣", cs_ex3: "— 擴展監控清單",
+    cs_note: "可用代號取決於 Polymarket 當前有哪些活躍的 UP/DOWN 市場。加入無活躍市場的代號只會被跳過。",
+    mtrs_desc: "距到期時間少於此秒數的市場將被跳過。防止在結算前無法取得收益的情況下入場。",
+    bot_15m: "15分鐘", bot_1h: "1小時", bot_4h: "4小時", bot_daily: "每日",
+    s_bargain: "Bargain Hunter（撿便宜策略）",
+    s_bargain_sub: "次要策略，當市場某邊價格非常低廉時買入，期待價格對回後達到套利空間。",
+    bargain_risk: "Bargain Hunter 倉位比純套利具有更高風險——屬於方向性賭注，押注某邊價格回升。請確認您了解風險並有足夠餘額持倉後再啟用。",
+    be_desc: "主開關。設為 <code class=\"bg-gray-800 px-1 rounded\">false</code> 可完全停用 Bargain Hunter，只運行純套利策略。",
+    bpt_desc: "當某邊價格跌破此門檻時，機器人買入該邊。例如 0.49 表示當某邊低於 $0.49 時買入。",
+    bmp_desc: "進入 Bargain Hunter 倉位的最低價格。低於此價格（如 &lt;$0.10）的邊被視為風險過高而跳過。",
+    bprt_desc: "持有一邊後，監控配對總和是否跌破此值——達到時完成配對以鎖定套利利潤。應與 TARGET_PAIR_COST 相同或略低。",
+    bmr_desc: "Bargain Hunter 倉位被強制平倉前的最大掃描輪數。防止倉位無限期持有。",
+    bslc_desc: "每股止損門檻（美元）。若持倉邊的價格從入場價下跌超過此值，倉位將被清算。越高 = 容忍度越大。",
+    bslir_desc: "入場後最初幾輪掃描不檢查止損。防止因正常入場滑點而立即被止損出場。",
+    bsldm_desc: "止損觸發後，延遲此分鐘數再實際出場。避免因短暫急跌後迅速回升而被迫出場。",
+    bslcm_desc: "止損出場後，等待此分鐘數再對同一市場開新的 Bargain Hunter 倉位。防止在下跌市場中立即重新入場。",
+    bfbb_desc: "控制 Bargain Hunter 優先買入哪一邊。",
+    bfbb_auto: "— 買入較便宜的那邊", bfbb_up: "— 永遠優先買 UP 邊", bfbb_down: "— 永遠優先買 DOWN 邊",
+    bpem_desc: "持有單邊倉位達此分鐘數後，降低配對完成門檻，以較小利潤提前平倉。限制持倉曝險時間。",
+    s_adv: "進階設定", s_adv_sub: "除非您了解自己在做什麼，否則請保留預設值。",
+    lls_desc: "（僅限 15m 和 1h 機器人）當市場距到期時間少於此秒數時，機器人以市場價強制賣出所有持倉，而非等待鏈上結算。以小額成本加速資金回收。",
+    rpc_desc: "用於鏈上交易（授權、CTF 合併）的 Polygon RPC 端點。可替換為私人 RPC（Alchemy、Infura、QuickNode）以在高負載下獲得更好的穩定性。",
+    s_perbot: "各機器人預設值", s_perbot_sub: "部分預設值因機器人的市場時間框架不同而有所差異。",
+    nav_eoa: "← MetaMask / EOA 設定", nav_eoa_sub: "錢包準備指南",
+    nav_email: "← 電子郵件 / Magic 設定", nav_email_sub: "代理簽名者指南",
+    nav_home: "文件首頁",
+    footer: "PMBot 文件 · 僅供內部使用",
+  }
+});
+</script>
+</body>
+</html>

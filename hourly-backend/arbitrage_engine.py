@@ -182,6 +182,7 @@ class ArbitrageEngine:
         self._stop_event = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
         self._stop_loss_cooldown_until: Optional[datetime] = None
+        self._clob_client = None
 
     async def get_prices(self, market: MarketInfo) -> Optional[PriceInfo]:
         """從 CLOB API 獲取 UP/DOWN 代幣的當前價格和訂單簿深度"""
