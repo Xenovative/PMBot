@@ -23,6 +23,10 @@ desktop.ini
 frontend/dist/
 frontend/build/
 
+# Docs / help (local only)
+docs/
+help/
+
 # Logs
 *.log
 
