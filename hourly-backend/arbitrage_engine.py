@@ -356,6 +356,13 @@ class ArbitrageEngine:
     def _get_clob_client(self):
         return self._ensure_clob_client()
 
+    def _flush_merger_logs(self):
+        """Forward accumulated merger logs into the main status log."""
+        for entry in self.merger.logs:
+            if entry not in getattr(self, '_flushed_merger_logs', set()):
+                self.status.add_log(f"[merger] {entry.split('] ', 1)[-1]}")
+        self._flushed_merger_logs = set(self.merger.logs)
+
     def _ensure_clob_client(self):
         if self._clob_client is None:
             # dry_run 不需要初始化 CLOB client
@@ -1054,6 +1061,7 @@ class ArbitrageEngine:
             )
             if self.merger.auto_merge_enabled:
                 merge_results = await self.merger.auto_merge_all()
+                self._flush_merger_logs()
                 for mr in merge_results:
                     self.status.add_log(
                         f"🔄 合併結果: {mr.status} | {mr.amount:.0f} 對 → "
@@ -1452,6 +1460,7 @@ class ArbitrageEngine:
                 )
                 if self.merger.auto_merge_enabled:
                     merge_results = await self.merger.auto_merge_all()
+                    self._flush_merger_logs()
                     for mr in merge_results:
                         self.status.add_log(
                             f"🔄 合併結果: {mr.status} | {mr.amount:.0f} 對 → "
