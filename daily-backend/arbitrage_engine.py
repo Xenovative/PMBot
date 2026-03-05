@@ -1574,8 +1574,8 @@ class ArbitrageEngine:
         """確保 EOA 錢包已對 Polymarket 合約設定 USDC 和 CTF ERC-1155 授權。dry_run 時跳過。"""
         if self.config.dry_run:
             return True
-        if self.config.signature_type == 1:
-            self.status.add_log("ℹ️ sig_type=1 (Magic/email 托管)，跳過自動授權 — 請在 Polymarket 網站用該帳戶完成一筆交易以自動設定合約授權")
+        if self.config.signature_type in (1, 2):
+            self.status.add_log("ℹ️ sig_type=1/2 (托管帳戶)，跳過自動授權 — Polymarket 帳戶由平台管理授權，無需手動設定")
             return True
         pk = (self.config.private_key or "").strip()
         if not pk:
@@ -1588,7 +1588,7 @@ class ArbitrageEngine:
             w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
             if not w3.is_connected():
                 self.status.add_log("⚠️ 無法連線 Polygon RPC，跳過授權檢查")
-                return
+                return False
             wallet = Account.from_key(pk).address
             USDC = Web3.to_checksum_address("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174")
             CTF  = Web3.to_checksum_address("0x4D97DCd97eC945f40cF65F87097ACe5EA0476045")
