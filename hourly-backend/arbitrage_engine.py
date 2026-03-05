@@ -353,6 +353,9 @@ class ArbitrageEngine:
             return (0.0, 0.0)
         return (sweep_price, total_cost)
 
+    def _get_clob_client(self):
+        return self._ensure_clob_client()
+
     def _ensure_clob_client(self):
         if self._clob_client is None:
             # dry_run 不需要初始化 CLOB client
