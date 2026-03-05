@@ -7,6 +7,7 @@ export default function LoginPage({ onLogin }) {
   const [authStatus, setAuthStatus] = useState(null) // { setup_complete, totp_enabled }
   const [mode, setMode] = useState('loading') // loading, setup, login, totp
   const [password, setPassword] = useState('')
+  const [agreeRisk, setAgreeRisk] = useState(false)
   const [totpCode, setTotpCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -37,6 +38,10 @@ export default function LoginPage({ onLogin }) {
     e.preventDefault()
     if (password.length < 6) {
       setError('密碼至少 6 個字元')
+      return
+    }
+    if (!agreeRisk) {
+      setError('請先同意使用條款')
       return
     }
     setLoading(true)
@@ -184,13 +189,32 @@ export default function LoginPage({ onLogin }) {
                 </div>
               </div>
 
+              <div className="flex items-start gap-2 text-xs text-gray-400 bg-black/20 border border-neon-amber/15 rounded-lg p-3">
+                <input
+                  id="agree-risk"
+                  type="checkbox"
+                  checked={agreeRisk}
+                  onChange={(e) => setAgreeRisk(e.target.checked)}
+                  className="mt-0.5 accent-neon-amber"
+                />
+                <label htmlFor="agree-risk" className="space-y-1 leading-relaxed">
+                  <span className="block text-neon-amber/80 font-medium">使用聲明與同意</span>
+                  <span className="block text-gray-400">
+                    本介面僅供個人風險自負的交易管理。建立密碼代表你同意：
+                    1) 你負責錢包與 API 金鑰的安全；
+                    2) 交易可能導致資產損失；
+                    3) 你遵守所在司法管轄的合規要求。
+                  </span>
+                </label>
+              </div>
+
               {error && (
                 <p className="text-neon-pink text-xs text-center">{error}</p>
               )}
 
               <button
                 type="submit"
-                disabled={loading || password.length < 6}
+                disabled={loading || password.length < 6 || !agreeRisk}
                 className="w-full py-3 bg-neon-cyan/20 hover:bg-neon-cyan/30 border border-neon-cyan/40 text-neon-cyan rounded-lg font-medium transition-all shadow-neon-cyan disabled:opacity-40 disabled:cursor-not-allowed font-cyber tracking-wider"
               >
                 {loading ? 'SETTING UP...' : 'CREATE PASSWORD'}
