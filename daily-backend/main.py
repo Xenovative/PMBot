@@ -275,6 +275,7 @@ async def bot_loop():
     engine.status.add_log(f"🔍 監控幣種: {', '.join(config.crypto_symbols)}")
     engine.ensure_clob_connected()
     _connection_tested = False
+    _last_chain_sync = 0  # timestamp of last on-chain sync
 
     await broadcast({"type": "status", "data": engine.status.to_dict()})
 
@@ -374,6 +375,12 @@ async def bot_loop():
             # ─── 撿便宜策略: 監控持倉（配對 or 止損）───
             if engine.status.running:
                 await engine.scan_bargain_holdings()
+
+            # ─── 定期同步鏈上餘額（每 5 分鐘）───
+            import time as _time
+            if _time.time() - _last_chain_sync > 300:
+                await engine.sync_bargain_holdings_with_chain()
+                _last_chain_sync = _time.time()
 
             await broadcast({"type": "status", "data": engine.status.to_dict()})
             await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
@@ -567,6 +574,31 @@ async def merge_all_positions(_user=Depends(auth.require_auth)):
     for r in results:
         await broadcast({"type": "merge", "data": r.to_dict()})
     return [r.to_dict() for r in results]
+
+
+# ─── Bargain Holdings API ───
+
+@app.post("/api/bargain/sync")
+async def sync_bargain_holdings(_user=Depends(auth.require_auth)):
+    """Manually trigger on-chain sync for bargain holdings"""
+    before_count = len([h for h in engine.status.bargain_holdings if h.status == "holding"])
+    await engine.sync_bargain_holdings_with_chain()
+    after_count = len([h for h in engine.status.bargain_holdings if h.status == "holding"])
+    removed = before_count - after_count
+    await broadcast({"type": "status", "data": engine.status.to_dict()})
+    return {
+        "status": "ok",
+        "before": before_count,
+        "after": after_count,
+        "removed": removed,
+    }
+
+
+@app.get("/api/bargain/holdings")
+async def get_bargain_holdings(_user=Depends(auth.require_auth)):
+    """Get current bargain holdings"""
+    holdings = [h.to_dict() for h in engine.status.bargain_holdings if h.status == "holding"]
+    return {"holdings": holdings, "count": len(holdings)}
 
 
 # ─── Analytics API ───

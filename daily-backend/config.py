@@ -30,6 +30,22 @@ def _str(key: str, default: str) -> str:
     return (v.split("#")[0].strip() if v else default) or default
 
 
+def _symbols(key: str, default: str) -> List[str]:
+    """Parse comma-separated symbols, tolerating brackets/quotes/spaces."""
+    raw = _str(key, default)
+    # remove wrapping brackets if provided like "['btc','eth']" or "[btc, eth]"
+    cleaned = raw.strip()
+    if cleaned.startswith("[") and cleaned.endswith("]"):
+        cleaned = cleaned[1:-1]
+    parts = cleaned.split(",")
+    symbols = []
+    for p in parts:
+        sym = p.strip().strip("'\"").lower()
+        if sym:
+            symbols.append(sym)
+    return symbols
+
+
 class BotConfig(BaseModel):
     private_key: str = _str("PRIVATE_KEY", "")
     funder_address: str = _str("FUNDER_ADDRESS", "")
@@ -42,7 +58,7 @@ class BotConfig(BaseModel):
     trade_cooldown_seconds: int = _int("TRADE_COOLDOWN_SECONDS", 300)
     max_position_imbalance: int = _int("MAX_POSITION_IMBALANCE", 5)
     min_liquidity: float = _float("MIN_LIQUIDITY", 50)
-    crypto_symbols: List[str] = _str("CRYPTO_SYMBOLS", "btc,eth,sol").split(",")
+    crypto_symbols: List[str] = _symbols("CRYPTO_SYMBOLS", "btc,eth,sol")
 
     # Bargain Hunter Settings
     bargain_enabled: bool = _bool("BARGAIN_ENABLED", True)

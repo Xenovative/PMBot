@@ -183,6 +183,62 @@ class ArbitrageEngine:
         self._task: Optional[asyncio.Task] = None
         self._stop_loss_cooldown_until: Optional[datetime] = None
 
+    async def sync_bargain_holdings_with_chain(self):
+        """
+        Verify bargain holdings against actual on-chain CTF balances.
+        Remove holdings where the actual balance is zero or insufficient.
+        """
+        if self.config.dry_run:
+            return  # guarded: skip chain sync in simulation mode
+
+        if not self.status.bargain_holdings:
+            return  # guarded: no holdings to sync
+
+        if not self.merger.initialize():
+            self.status.add_log("⚠️ 無法初始化合併器，跳過持倉同步")
+            return  # guarded: merger not available
+
+        stale_holdings = []
+        for holding in self.status.bargain_holdings:
+            if holding.status != "holding":
+                continue  # guarded: only check active holdings
+
+            token_id = holding.token_id
+            if not token_id:
+                continue  # guarded: no token_id
+
+            try:
+                wallet = self.merger.account.address
+                on_chain_balance = self.merger.ctf_contract.functions.balanceOf(
+                    wallet, int(token_id)
+                ).call()
+                # CTF tokens use 6 decimals
+                actual_shares = on_chain_balance / 1e6
+
+                if actual_shares < 0.01:  # effectively zero
+                    self.status.add_log(
+                        f"🔗 [同步] {holding.market_slug} {holding.side} R{holding.round} | "
+                        f"鏈上餘額: {actual_shares:.2f} (記錄: {holding.shares:.1f}) → 移除"
+                    )
+                    stale_holdings.append(holding)
+                elif actual_shares < holding.shares * 0.9:  # >10% discrepancy
+                    self.status.add_log(
+                        f"🔗 [同步] {holding.market_slug} {holding.side} R{holding.round} | "
+                        f"鏈上餘額: {actual_shares:.2f} < 記錄: {holding.shares:.1f} → 更新"
+                    )
+                    holding.shares = actual_shares
+                    holding.amount_usd = actual_shares * holding.buy_price
+            except Exception as e:
+                self.status.add_log(f"⚠️ 查詢 {holding.side} 鏈上餘額失敗: {str(e)[:60]}")
+
+        # Remove stale holdings
+        for stale in stale_holdings:
+            stale.status = "synced_out"  # mark as removed by sync
+
+        active_count = len([h for h in self.status.bargain_holdings if h.status == "holding"])
+        if stale_holdings:
+            self.status.add_log(f"🔗 持倉同步完成 | 移除 {len(stale_holdings)} 筆 | 剩餘 {active_count} 筆")
+
     async def get_prices(self, market: MarketInfo) -> Optional[PriceInfo]:
         """從 CLOB API 獲取 UP/DOWN 代幣的當前價格和訂單簿深度"""
         up_id = market.up_token_id
