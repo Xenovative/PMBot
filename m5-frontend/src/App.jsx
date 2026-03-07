@@ -916,6 +916,21 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   hint="未配對持倉利潤達此比例即直接賣出並視為配對 (例: 9.5%)"
                 />
                 <ConfigField
+                  label="急跌護欄跌幅%"
+                  type="number"
+                  step="0.1"
+                  value={configForm.bargain_plummet_exit_pct ?? 20}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_plummet_exit_pct: parseFloat(v) })}
+                  hint="在時間窗內跌幅達此比例即立刻平倉 (例: 20%)"
+                />
+                <ConfigField
+                  label="急跌護欄時間窗 (秒)"
+                  type="number"
+                  value={configForm.bargain_plummet_window_seconds ?? 15}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_plummet_window_seconds: parseInt(v) })}
+                  hint="連續監控的秒數，用高點作為基準判斷跌幅"
+                />
+                <ConfigField
                   label="止損幅度"
                   type="number"
                   step="0.01"

@@ -125,6 +125,8 @@ class BargainHolding:
     paired_with: Optional[str] = None  # 配對的另一側 holding timestamp (用於追蹤)
     plummet_last_price: Optional[float] = None
     plummet_last_ts: Optional[str] = None  # ISO timestamp for last plummet check
+    plummet_high_price: Optional[float] = None  # 滾動時間窗內的高點
+    plummet_window_start_ts: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -138,6 +140,7 @@ class BargainHolding:
             "status": self.status,
             "round": self.round,
             "plummet_last_price": self.plummet_last_price,
+            "plummet_high_price": self.plummet_high_price,
         }
 
 
@@ -1414,20 +1417,31 @@ class ArbitrageEngine:
             # ── 急跌護欄：短時間內跌幅 >= 設定百分比 → 立刻平倉 ──
             if holding.buy_price > 0:
                 now_iso = datetime.now(timezone.utc).isoformat()
-                last_ts = holding.plummet_last_ts
-                last_price = holding.plummet_last_price
-                within_window = False
-                if last_ts:
+                # 滾動窗口: 以窗口內高點為基準計算跌幅
+                window_start_ts = holding.plummet_window_start_ts
+                window_high = holding.plummet_high_price
+                window_alive = False
+                if window_start_ts:
                     try:
-                        last_dt = datetime.fromisoformat(last_ts)
-                        if last_dt.tzinfo is None:
-                            last_dt = last_dt.replace(tzinfo=timezone.utc)
-                        delta_s = (datetime.now(timezone.utc) - last_dt).total_seconds()
-                        within_window = delta_s <= self.config.bargain_plummet_window_seconds
+                        ws_dt = datetime.fromisoformat(window_start_ts)
+                        if ws_dt.tzinfo is None:
+                            ws_dt = ws_dt.replace(tzinfo=timezone.utc)
+                        delta_s = (datetime.now(timezone.utc) - ws_dt).total_seconds()
+                        window_alive = delta_s <= self.config.bargain_plummet_window_seconds
                     except Exception:
-                        within_window = False
-                if last_price and within_window and last_price > 0:
-                    drop_pct = (last_price - current_price) / last_price * 100
+                        window_alive = False
+
+                if not window_alive:
+                    holding.plummet_window_start_ts = now_iso
+                    holding.plummet_high_price = current_price
+                    window_high = current_price
+                else:
+                    if window_high is None or current_price > window_high:
+                        holding.plummet_high_price = current_price
+                        window_high = current_price
+
+                if window_high and window_high > 0:
+                    drop_pct = (window_high - current_price) / window_high * 100
                     if drop_pct >= self.config.bargain_plummet_exit_pct:
                         self.status.add_log(
                             f"⚡ [急跌護欄] {holding.market_slug} {holding.side} 跌 {drop_pct:.1f}% ≥ {self.config.bargain_plummet_exit_pct:.1f}% / {self.config.bargain_plummet_window_seconds}s → 立刻平倉"
