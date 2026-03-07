@@ -461,12 +461,16 @@ class ConfigUpdate(BaseModel):
 def _persist_env(updates: dict):
     """Write updated key=value pairs back to the .env file next to main.py."""
     env_path = os.path.join(os.path.dirname(__file__), ".env")
+    def _fmt(val):
+        if isinstance(val, (list, tuple)):
+            return ",".join(str(x).strip() for x in val if str(x).strip())
+        return str(val)
     try:
         with open(env_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
     except FileNotFoundError:
         lines = []
-    env_key_map = {k.upper(): str(v) for k, v in updates.items()}
+    env_key_map = {k.upper(): _fmt(v) for k, v in updates.items()}
     written = set()
     new_lines = []
     for line in lines:
