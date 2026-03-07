@@ -234,6 +234,7 @@ class ArbitrageEngine:
         self._last_logged_trend: Optional[str] = None
         self._prev_trend: Optional[str] = None
         self._trend_streak: int = 0
+        self._last_directional_trend: Optional[str] = None
         self.status.velocity_band = "single"
         self.status.dynamic_scan_interval_seconds = getattr(config, "scan_interval_seconds", 2)
         self.status.dynamic_bargain_window_seconds = getattr(config, "bargain_open_time_window_seconds", 240)
@@ -1294,7 +1295,7 @@ class ArbitrageEngine:
 
         # Trend stability gate: avoid flipping markets until trend holds for N scans
         stable_needed = max(1, int(getattr(self.config, "velocity_trend_stable_scans", 1) or 1))
-        if self._trend_streak < stable_needed or self.status.velocity_trend == "flat":
+        if self._trend_streak < stable_needed or not self._last_directional_trend:
             self.status.add_log(
                 f"🏷️ [撿便宜] 趨勢未穩定({self.status.velocity_trend}, {self._trend_streak}/{stable_needed})，暫緩買入"
             )
@@ -1922,11 +1923,19 @@ class ArbitrageEngine:
             trend = "down"
         self.status.velocity_trend = trend
 
-        # Update trend streak for stability gating (compare with previous trend each scan)
-        if self._prev_trend == trend:
-            self._trend_streak += 1
-        else:
-            self._trend_streak = 1
+        # Update trend streak for stability gating (directional + trailing flats)
+        if trend in ("up", "down"):
+            if self._prev_trend == trend:
+                self._trend_streak += 1
+            else:
+                self._trend_streak = 1
+            self._last_directional_trend = trend
+        else:  # flat
+            if self._last_directional_trend:
+                # count flats as continuation of last directional trend
+                self._trend_streak += 1
+            else:
+                self._trend_streak = 1
         self._prev_trend = trend
 
         # Log only when velocity value or trend changes
