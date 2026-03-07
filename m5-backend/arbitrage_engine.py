@@ -635,6 +635,32 @@ class ArbitrageEngine:
         self.status.add_log(f"  ❌ {side_label} 所有平倉方式均失敗!")
         return False
 
+    def _sell_fok(self, clob_client, token_id: str, shares: float, price_hint: float, side_label: str) -> bool:
+        """嘗試單次 FOK 賣出（用於配對失敗時快速退出持倉）。"""
+        from py_clob_client.clob_types import OrderArgs, OrderType
+        from py_clob_client.order_builder.constants import SELL
+
+        shares = math.floor(shares * 100) / 100
+        if shares <= 0:
+            self.status.add_log(f"  ⚠️ {side_label} FOK 股數過小，跳過")
+            return False
+
+        price = max(0.01, round(price_hint, 2))
+        try:
+            order = OrderArgs(
+                token_id=token_id,
+                price=price,
+                size=shares,
+                side=SELL,
+            )
+            signed = clob_client.create_order(order)
+            resp = clob_client.post_order(signed, OrderType.FOK)
+            self.status.add_log(f"  ✅ {side_label} FOK 賣出 {shares:.2f} 股 @ {price:.2f}: {resp}")
+            return True
+        except Exception as e:
+            self.status.add_log(f"  ⚠️ {side_label} FOK 賣出失敗: {str(e)[:150]}")
+            return False
+
     def _convert_orphan_to_bargain(self, market: 'MarketInfo', side: str,
                                     token_id: str, complement_token_id: str,
                                     buy_price: float, shares: float, amount_usd: float):
@@ -1298,6 +1324,21 @@ class ArbitrageEngine:
                 result = self._try_buy_one_side(clob_client, token_id, amount_usd, price, f"撿便宜R{buy_round}-{side}")
                 if not result["success"]:
                     self.status.add_log(f"🏷️ [撿便宜] {side} 買入失敗: {result.get('error', '')[:100]}")
+                    # 若是配對失敗且有原持倉，嘗試 FOK 賣出原側以避免臨期流動性不足
+                    if is_pairing and pair_with:
+                        self.status.add_log(f"  🚨 配對買入失敗，嘗試 FOK 賣出原持倉 {pair_with.side}")
+                        fok_ok = self._sell_fok(
+                            clob_client,
+                            pair_with.token_id,
+                            pair_with.shares,
+                            pair_with.buy_price,
+                            f"R{pair_with.round} {pair_with.side} 配對失敗平倉"
+                        )
+                        if fok_ok:
+                            pair_with.status = "stopped_out"
+                            self.status.add_log("  ✅ 配對失敗改為 FOK 平倉成功")
+                        else:
+                            self.status.add_log("  ⚠️ FOK 平倉失敗，保留持倉等待下一次嘗試")
                     return None
 
                 holding = BargainHolding(
