@@ -410,6 +410,7 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "bargain_first_buy_bias": config.bargain_first_buy_bias,
         "bargain_pair_escalation_minutes": config.bargain_pair_escalation_minutes,
         "late_liquidation_seconds": config.late_liquidation_seconds,
+        "signature_type": config.signature_type,
     }
 
 
@@ -418,6 +419,7 @@ class ConfigUpdate(BaseModel):
     order_size: Optional[float] = None
     dry_run: Optional[bool] = None
     min_time_remaining_seconds: Optional[int] = None
+    signature_type: Optional[int] = None
     max_trades_per_market: Optional[int] = None
     trade_cooldown_seconds: Optional[int] = None
     min_liquidity: Optional[float] = None

@@ -420,6 +420,7 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "order_size": config.order_size,
         "dry_run": config.dry_run,
         "min_time_remaining_seconds": config.min_time_remaining_seconds,
+        "signature_type": config.signature_type,
         "max_trades_per_market": config.max_trades_per_market,
         "trade_cooldown_seconds": config.trade_cooldown_seconds,
         "min_liquidity": config.min_liquidity,
@@ -443,6 +444,7 @@ class ConfigUpdate(BaseModel):
     order_size: Optional[float] = None
     dry_run: Optional[bool] = None
     min_time_remaining_seconds: Optional[int] = None
+    signature_type: Optional[int] = None
     max_trades_per_market: Optional[int] = None
     trade_cooldown_seconds: Optional[int] = None
     min_liquidity: Optional[float] = None
