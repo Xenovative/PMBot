@@ -8,10 +8,24 @@ import httpx
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
+from pathlib import Path
+from collections import deque
 from config import BotConfig
 from market_finder import MarketInfo
 from position_merger import PositionMerger
 import trade_db
+
+LOG_FILE = Path(__file__).resolve().parent / "bot.log"
+
+
+def _read_log_tail(limit: int = 200) -> List[str]:
+    if not LOG_FILE.exists():
+        return []
+    lines: deque[str] = deque(maxlen=limit)
+    with LOG_FILE.open("r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            lines.append(line.rstrip("\n"))
+    return list(lines)
 
 
 @dataclass
@@ -151,8 +165,17 @@ class BotStatus:
         self.logs.append(entry)
         if len(self.logs) > 200:
             self.logs = self.logs[-200:]
+        try:
+            LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with LOG_FILE.open("a", encoding="utf-8") as f:
+                f.write(entry + "\n")
+        except Exception:
+            # Fail silently to avoid crashing the bot if disk is unavailable
+            pass
 
     def to_dict(self) -> Dict[str, Any]:
+        persisted_logs = _read_log_tail(200)
+        logs_for_status = persisted_logs if persisted_logs else self.logs
         return {
             "running": self.running,
             "current_market": self.current_market,
@@ -166,7 +189,8 @@ class BotStatus:
             "opportunities_found": self.opportunities_found,
             "scan_count": self.scan_count,
             "start_time": self.start_time,
-            "logs": self.logs[-50:],
+            # Feed UI from persisted log file if available (falls back to memory buffer)
+            "logs": logs_for_status,
             "trade_history": [t.to_dict() for t in self.trade_history[-20:]],
             "current_opportunities": [o.to_dict() for o in self.current_opportunities],
             "bargain_holdings": [h.to_dict() for h in self.bargain_holdings if h.status == "holding"],
