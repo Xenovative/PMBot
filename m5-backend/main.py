@@ -437,6 +437,7 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "bargain_enabled": config.bargain_enabled,
         "bargain_price_threshold": config.bargain_price_threshold,
         "bargain_pair_threshold": config.bargain_pair_threshold,
+        "bargain_open_time_window_seconds": config.bargain_open_time_window_seconds,
         "bargain_stop_loss_cents": config.bargain_stop_loss_cents,
         "bargain_min_price": config.bargain_min_price,
         "bargain_max_rounds": config.bargain_max_rounds,
@@ -461,6 +462,7 @@ class ConfigUpdate(BaseModel):
     bargain_enabled: Optional[bool] = None
     bargain_price_threshold: Optional[float] = None
     bargain_pair_threshold: Optional[float] = None
+    bargain_open_time_window_seconds: Optional[int] = None
     bargain_stop_loss_cents: Optional[float] = None
     bargain_min_price: Optional[float] = None
     bargain_max_rounds: Optional[int] = None
