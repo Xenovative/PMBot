@@ -891,6 +891,21 @@ function Dashboard({ token, authHeaders, onLogout }) {
                     onChange={(v) => setConfigForm({ ...configForm, bargain_window_max_multiplier: parseFloat(v) })}
                     hint="快速時開倉窗口 = 基準 × 此倍率"
                   />
+                  <ConfigField
+                    label="趨勢平滑 epsilon"
+                    type="number"
+                    step="0.0001"
+                    value={configForm.velocity_trend_epsilon ?? 0.0005}
+                    onChange={(v) => setConfigForm({ ...configForm, velocity_trend_epsilon: parseFloat(v) })}
+                    hint="越小越敏感，平衡 flat 判定"
+                  />
+                  <ConfigField
+                    label="趨勢穩定掃描次數"
+                    type="number"
+                    value={configForm.velocity_trend_stable_scans ?? 2}
+                    onChange={(v) => setConfigForm({ ...configForm, velocity_trend_stable_scans: parseInt(v) })}
+                    hint="連續達成趨勢的掃描數，未達則暫緩買入"
+                  />
                 </>
               )}
               <ConfigField
