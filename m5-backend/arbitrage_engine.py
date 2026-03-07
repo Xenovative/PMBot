@@ -59,6 +59,47 @@ class PriceInfo:
             "time_remaining_display": self.time_remaining_display,
         }
 
+    def _compute_dynamic_price_bounds(self, market: MarketInfo, base_min: float, base_max: float) -> Tuple[float, float]:
+        """Derive dynamic min/max price using velocity and time-to-expiry. Pair threshold remains unchanged elsewhere."""
+        vel = float(self.status.velocity_metric or 0.0)
+        slow_thr = max(0.0, float(getattr(self.config, "velocity_slow_threshold", 0.0) or 0.0))
+        fast_thr_raw = float(getattr(self.config, "velocity_fast_threshold", slow_thr) or slow_thr)
+        fast_thr = fast_thr_raw if fast_thr_raw >= slow_thr else slow_thr
+
+        # Velocity ratio 0..1
+        if vel <= slow_thr:
+            ratio = 0.0
+        elif vel >= fast_thr:
+            ratio = 1.0
+        else:
+            span = fast_thr - slow_thr
+            ratio = (vel - slow_thr) / span if span > 0 else 0.0
+
+        min_slow = float(getattr(self.config, "bargain_price_min_multiplier_slow", 1.0) or 1.0)
+        min_fast = float(getattr(self.config, "bargain_price_min_multiplier_fast", min_slow) or min_slow)
+        max_slow = float(getattr(self.config, "bargain_price_max_multiplier_slow", 1.0) or 1.0)
+        max_fast = float(getattr(self.config, "bargain_price_max_multiplier_fast", max_slow) or max_slow)
+
+        min_mul = min_slow + ratio * (min_fast - min_slow)
+        max_mul = max_slow + ratio * (max_fast - max_slow)
+
+        dyn_min = max(0.0, base_min * min_mul)
+        dyn_max = max(0.0, base_max * max_mul)
+
+        # Time-to-expiry tightening: shrink max as expiry nears
+        tighten_start = int(getattr(self.config, "bargain_price_tighten_start_seconds", 120) or 120)
+        tighten_floor = max(0.1, float(getattr(self.config, "bargain_price_tighten_floor_multiplier", 0.8) or 0.8))
+        if market.time_remaining_seconds is not None and market.time_remaining_seconds <= tighten_start:
+            dyn_max *= tighten_floor
+
+        # Ensure min does not exceed max
+        if dyn_min > dyn_max:
+            dyn_min = dyn_max
+
+        self.status.dynamic_bargain_min_price = dyn_min
+        self.status.dynamic_bargain_max_price = dyn_max
+        return dyn_min, dyn_max
+
 
 @dataclass
 class TradeRecord:
@@ -168,6 +209,8 @@ class BotStatus:
     dynamic_scan_interval_seconds: int = 0
     dynamic_bargain_window_seconds: Optional[int] = None
     velocity_trend: Optional[str] = None
+    dynamic_bargain_min_price: Optional[float] = None
+    dynamic_bargain_max_price: Optional[float] = None
 
     def get_trades_for_market(self, slug: str) -> int:
         return self.trades_per_market.get(slug, 0)
@@ -209,6 +252,8 @@ class BotStatus:
             "dynamic_scan_interval_seconds": self.dynamic_scan_interval_seconds,
             "dynamic_bargain_window_seconds": self.dynamic_bargain_window_seconds,
             "velocity_trend": self.velocity_trend,
+            "dynamic_bargain_min_price": self.dynamic_bargain_min_price,
+            "dynamic_bargain_max_price": self.dynamic_bargain_max_price,
             "start_time": self.start_time,
             # Feed UI from persisted log file if available (falls back to memory buffer)
             "logs": logs_for_status,
@@ -1162,6 +1207,11 @@ class ArbitrageEngine:
             unpaired = stack["unpaired"]
 
             if unpaired:
+                dyn_min, dyn_max = self._compute_dynamic_price_bounds(
+                    market,
+                    base_min=self.BARGAIN_MIN_PRICE,
+                    base_max=self.BARGAIN_PAIR_THRESHOLD  # ceiling here still bounded by pair threshold when applying below
+                )
                 # ── 有未配對持倉: 買另一側，兩側合計 < pair_threshold ──
                 # 配對加價: 未配對超過設定時間，放寬 +0.05
                 escalation = 0.0
@@ -1185,7 +1235,7 @@ class ArbitrageEngine:
                     if held_price <= 0:
                         continue
                     target_price = self.BARGAIN_PAIR_THRESHOLD - held_price + escalation
-                    if down_ask <= target_price + 1e-4:
+                    if down_ask >= dyn_min and down_ask <= min(target_price + 1e-4, dyn_max):
                         opportunities.append({
                             "market": market,
                             "side": "DOWN",
@@ -1203,7 +1253,7 @@ class ArbitrageEngine:
                     if held_price <= 0:
                         continue
                     target_price = self.BARGAIN_PAIR_THRESHOLD - held_price + escalation
-                    if up_ask <= target_price + 1e-4:
+                    if up_ask >= dyn_min and up_ask <= min(target_price + 1e-4, dyn_max):
                         opportunities.append({
                             "market": market,
                             "side": "UP",
@@ -1236,10 +1286,16 @@ class ArbitrageEngine:
                     price_ceiling = self.BARGAIN_PRICE_THRESHOLD
 
                 # 找最便宜的一側開始新一輪（回到原始：按價格/偏好，不用跑道排序）
+                dyn_min, dyn_max = self._compute_dynamic_price_bounds(
+                    market,
+                    base_min=self.BARGAIN_MIN_PRICE,
+                    base_max=price_ceiling,
+                )
+
                 candidates = []
-                if (up_ask >= self.BARGAIN_MIN_PRICE and up_ask < price_ceiling):
+                if (up_ask >= dyn_min and up_ask < dyn_max):
                     candidates.append(("UP", up_ask, market.up_token_id, market.down_token_id))
-                if (down_ask >= self.BARGAIN_MIN_PRICE and down_ask < price_ceiling):
+                if (down_ask >= dyn_min and down_ask < dyn_max):
                     candidates.append(("DOWN", down_ask, market.down_token_id, market.up_token_id))
 
                 if candidates:

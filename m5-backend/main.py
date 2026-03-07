@@ -439,6 +439,12 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "bargain_window_max_multiplier": config.bargain_window_max_multiplier,
         "velocity_trend_epsilon": config.velocity_trend_epsilon,
         "velocity_trend_stable_scans": config.velocity_trend_stable_scans,
+        "bargain_price_min_multiplier_slow": config.bargain_price_min_multiplier_slow,
+        "bargain_price_min_multiplier_fast": config.bargain_price_min_multiplier_fast,
+        "bargain_price_max_multiplier_slow": config.bargain_price_max_multiplier_slow,
+        "bargain_price_max_multiplier_fast": config.bargain_price_max_multiplier_fast,
+        "bargain_price_tighten_start_seconds": config.bargain_price_tighten_start_seconds,
+        "bargain_price_tighten_floor_multiplier": config.bargain_price_tighten_floor_multiplier,
         "min_liquidity": config.min_liquidity,
         "crypto_symbols": config.crypto_symbols,
         "private_key_set": bool(config.private_key),
@@ -475,6 +481,12 @@ class ConfigUpdate(BaseModel):
     bargain_window_max_multiplier: Optional[float] = None
     velocity_trend_epsilon: Optional[float] = None
     velocity_trend_stable_scans: Optional[int] = None
+    bargain_price_min_multiplier_slow: Optional[float] = None
+    bargain_price_min_multiplier_fast: Optional[float] = None
+    bargain_price_max_multiplier_slow: Optional[float] = None
+    bargain_price_max_multiplier_fast: Optional[float] = None
+    bargain_price_tighten_start_seconds: Optional[int] = None
+    bargain_price_tighten_floor_multiplier: Optional[float] = None
     min_liquidity: Optional[float] = None
     crypto_symbols: Optional[list] = None
     bargain_enabled: Optional[bool] = None
