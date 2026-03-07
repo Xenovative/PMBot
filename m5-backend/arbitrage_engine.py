@@ -1863,7 +1863,16 @@ class ArbitrageEngine:
                 self._pending_count = 0
 
         self.status.velocity_band = self._current_band
-        self.status.dynamic_scan_interval_seconds = self._band_to_interval(self._current_band)
+        new_interval = self._band_to_interval(self._current_band)
+        interval_changed = new_interval != self.status.dynamic_scan_interval_seconds
+        band_changed = candidate_band == self._current_band and self._pending_count == 0 and self._pending_band is None and interval_changed
+        # update interval
+        self.status.dynamic_scan_interval_seconds = new_interval
+        if interval_changed:
+            # guarded: log only when interval actually changes to avoid spam
+            self.status.add_log(
+                f"⚙️ 價格速度: {self.status.velocity_metric:.6f} | 檔位: {self._current_band} | 掃描間隔 -> {new_interval}s"
+            )
 
     def _band_to_interval(self, band: str) -> int:
         low = int(getattr(self.config, "scan_interval_low", self.config.scan_interval_seconds) or 1)
