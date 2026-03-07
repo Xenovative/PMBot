@@ -48,6 +48,7 @@ class BotConfig(BaseModel):
     velocity_fast_threshold: float = _float("VELOCITY_FAST_THRESHOLD", 0.01)
     bargain_window_min_multiplier: float = _float("BARGAIN_WINDOW_MIN_MULTIPLIER", 0.5)
     bargain_window_max_multiplier: float = _float("BARGAIN_WINDOW_MAX_MULTIPLIER", 2.0)
+    velocity_trend_stable_scans: int = _int("VELOCITY_TREND_STABLE_SCANS", 2)
     max_position_imbalance: int = _int("MAX_POSITION_IMBALANCE", 3)
     min_liquidity: float = _float("MIN_LIQUIDITY", 20)
     crypto_symbols: List[str] = _str("CRYPTO_SYMBOLS", "btc,eth,sol").split(",")
