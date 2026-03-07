@@ -59,6 +59,7 @@ function App() {
 function Dashboard({ token, authHeaders, onLogout }) {
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
   const { status, trades, mergeStatus, connected } = useWebSocket(wsUrl, token)
+  const [polledStatus, setPolledStatus] = useState(null)
   const [config, setConfig] = useState(null)
   const [configForm, setConfigForm] = useState({})
   const [loading, setLoading] = useState(false)
@@ -67,6 +68,29 @@ function Dashboard({ token, authHeaders, onLogout }) {
   const logsEndRef = useRef(null)
 
   useEffect(() => { fetchConfig() }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch(`${API}/api/status`, { headers: authHeaders })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setPolledStatus(data)
+      } catch (e) {
+        console.error('Failed to fetch status:', e)
+      }
+    }
+
+    fetchStatus()
+    const intervalId = setInterval(fetchStatus, 3000)
+
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
+  }, [authHeaders])
 
   async function fetchConfig() {
     try {
@@ -110,7 +134,8 @@ function Dashboard({ token, authHeaders, onLogout }) {
     setLoading(false)
   }
 
-  const isRunning = status?.running || false
+  const effectiveStatus = status ?? polledStatus
+  const isRunning = effectiveStatus?.running || false
 
   return (
     <div className="min-h-screen text-gray-100 scanlines relative">

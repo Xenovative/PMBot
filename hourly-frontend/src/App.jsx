@@ -72,6 +72,7 @@ function App() {
 function Dashboard({ token, authHeaders, onLogout }) {
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
   const { status, markets, trades, mergeStatus, connected } = useWebSocket(wsUrl, token)
+  const [polledStatus, setPolledStatus] = useState(null)
   const [config, setConfig] = useState(null)
   const [configForm, setConfigForm] = useState({})
   const [configErrors, setConfigErrors] = useState({})
@@ -85,6 +86,29 @@ function Dashboard({ token, authHeaders, onLogout }) {
   useEffect(() => {
     fetchConfig()
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch(`${API}/api/status`, { headers: authHeaders })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setPolledStatus(data)
+      } catch (e) {
+        console.error('Failed to fetch status:', e)
+      }
+    }
+
+    fetchStatus()
+    const intervalId = setInterval(fetchStatus, 3000)
+
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
+  }, [authHeaders])
 
   // No auto-scroll on new log entries
 
@@ -191,7 +215,8 @@ function Dashboard({ token, authHeaders, onLogout }) {
     setLoading(false)
   }
 
-  const isRunning = status?.running || false
+  const effectiveStatus = status ?? polledStatus
+  const isRunning = effectiveStatus?.running || false
 
   return (
     <div className="min-h-screen text-gray-100 scanlines relative">
@@ -331,7 +356,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-black/80 backdrop-blur">
                         <tr className="text-neon-cyan/50 border-b border-neon-cyan/10">
-                          <th className="text-left py-1.5 pr-3 font-medium">市場</th>
+                          <th className="text-left py-1.5 pr-3 font-medium">市場 / 倒數</th>
                           <th className="text-right py-1.5 px-2 font-medium">UP</th>
                           <th className="text-right py-1.5 px-2 font-medium">DOWN</th>
                           <th className="text-right py-1.5 px-2 font-medium">成本</th>
@@ -340,14 +365,27 @@ function Dashboard({ token, authHeaders, onLogout }) {
                       </thead>
                       <tbody>
                         {Object.entries(status.market_prices)
-                          .sort(([,a], [,b]) => a.total_cost - b.total_cost)
+                          .sort(([, a], [, b]) => {
+                            const ta = a.time_remaining_seconds ?? 0
+                            const tb = b.time_remaining_seconds ?? 0
+                            if (ta !== tb) return ta - tb
+                            return 0
+                          })
                           .map(([slug, price]) => {
-                            const profitable = price.total_cost < (config?.target_pair_cost ?? 0.99);
+                            const profitable = price.total_cost < (config?.target_pair_cost ?? 0.99)
+                            const secs = Math.max(0, Math.floor(price.time_remaining_seconds || 0))
+                            const mins = Math.floor(secs / 60)
+                            const rem = secs % 60
+                            const timeLabel = price.time_remaining_display || `${mins}分${rem.toString().padStart(2, '0')}秒`
                             return (
                               <tr key={slug} className={`border-b border-neon-cyan/5 ${profitable ? 'bg-neon-green/5' : ''}`}>
                                 <td className="py-2 pr-3">
-                                  <span className="font-mono text-gray-300 truncate block max-w-[160px]" title={slug}>
+                                  <span className="font-mono text-gray-300 truncate block max-w-[220px]" title={slug}>
                                     {slug}
+                                    <span className="ml-2 text-[10px] text-neon-amber/80 inline-flex items-center gap-1 align-middle">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-neon-amber/60 animate-pulse"></span>
+                                      ⏳ {timeLabel}
+                                    </span>
                                   </span>
                                 </td>
                                 <td className="text-right py-2 px-2 font-mono text-white">
@@ -363,7 +401,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                                   {price.spread > 0 ? '+' : ''}{price.spread.toFixed(4)}
                                 </td>
                               </tr>
-                            );
+                            )
                           })}
                       </tbody>
                     </table>
