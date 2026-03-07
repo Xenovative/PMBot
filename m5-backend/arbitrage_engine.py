@@ -1069,6 +1069,74 @@ class ArbitrageEngine:
     def BARGAIN_MIN_PRICE(self) -> float:
         return self.config.bargain_min_price
 
+    def _compute_dynamic_price_bounds(self, market: MarketInfo,
+                                      base_min: float,
+                                      base_max: float) -> tuple[float, float]:
+        """
+        動態計算撿便宜策略的價格上下限。
+
+        規則:
+        - 以 base_min/base_max 為基礎，套用 velocity-based multiplier 調整。
+        - 到期前收斂: 剩餘時間低於閾值時，依比例收緊上限。
+        - 若有動態 override (status.dynamic_bargain_min_price / max_price) 則優先採用。
+        - 全程防禦: 遇到缺資料或無效數值時返回安全界限。
+        """
+        safe_min = base_min if math.isfinite(base_min) and base_min > 0 else 0.0
+        safe_max_raw = base_max if math.isfinite(base_max) else safe_min
+        safe_max = safe_max_raw if safe_max_raw > safe_min else safe_min + 0.01
+
+        dyn_min = self.status.dynamic_bargain_min_price
+        dyn_max = self.status.dynamic_bargain_max_price
+        if dyn_min is None or not math.isfinite(dyn_min) or dyn_min <= 0:
+            dyn_min = safe_min
+        if dyn_max is None or not math.isfinite(dyn_max) or dyn_max <= 0:
+            dyn_max = safe_max
+
+        # Velocity-based widening/tightening
+        metric = getattr(self.status, "velocity_metric", None)
+        slow_thr = float(getattr(self.config, "velocity_slow_threshold", 0.0) or 0.0)
+        fast_thr = float(getattr(self.config, "velocity_fast_threshold", slow_thr) or slow_thr)
+        if fast_thr < slow_thr:
+            fast_thr = slow_thr
+        min_mul_slow = float(getattr(self.config, "bargain_price_min_multiplier_slow", 1.0) or 1.0)
+        min_mul_fast = float(getattr(self.config, "bargain_price_min_multiplier_fast", min_mul_slow) or min_mul_slow)
+        max_mul_slow = float(getattr(self.config, "bargain_price_max_multiplier_slow", 1.0) or 1.0)
+        max_mul_fast = float(getattr(self.config, "bargain_price_max_multiplier_fast", max_mul_slow) or max_mul_slow)
+
+        ratio = 0.0
+        if metric is not None and math.isfinite(metric) and fast_thr > slow_thr:
+            if metric <= slow_thr:
+                ratio = 0.0
+            elif metric >= fast_thr:
+                ratio = 1.0
+            else:
+                ratio = (metric - slow_thr) / (fast_thr - slow_thr)
+
+        dyn_min *= (min_mul_slow + ratio * (min_mul_fast - min_mul_slow))
+        dyn_max *= (max_mul_slow + ratio * (max_mul_fast - max_mul_slow))
+
+        # Time-to-expiry tightening: only shrink upper bound, never below lower bound
+        tte = getattr(market, "time_remaining_seconds", None) if market else None
+        tighten_start = int(getattr(self.config, "bargain_price_tighten_start_seconds", 0) or 0)
+        tighten_floor = float(getattr(self.config, "bargain_price_tighten_floor_multiplier", 0.8) or 0.8)
+        if tighten_floor <= 0:
+            tighten_floor = 0.8
+        if tte is not None and math.isfinite(tte) and tte >= 0 and tighten_start > 0:
+            if tte <= tighten_start:
+                tighten_ratio = max(0.0, min(1.0, (tighten_start - tte) / tighten_start))
+                tighten_mul = 1.0 - tighten_ratio * (1.0 - tighten_floor)
+                dyn_max *= tighten_mul
+
+        # Clamp to original safety envelope
+        dyn_min = max(0.0, dyn_min)
+        dyn_max = max(dyn_min, dyn_max)
+        dyn_min = max(safe_min, dyn_min)
+        dyn_max = min(safe_max, dyn_max)
+        if dyn_max < dyn_min:
+            dyn_max = dyn_min
+
+        return (dyn_min, dyn_max)
+
     def _bargain_trades_remaining(self, slug: str) -> int:
         """撿便宜策略剩餘可用交易次數（與套利共享 max_trades_per_market）"""
         used = self.status.get_trades_for_market(slug)
