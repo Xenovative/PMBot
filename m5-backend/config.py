@@ -41,6 +41,7 @@ class BotConfig(BaseModel):
     max_time_remaining_seconds: int = _int("MAX_TIME_REMAINING_SECONDS", 1200)
     max_trades_per_market: int = _int("MAX_TRADES_PER_MARKET", 3)
     trade_cooldown_seconds: int = _int("TRADE_COOLDOWN_SECONDS", 15)
+    scan_interval_seconds: int = _int("SCAN_INTERVAL_SECONDS", 2)
     max_position_imbalance: int = _int("MAX_POSITION_IMBALANCE", 3)
     min_liquidity: float = _float("MIN_LIQUIDITY", 20)
     crypto_symbols: List[str] = _str("CRYPTO_SYMBOLS", "btc,eth,sol").split(",")

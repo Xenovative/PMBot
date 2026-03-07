@@ -277,6 +277,7 @@ async def bot_loop():
     engine.status.add_log(f"🚀 每日套利機器人啟動 | 模式: {engine.status.mode}")
     engine.status.add_log(f"⚙️ 目標成本: {config.target_pair_cost} | 每筆數量: {config.order_size}")
     engine.status.add_log(f"🔍 監控幣種: {', '.join(config.crypto_symbols)}")
+    engine.status.add_log(f"⏱️ 掃描間隔: {config.scan_interval_seconds}s")
     engine.ensure_clob_connected()
     _connection_tested = False
 
@@ -382,8 +383,9 @@ async def bot_loop():
             await broadcast({"type": "status", "data": engine.status.to_dict()})
             await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
 
-            # 掃描間隔
-            for _ in range(5):
+            # 掃描間隔（可配置）
+            interval = max(1, int(getattr(config, "scan_interval_seconds", 5)))
+            for _ in range(interval):
                 if not engine.status.running:
                     break
                 await asyncio.sleep(1)
@@ -419,6 +421,7 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "min_time_remaining_seconds": config.min_time_remaining_seconds,
         "max_trades_per_market": config.max_trades_per_market,
         "trade_cooldown_seconds": config.trade_cooldown_seconds,
+        "scan_interval_seconds": config.scan_interval_seconds,
         "min_liquidity": config.min_liquidity,
         "crypto_symbols": config.crypto_symbols,
         "private_key_set": bool(config.private_key),
@@ -442,6 +445,7 @@ class ConfigUpdate(BaseModel):
     min_time_remaining_seconds: Optional[int] = None
     max_trades_per_market: Optional[int] = None
     trade_cooldown_seconds: Optional[int] = None
+    scan_interval_seconds: Optional[int] = None
     min_liquidity: Optional[float] = None
     crypto_symbols: Optional[list] = None
     bargain_enabled: Optional[bool] = None
