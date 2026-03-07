@@ -433,12 +433,6 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "trade_cooldown_seconds": config.trade_cooldown_seconds,
         "scan_interval_seconds": config.scan_interval_seconds,
         "velocity_window_points": config.velocity_window_points,
-        "velocity_low_threshold": config.velocity_low_threshold,
-        "velocity_high_threshold": config.velocity_high_threshold,
-        "scan_interval_low": config.scan_interval_low,
-        "scan_interval_mid": config.scan_interval_mid,
-        "scan_interval_high": config.scan_interval_high,
-        "velocity_hysteresis": config.velocity_hysteresis,
         "min_liquidity": config.min_liquidity,
         "crypto_symbols": config.crypto_symbols,
         "private_key_set": bool(config.private_key),
@@ -469,12 +463,6 @@ class ConfigUpdate(BaseModel):
     trade_cooldown_seconds: Optional[int] = None
     scan_interval_seconds: Optional[int] = None
     velocity_window_points: Optional[int] = None
-    velocity_low_threshold: Optional[float] = None
-    velocity_high_threshold: Optional[float] = None
-    scan_interval_low: Optional[int] = None
-    scan_interval_mid: Optional[int] = None
-    scan_interval_high: Optional[int] = None
-    velocity_hysteresis: Optional[int] = None
     min_liquidity: Optional[float] = None
     crypto_symbols: Optional[list] = None
     bargain_enabled: Optional[bool] = None
