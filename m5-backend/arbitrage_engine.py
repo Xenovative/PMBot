@@ -1077,6 +1077,7 @@ class ArbitrageEngine:
 
         # 保證仍在持倉的舊 bucket 也被掃描（避免只看當前候選窗口而漏配對）
         market_pool: Dict[str, MarketInfo] = {m.slug: m for m in markets}
+        active_slugs = set(market_pool.keys())
         for holding in self.status.bargain_holdings:
             if holding.status == "holding" and holding.market and holding.market.slug not in market_pool:
                 market_pool[holding.market.slug] = holding.market
@@ -1087,7 +1088,9 @@ class ArbitrageEngine:
             if self._bargain_trades_remaining(market.slug) <= 0:
                 continue
 
-            price_info = self.status.market_prices.get(market.slug)
+            # 持倉舊市場強制重新抓價格，避免使用過期 market_prices 導致錯過配對
+            force_refresh = market.slug not in active_slugs
+            price_info = None if force_refresh else self.status.market_prices.get(market.slug)
             if not price_info:
                 price_info = await self.get_prices(market)
                 if not price_info:
