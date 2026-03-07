@@ -229,6 +229,7 @@ class ArbitrageEngine:
         self._velocity_window_points = safe_window
         self._price_history: Dict[str, deque[float]] = {}
         self._last_logged_velocity: Optional[float] = None
+        self._last_logged_trend: Optional[str] = None
         self.status.velocity_band = "single"
         self.status.dynamic_scan_interval_seconds = getattr(config, "scan_interval_seconds", 2)
         self.status.dynamic_bargain_window_seconds = getattr(config, "bargain_open_time_window_seconds", 240)
@@ -1851,12 +1852,29 @@ class ArbitrageEngine:
         window_multiplier = min_mul + ratio * (max_mul - min_mul)
         dynamic_window = max(1, int(round(base_window * window_multiplier)))
         self.status.dynamic_bargain_window_seconds = dynamic_window
-        # Log only when velocity value changes
-        if self._last_logged_velocity is None or self.status.velocity_metric != self._last_logged_velocity:
+        # Convert to cents/sec and detect trend
+        interval_sec = max(1, self.status.dynamic_scan_interval_seconds)
+        velocity_cents_per_sec = (self.status.velocity_metric * 100.0) / interval_sec
+        direction_raw = window[-1] - window[0]
+        if abs(direction_raw) < 1e-6:
+            trend = "flat"
+        elif direction_raw > 0:
+            trend = "up"
+        else:
+            trend = "down"
+
+        # Log only when velocity value or trend changes
+        should_log = (
+            self._last_logged_velocity is None
+            or self.status.velocity_metric != self._last_logged_velocity
+            or trend != self._last_logged_trend
+        )
+        if should_log:
             self.status.add_log(
-                f"⚙️ 價格速度: {self.status.velocity_metric:.6f} | 掃描間隔 {self.status.dynamic_scan_interval_seconds}s | 撿便宜窗口 {dynamic_window}s"
+                f"⚙️ 價格速度: {velocity_cents_per_sec:.4f}¢/s | 趨勢: {trend} | 窗口 {dynamic_window}s"
             )
             self._last_logged_velocity = self.status.velocity_metric
+            self._last_logged_trend = trend
 
     def update_config(self, new_config: Dict[str, Any]):
         """動態更新配置"""
