@@ -284,7 +284,9 @@ async def bot_loop():
     engine.status.add_log(f"🚀 每日套利機器人啟動 | 模式: {engine.status.mode}")
     engine.status.add_log(f"⚙️ 目標成本: {config.target_pair_cost} | 每筆數量: {config.order_size}")
     engine.status.add_log(f"🔍 監控幣種: {', '.join(config.crypto_symbols)}")
-    engine.status.add_log(f"⏱️ 掃描間隔: {config.scan_interval_seconds}s")
+    engine.status.add_log(
+        f"⏱️ 掃描間隔: {getattr(config, 'scan_interval_seconds', 2)}s | 動態調整啟用"
+    )
     engine.ensure_clob_connected()
     _connection_tested = False
 
@@ -390,8 +392,8 @@ async def bot_loop():
             await broadcast({"type": "status", "data": engine.status.to_dict()})
             await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
 
-            # 掃描間隔（可配置）
-            interval = max(1, int(getattr(config, "scan_interval_seconds", 5)))
+            # 掃描間隔（動態，受價格變化速度影響）
+            interval = max(1, int(getattr(engine.status, "dynamic_scan_interval_seconds", 1)))
             for _ in range(interval):
                 if not engine.status.running:
                     break
@@ -430,6 +432,13 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "max_trades_per_market": config.max_trades_per_market,
         "trade_cooldown_seconds": config.trade_cooldown_seconds,
         "scan_interval_seconds": config.scan_interval_seconds,
+        "velocity_window_points": config.velocity_window_points,
+        "velocity_low_threshold": config.velocity_low_threshold,
+        "velocity_high_threshold": config.velocity_high_threshold,
+        "scan_interval_low": config.scan_interval_low,
+        "scan_interval_mid": config.scan_interval_mid,
+        "scan_interval_high": config.scan_interval_high,
+        "velocity_hysteresis": config.velocity_hysteresis,
         "min_liquidity": config.min_liquidity,
         "crypto_symbols": config.crypto_symbols,
         "private_key_set": bool(config.private_key),
@@ -459,6 +468,13 @@ class ConfigUpdate(BaseModel):
     max_trades_per_market: Optional[int] = None
     trade_cooldown_seconds: Optional[int] = None
     scan_interval_seconds: Optional[int] = None
+    velocity_window_points: Optional[int] = None
+    velocity_low_threshold: Optional[float] = None
+    velocity_high_threshold: Optional[float] = None
+    scan_interval_low: Optional[int] = None
+    scan_interval_mid: Optional[int] = None
+    scan_interval_high: Optional[int] = None
+    velocity_hysteresis: Optional[int] = None
     min_liquidity: Optional[float] = None
     crypto_symbols: Optional[list] = None
     bargain_enabled: Optional[bool] = None

@@ -163,6 +163,9 @@ class BotStatus:
     trade_history: List[TradeRecord] = field(default_factory=list)
     current_opportunities: List[ArbitrageOpportunity] = field(default_factory=list)
     bargain_holdings: List[BargainHolding] = field(default_factory=list)
+    velocity_band: Optional[str] = None
+    velocity_metric: Optional[float] = None
+    dynamic_scan_interval_seconds: int = 0
 
     def get_trades_for_market(self, slug: str) -> int:
         return self.trades_per_market.get(slug, 0)
@@ -199,6 +202,9 @@ class BotStatus:
             "market_prices": {slug: p.to_dict() for slug, p in self.market_prices.items()},
             "opportunities_found": self.opportunities_found,
             "scan_count": self.scan_count,
+            "velocity_band": self.velocity_band,
+            "velocity_metric": self.velocity_metric,
+            "dynamic_scan_interval_seconds": self.dynamic_scan_interval_seconds,
             "start_time": self.start_time,
             # Feed UI from persisted log file if available (falls back to memory buffer)
             "logs": logs_for_status,
@@ -216,6 +222,15 @@ class ArbitrageEngine:
         self._stop_event = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
         self._stop_loss_cooldown_until: Optional[datetime] = None
+        # Velocity tracking
+        safe_window = max(3, int(getattr(config, "velocity_window_points", 4) or 4))
+        self._velocity_window_points = safe_window
+        self._price_history: Dict[str, deque[float]] = {}
+        self._current_band: str = "mid"
+        self._pending_band: Optional[str] = None
+        self._pending_count: int = 0
+        self.status.velocity_band = self._current_band
+        self.status.dynamic_scan_interval_seconds = getattr(config, "scan_interval_seconds", 2)
 
     async def get_prices(self, market: MarketInfo) -> Optional[PriceInfo]:
         """從 CLOB API 獲取 UP/DOWN 代幣的當前價格和訂單簿深度"""
@@ -1754,6 +1769,9 @@ class ArbitrageEngine:
         self.status.market_prices[market.slug] = price_info
         self.status.scan_count += 1
 
+        # Update velocity band / dynamic interval based on recent total_cost movement
+        self._update_velocity_state(market.slug, price_info.total_cost)
+
         opportunity = self.check_arbitrage(market, price_info)
 
         # 每 10 次掃描持久化一次（避免寫入過頻）
@@ -1790,6 +1808,72 @@ class ArbitrageEngine:
                 )
 
         return opportunity
+
+    def _update_velocity_state(self, market_slug: str, total_cost: float):
+        if total_cost is None or not math.isfinite(total_cost) or total_cost <= 0:
+            # guarded: invalid price; skip velocity update
+            return
+
+        window = self._price_history.get(market_slug)
+        if window is None:
+            window = deque(maxlen=self._velocity_window_points)
+            self._price_history[market_slug] = window
+        window.append(total_cost)
+
+        if len(window) < 3:
+            # guarded: need at least 3 points to compute velocity
+            return
+
+        diffs = [abs(window[i] - window[i - 1]) for i in range(1, len(window))]
+        if not diffs:
+            return
+        agg_velocity = sum(diffs) / len(diffs)
+
+        low_thr = max(0.0, float(getattr(self.config, "velocity_low_threshold", 0.0) or 0.0))
+        high_thr_raw = float(getattr(self.config, "velocity_high_threshold", low_thr) or low_thr)
+        high_thr = high_thr_raw if high_thr_raw >= low_thr else low_thr
+
+        if agg_velocity >= high_thr:
+            candidate_band = "high"
+        elif agg_velocity >= low_thr:
+            candidate_band = "mid"
+        else:
+            candidate_band = "low"
+
+        self.status.velocity_metric = round(agg_velocity, 6)
+        self._apply_velocity_band(candidate_band)
+
+    def _apply_velocity_band(self, candidate_band: str):
+        hyst = max(0, int(getattr(self.config, "velocity_hysteresis", 0) or 0))
+
+        if candidate_band == self._current_band:
+            # guarded: no change needed
+            self._pending_band = None
+            self._pending_count = 0
+        else:
+            if candidate_band == self._pending_band:
+                self._pending_count += 1
+            else:
+                self._pending_band = candidate_band
+                self._pending_count = 1
+
+            if self._pending_count > hyst:
+                self._current_band = candidate_band
+                self._pending_band = None
+                self._pending_count = 0
+
+        self.status.velocity_band = self._current_band
+        self.status.dynamic_scan_interval_seconds = self._band_to_interval(self._current_band)
+
+    def _band_to_interval(self, band: str) -> int:
+        low = int(getattr(self.config, "scan_interval_low", self.config.scan_interval_seconds) or 1)
+        mid = int(getattr(self.config, "scan_interval_mid", self.config.scan_interval_seconds) or 1)
+        high = int(getattr(self.config, "scan_interval_high", 1) or 1)
+        if band == "high":
+            return max(1, high)
+        if band == "low":
+            return max(1, low)
+        return max(1, mid)
 
     def update_config(self, new_config: Dict[str, Any]):
         """動態更新配置"""

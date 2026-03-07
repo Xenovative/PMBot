@@ -76,6 +76,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
   const [config, setConfig] = useState(null)
   const [configForm, setConfigForm] = useState({})
   const [showKey, setShowKey] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [manualMarkets, setManualMarkets] = useState([])
   const [loading, setLoading] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
@@ -832,6 +833,78 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 onChange={(v) => setConfigForm({ ...configForm, scan_interval_seconds: parseInt(v) })}
                 hint="越低更新越快，但 API 請求會更多"
               />
+              {/* Advanced toggle */}
+              <div className="md:col-span-2 lg:col-span-3 flex items-center justify-between bg-black/30 border border-neon-cyan/20 rounded-lg p-3">
+                <div>
+                  <p className="text-sm text-neon-cyan font-medium flex items-center gap-2">
+                    <ChevronDown className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+                    進階設定（動態掃描 / 價格速度）
+                  </p>
+                  <p className="text-xs text-gray-500">自動依價格變化速度調整掃描頻率，建議保留預設並微調閾值。</p>
+                </div>
+                <button
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  className="px-3 py-1 text-xs rounded-lg border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10 transition"
+                >
+                  {showAdvanced ? '收起' : '展開'}
+                </button>
+              </div>
+
+              {showAdvanced && (
+                <>
+                  <ConfigField
+                    label="速度窗口點數"
+                    type="number"
+                    value={configForm.velocity_window_points ?? 4}
+                    onChange={(v) => setConfigForm({ ...configForm, velocity_window_points: parseInt(v) })}
+                    hint="使用最近 N 個價格點計算速度 (至少 3，預設 4)"
+                  />
+                  <ConfigField
+                    label="低速閾值"
+                    type="number"
+                    step="0.0001"
+                    value={configForm.velocity_low_threshold ?? 0.002}
+                    onChange={(v) => setConfigForm({ ...configForm, velocity_low_threshold: parseFloat(v) })}
+                    hint="每步絕對變化低於此視為低速"
+                  />
+                  <ConfigField
+                    label="高速閾值"
+                    type="number"
+                    step="0.0001"
+                    value={configForm.velocity_high_threshold ?? 0.01}
+                    onChange={(v) => setConfigForm({ ...configForm, velocity_high_threshold: parseFloat(v) })}
+                    hint="每步絕對變化高於此視為高速"
+                  />
+                  <ConfigField
+                    label="低速掃描間隔 (秒)"
+                    type="number"
+                    value={configForm.scan_interval_low ?? 3}
+                    onChange={(v) => setConfigForm({ ...configForm, scan_interval_low: parseInt(v) })}
+                    hint="速度低時的掃描間隔"
+                  />
+                  <ConfigField
+                    label="中速掃描間隔 (秒)"
+                    type="number"
+                    value={configForm.scan_interval_mid ?? 2}
+                    onChange={(v) => setConfigForm({ ...configForm, scan_interval_mid: parseInt(v) })}
+                    hint="速度中等時的掃描間隔"
+                  />
+                  <ConfigField
+                    label="高速掃描間隔 (秒)"
+                    type="number"
+                    value={configForm.scan_interval_high ?? 1}
+                    onChange={(v) => setConfigForm({ ...configForm, scan_interval_high: parseInt(v) })}
+                    hint="速度高時的掃描間隔 (越小越快)"
+                  />
+                  <ConfigField
+                    label="速度切換遲滯次數"
+                    type="number"
+                    value={configForm.velocity_hysteresis ?? 2}
+                    onChange={(v) => setConfigForm({ ...configForm, velocity_hysteresis: parseInt(v) })}
+                    hint="連續達標多少次才切換速度檔 (防止頻繁切換)"
+                  />
+                </>
+              )}
               <ConfigField
                 label="最低流動性"
                 type="number"

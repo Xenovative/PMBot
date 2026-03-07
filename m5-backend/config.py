@@ -42,6 +42,14 @@ class BotConfig(BaseModel):
     max_trades_per_market: int = _int("MAX_TRADES_PER_MARKET", 3)
     trade_cooldown_seconds: int = _int("TRADE_COOLDOWN_SECONDS", 15)
     scan_interval_seconds: int = _int("SCAN_INTERVAL_SECONDS", 2)
+    # Velocity-aware scanning
+    velocity_window_points: int = _int("VELOCITY_WINDOW_POINTS", 4)  # recent price points to consider
+    velocity_low_threshold: float = _float("VELOCITY_LOW_THRESHOLD", 0.002)  # abs change per step (cost units)
+    velocity_high_threshold: float = _float("VELOCITY_HIGH_THRESHOLD", 0.01)
+    scan_interval_low: int = _int("SCAN_INTERVAL_LOW", 3)
+    scan_interval_mid: int = _int("SCAN_INTERVAL_MID", 2)
+    scan_interval_high: int = _int("SCAN_INTERVAL_HIGH", 1)
+    velocity_hysteresis: int = _int("VELOCITY_HYSTERESIS", 2)
     max_position_imbalance: int = _int("MAX_POSITION_IMBALANCE", 3)
     min_liquidity: float = _float("MIN_LIQUIDITY", 20)
     crypto_symbols: List[str] = _str("CRYPTO_SYMBOLS", "btc,eth,sol").split(",")

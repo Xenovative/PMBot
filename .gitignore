@@ -30,6 +30,11 @@ help/
 # Logs
 *.log
 
+# Market analysis scripts & generated data
+scripts/fetch_polymarket_5m.py
+scripts/orderbook_find.py
+scripts/5m_btc_*.json
+
 # SQLite databases
 *.db
 *.db-wal
