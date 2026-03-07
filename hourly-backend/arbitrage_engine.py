@@ -1228,8 +1228,7 @@ class ArbitrageEngine:
 
                 if unpaired.side == "UP":
                     target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price + escalation
-                    if (down_ask >= self.BARGAIN_MIN_PRICE
-                            and down_ask < target_price):
+                    if down_ask < target_price:
                         opportunities.append({
                             "market": market,
                             "side": "DOWN",
@@ -1244,8 +1243,7 @@ class ArbitrageEngine:
                         })
                 else:  # unpaired.side == "DOWN"
                     target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price + escalation
-                    if (up_ask >= self.BARGAIN_MIN_PRICE
-                            and up_ask < target_price):
+                    if up_ask < target_price:
                         opportunities.append({
                             "market": market,
                             "side": "UP",

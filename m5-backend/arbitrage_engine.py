@@ -1131,8 +1131,7 @@ class ArbitrageEngine:
                     if held_price <= 0:
                         continue
                     target_price = self.BARGAIN_PAIR_THRESHOLD - held_price + escalation
-                    if (down_ask >= self.BARGAIN_MIN_PRICE
-                            and down_ask <= target_price + 1e-4):
+                    if down_ask <= target_price + 1e-4:
                         opportunities.append({
                             "market": market,
                             "side": "DOWN",
@@ -1150,8 +1149,7 @@ class ArbitrageEngine:
                     if held_price <= 0:
                         continue
                     target_price = self.BARGAIN_PAIR_THRESHOLD - held_price + escalation
-                    if (up_ask >= self.BARGAIN_MIN_PRICE
-                            and up_ask <= target_price + 1e-4):
+                    if up_ask <= target_price + 1e-4:
                         opportunities.append({
                             "market": market,
                             "side": "UP",
