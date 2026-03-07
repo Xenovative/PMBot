@@ -166,6 +166,7 @@ class BotStatus:
     velocity_band: Optional[str] = None
     velocity_metric: Optional[float] = None
     dynamic_scan_interval_seconds: int = 0
+    dynamic_bargain_window_seconds: Optional[int] = None
 
     def get_trades_for_market(self, slug: str) -> int:
         return self.trades_per_market.get(slug, 0)
@@ -205,6 +206,7 @@ class BotStatus:
             "velocity_band": self.velocity_band,
             "velocity_metric": self.velocity_metric,
             "dynamic_scan_interval_seconds": self.dynamic_scan_interval_seconds,
+            "dynamic_bargain_window_seconds": self.dynamic_bargain_window_seconds,
             "start_time": self.start_time,
             # Feed UI from persisted log file if available (falls back to memory buffer)
             "logs": logs_for_status,
@@ -226,8 +228,10 @@ class ArbitrageEngine:
         safe_window = max(3, int(getattr(config, "velocity_window_points", 4) or 4))
         self._velocity_window_points = safe_window
         self._price_history: Dict[str, deque[float]] = {}
+        self._last_logged_velocity: Optional[float] = None
         self.status.velocity_band = "single"
         self.status.dynamic_scan_interval_seconds = getattr(config, "scan_interval_seconds", 2)
+        self.status.dynamic_bargain_window_seconds = getattr(config, "bargain_open_time_window_seconds", 240)
 
     async def get_prices(self, market: MarketInfo) -> Optional[PriceInfo]:
         """從 CLOB API 獲取 UP/DOWN 代幣的當前價格和訂單簿深度"""
@@ -1189,7 +1193,8 @@ class ArbitrageEngine:
                     continue  # 已達堆疊上限
 
                 # 時間窗口：只在剩餘時間 <= 設定秒數時才開新倉（5m 市場避免太早進場）
-                if market.time_remaining_seconds is not None and market.time_remaining_seconds > self.config.bargain_open_time_window_seconds:
+                window_limit = self.status.dynamic_bargain_window_seconds or self.config.bargain_open_time_window_seconds
+                if market.time_remaining_seconds is not None and market.time_remaining_seconds > window_limit:
                     continue
 
                 price_ceiling = stack["last_buy_price"]
@@ -1829,10 +1834,29 @@ class ArbitrageEngine:
         self.status.velocity_band = "single"
         # keep interval fixed to configured scan_interval_seconds
         self.status.dynamic_scan_interval_seconds = int(getattr(self.config, "scan_interval_seconds", 2) or 1)
-        # Log every sweep with current speed
-        self.status.add_log(
-            f"⚙️ 價格速度: {self.status.velocity_metric:.6f} | 掃描間隔 {self.status.dynamic_scan_interval_seconds}s"
-        )
+        # Dynamic bargain window: widen when fast, narrow when slow
+        base_window = int(getattr(self.config, "bargain_open_time_window_seconds", 240) or 240)
+        slow_thr = max(0.0, float(getattr(self.config, "velocity_slow_threshold", 0.0) or 0.0))
+        fast_thr_raw = float(getattr(self.config, "velocity_fast_threshold", slow_thr) or slow_thr)
+        fast_thr = fast_thr_raw if fast_thr_raw >= slow_thr else slow_thr
+        min_mul = max(0.1, float(getattr(self.config, "bargain_window_min_multiplier", 0.5) or 0.5))
+        max_mul = max(min_mul, float(getattr(self.config, "bargain_window_max_multiplier", 2.0) or 2.0))
+        if self.status.velocity_metric <= slow_thr:
+            ratio = 0.0
+        elif self.status.velocity_metric >= fast_thr:
+            ratio = 1.0
+        else:
+            span = fast_thr - slow_thr
+            ratio = (self.status.velocity_metric - slow_thr) / span if span > 0 else 0.0
+        window_multiplier = min_mul + ratio * (max_mul - min_mul)
+        dynamic_window = max(1, int(round(base_window * window_multiplier)))
+        self.status.dynamic_bargain_window_seconds = dynamic_window
+        # Log only when velocity value changes
+        if self._last_logged_velocity is None or self.status.velocity_metric != self._last_logged_velocity:
+            self.status.add_log(
+                f"⚙️ 價格速度: {self.status.velocity_metric:.6f} | 掃描間隔 {self.status.dynamic_scan_interval_seconds}s | 撿便宜窗口 {dynamic_window}s"
+            )
+            self._last_logged_velocity = self.status.velocity_metric
 
     def update_config(self, new_config: Dict[str, Any]):
         """動態更新配置"""

@@ -859,6 +859,38 @@ function Dashboard({ token, authHeaders, onLogout }) {
                     onChange={(v) => setConfigForm({ ...configForm, velocity_window_points: parseInt(v) })}
                     hint="使用最近 N 個價格點計算速度 (至少 3，預設 4)"
                   />
+                  <ConfigField
+                    label="低速閾值"
+                    type="number"
+                    step="0.0001"
+                    value={configForm.velocity_slow_threshold ?? 0.002}
+                    onChange={(v) => setConfigForm({ ...configForm, velocity_slow_threshold: parseFloat(v) })}
+                    hint="低於此視為慢速，窗口縮小"
+                  />
+                  <ConfigField
+                    label="高速閾值"
+                    type="number"
+                    step="0.0001"
+                    value={configForm.velocity_fast_threshold ?? 0.01}
+                    onChange={(v) => setConfigForm({ ...configForm, velocity_fast_threshold: parseFloat(v) })}
+                    hint="高於此視為快速，窗口放寬"
+                  />
+                  <ConfigField
+                    label="窗口最小倍率"
+                    type="number"
+                    step="0.1"
+                    value={configForm.bargain_window_min_multiplier ?? 0.5}
+                    onChange={(v) => setConfigForm({ ...configForm, bargain_window_min_multiplier: parseFloat(v) })}
+                    hint="慢速時開倉窗口 = 基準 × 此倍率"
+                  />
+                  <ConfigField
+                    label="窗口最大倍率"
+                    type="number"
+                    step="0.1"
+                    value={configForm.bargain_window_max_multiplier ?? 2.0}
+                    onChange={(v) => setConfigForm({ ...configForm, bargain_window_max_multiplier: parseFloat(v) })}
+                    hint="快速時開倉窗口 = 基準 × 此倍率"
+                  />
                 </>
               )}
               <ConfigField
