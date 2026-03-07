@@ -485,11 +485,29 @@ action_change_wallet() {
 action_logs() {
     local name="$1"
     local svc="pmbot-${name}-backend"
-    # Show in less — exit with q
-    clear
-    echo -e "${BOLD}${CYAN}Live logs: $svc  (Ctrl+C to exit)${NC}"
-    echo ""
-    journalctl -u "$svc" -f --no-pager -n 50
+
+    local choice
+    choice=$(whiptail --title "Logs: $name" \
+        --menu "運行日誌選項" \
+        14 70 6 \
+        "snapshot" "查看最近 200 行運行日誌" \
+        "follow"   "即時追蹤日誌 (Ctrl+C 退出)" \
+        3>&1 1>&2 2>&3) || return
+
+    case "$choice" in
+        "snapshot")
+            local logs
+            logs=$(journalctl -u "$svc" --no-pager --output=cat 2>&1)
+            [ -z "$logs" ] && logs="(no logs yet)"
+            whiptail --title "運行日誌: $name" --scrolltext --msgbox "$logs" 28 90
+            ;;
+        "follow"|*)
+            clear
+            echo -e "${BOLD}${CYAN}Live logs: $svc  (Ctrl+C to exit)${NC}"
+            echo ""
+            journalctl -u "$svc" -f --no-pager -n 50
+            ;;
+    esac
 }
 
 action_remove() {
