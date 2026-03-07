@@ -373,8 +373,8 @@ function Dashboard({ token, authHeaders, onLogout }) {
                                 <td className="py-2 pr-3">
                                   <span className="font-mono text-gray-300 truncate block max-w-[220px]" title={slug}>
                                     {slug}
-                                    <span className="ml-2 text-[10px] text-neon-amber/80 inline-flex items-center gap-1 align-middle">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-neon-amber/60 animate-pulse"></span>
+                                    <span className="ml-2 text-[10px] text-red-400 inline-flex items-center gap-1 align-middle font-medium">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
                                       ⏳ {timeLabel}
                                     </span>
                                   </span>

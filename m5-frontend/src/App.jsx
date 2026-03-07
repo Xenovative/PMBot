@@ -367,14 +367,14 @@ function Dashboard({ token, authHeaders, onLogout }) {
                             const secs = Math.max(0, Math.floor(price.time_remaining_seconds || 0));
                             const mins = Math.floor(secs / 60);
                             const rem = secs % 60;
-                            const timeLabel = price.time_remaining_display || `${mins}分${rem.toString().padStart(2,'0')}秒`;
+                            const timeLabel = `${mins}分${rem.toString().padStart(2,'0')}秒`;
                             return (
                               <tr key={slug} className={`border-b border-neon-cyan/5 ${profitable ? 'bg-neon-green/5' : ''}`}>
                                 <td className="py-2 pr-3">
                                   <span className="font-mono text-gray-300 truncate block max-w-[220px]" title={slug}>
                                     {slug}
-                                    <span className="ml-2 text-[10px] text-neon-amber/80 inline-flex items-center gap-1 align-middle">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-neon-amber/60 animate-pulse"></span>
+                                    <span className="ml-2 text-[10px] text-red-400 inline-flex items-center gap-1 align-middle font-medium">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
                                       ⏳ {timeLabel}
                                     </span>
                                   </span>
