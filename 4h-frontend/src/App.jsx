@@ -203,7 +203,17 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   : 'bg-red-500/5 text-red-400 border-red-500/30 shadow-neon-pink'
               }`}>
                 {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                <span className="hidden sm:inline">{connected ? '已連線' : '未連線'}</span>
+                <span className="hidden sm:inline">{connected ? '後端連線' : '後端離線'}</span>
+              </div>
+
+              {/* Bot loop status */}
+              <div className={`flex items-center gap-1 text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full border ${
+                isRunning
+                  ? 'bg-emerald-500/5 text-emerald-300 border-emerald-500/30 shadow-neon-green'
+                  : 'bg-gray-600/10 text-gray-300 border-gray-500/30'
+              }`}>
+                <Activity className="w-3 h-3" />
+                <span className="hidden sm:inline">{isRunning ? `Bot運行中 · 掃描${status?.scan_count ?? 0}` : 'Bot已停止'}</span>
               </div>
 
               {/* Mode Badge */}
@@ -312,7 +322,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-black/80 backdrop-blur">
                         <tr className="text-neon-cyan/50 border-b border-neon-cyan/10">
-                          <th className="text-left py-1.5 pr-3 font-medium">市場</th>
+                          <th className="text-left py-1.5 pr-3 font-medium">市場 / 倒數</th>
                           <th className="text-right py-1.5 px-2 font-medium">UP</th>
                           <th className="text-right py-1.5 px-2 font-medium">DOWN</th>
                           <th className="text-right py-1.5 px-2 font-medium">成本</th>
@@ -321,14 +331,22 @@ function Dashboard({ token, authHeaders, onLogout }) {
                       </thead>
                       <tbody>
                         {Object.entries(status.market_prices)
-                          .sort(([,a], [,b]) => a.total_cost - b.total_cost)
+                          .sort(([, a], [, b]) => a.total_cost - b.total_cost)
                           .map(([slug, price]) => {
                             const profitable = price.total_cost < (config?.target_pair_cost ?? 0.99);
+                            const secs = Math.max(0, Math.floor(price.time_remaining_seconds || 0));
+                            const mins = Math.floor(secs / 60);
+                            const rem = secs % 60;
+                            const timeLabel = price.time_remaining_display || `${mins}分${rem.toString().padStart(2, '0')}秒`;
                             return (
                               <tr key={slug} className={`border-b border-neon-cyan/5 ${profitable ? 'bg-neon-green/5' : ''}`}>
                                 <td className="py-2 pr-3">
-                                  <span className="font-mono text-gray-300 truncate block max-w-[160px]" title={slug}>
+                                  <span className="font-mono text-gray-300 truncate block max-w-[220px]" title={slug}>
                                     {slug}
+                                    <span className="ml-2 text-[10px] text-neon-amber/80 inline-flex items-center gap-1 align-middle">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-neon-amber/60 animate-pulse"></span>
+                                      ⏳ {timeLabel}
+                                    </span>
                                   </span>
                                 </td>
                                 <td className="text-right py-2 px-2 font-mono text-white">

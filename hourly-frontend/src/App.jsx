@@ -218,21 +218,19 @@ function Dashboard({ token, authHeaders, onLogout }) {
 
             <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
               {/* Connection Status */}
-              <div className={`flex items-center gap-1 text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full border ${
-                connected
-                  ? 'bg-neon-green/5 text-neon-green border-neon-green/30 shadow-neon-green'
-                  : 'bg-red-500/5 text-red-400 border-red-500/30 shadow-neon-pink'
-              }`}>
+              <div className={`flex items-center gap-1 text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full border ${connected ? 'bg-neon-green/5 text-neon-green border-neon-green/30 shadow-neon-green' : 'bg-red-500/5 text-red-400 border-red-500/30 shadow-neon-pink'}`}>
                 {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                <span className="hidden sm:inline">{connected ? '已連線' : '未連線'}</span>
+                <span className="hidden sm:inline">{connected ? '後端連線' : '後端離線'}</span>
+              </div>
+
+              {/* Bot Loop Status */}
+              <div className={`flex items-center gap-1 text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full border ${isRunning ? 'bg-emerald-500/5 text-emerald-300 border-emerald-500/30 shadow-neon-green' : 'bg-gray-600/10 text-gray-300 border-gray-500/30'}`}>
+                <Activity className="w-3 h-3" />
+                <span className="hidden sm:inline">{isRunning ? `Bot運行中 · 掃描${status?.scan_count ?? 0}` : 'Bot已停止'}</span>
               </div>
 
               {/* Mode Badge */}
-              <div className={`text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full font-medium border ${
-                config?.dry_run !== false
-                  ? 'bg-neon-amber/5 text-neon-amber border-neon-amber/30 shadow-neon-amber'
-                  : 'bg-neon-pink/5 text-neon-pink border-neon-pink/30 shadow-neon-pink neon-pulse'
-              }`}>
+              <div className={`text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full font-medium border ${config?.dry_run !== false ? 'bg-neon-amber/5 text-neon-amber border-neon-amber/30 shadow-neon-amber' : 'bg-neon-pink/5 text-neon-pink border-neon-pink/30 shadow-neon-pink neon-pulse'}`}>
                 {config?.dry_run !== false ? '🔸 模擬' : '🔴 真實'}
               </div>
 

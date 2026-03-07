@@ -334,16 +334,19 @@ function Dashboard({ token, authHeaders, onLogout }) {
                           .sort(([,a], [,b]) => a.total_cost - b.total_cost)
                           .map(([slug, price]) => {
                             const profitable = price.total_cost < (config?.target_pair_cost ?? 0.99);
-                            const timeLabel = price.time_remaining_display || `${Math.max(0, Math.floor((price.time_remaining_seconds || 0) / 60))}分`;
+                            const secs = Math.max(0, Math.floor(price.time_remaining_seconds || 0));
+                            const mins = Math.floor(secs / 60);
+                            const rem = secs % 60;
+                            const timeLabel = price.time_remaining_display || `${mins}分${rem.toString().padStart(2,'0')}秒`;
                             return (
                               <tr key={slug} className={`border-b border-neon-cyan/5 ${profitable ? 'bg-neon-green/5' : ''}`}>
                                 <td className="py-2 pr-3">
-                                  <span className="font-mono text-gray-300 truncate block max-w-[160px]" title={slug}>
+                                  <span className="font-mono text-gray-300 truncate block max-w-[220px]" title={slug}>
                                     {slug}
-                                  </span>
-                                  <span className="text-[10px] text-neon-amber/70 inline-flex items-center gap-1 mt-0.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-neon-amber/60 animate-pulse"></span>
-                                    ⏳ {timeLabel}
+                                    <span className="ml-2 text-[10px] text-neon-amber/80 inline-flex items-center gap-1 align-middle">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-neon-amber/60 animate-pulse"></span>
+                                      ⏳ {timeLabel}
+                                    </span>
                                   </span>
                                 </td>
                                 <td className="text-right py-2 px-2 font-mono text-white">
