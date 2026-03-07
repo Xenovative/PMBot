@@ -331,7 +331,12 @@ function Dashboard({ token, authHeaders, onLogout }) {
                       </thead>
                       <tbody>
                         {Object.entries(status.market_prices)
-                          .sort(([,a], [,b]) => a.total_cost - b.total_cost)
+                          .sort(([,a], [,b]) => {
+                            const ta = a.time_remaining_seconds ?? 0;
+                            const tb = b.time_remaining_seconds ?? 0;
+                            if (ta !== tb) return ta - tb;
+                            return 0;
+                          })
                           .map(([slug, price]) => {
                             const profitable = price.total_cost < (config?.target_pair_cost ?? 0.99);
                             const secs = Math.max(0, Math.floor(price.time_remaining_seconds || 0));
