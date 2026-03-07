@@ -222,14 +222,11 @@ class ArbitrageEngine:
         self._stop_event = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
         self._stop_loss_cooldown_until: Optional[datetime] = None
-        # Velocity tracking
+        # Velocity tracking (single-speed mode)
         safe_window = max(3, int(getattr(config, "velocity_window_points", 4) or 4))
         self._velocity_window_points = safe_window
         self._price_history: Dict[str, deque[float]] = {}
-        self._current_band: str = "mid"
-        self._pending_band: Optional[str] = None
-        self._pending_count: int = 0
-        self.status.velocity_band = self._current_band
+        self.status.velocity_band = "single"
         self.status.dynamic_scan_interval_seconds = getattr(config, "scan_interval_seconds", 2)
 
     async def get_prices(self, market: MarketInfo) -> Optional[PriceInfo]:
@@ -1828,61 +1825,14 @@ class ArbitrageEngine:
         if not diffs:
             return
         agg_velocity = sum(diffs) / len(diffs)
-
-        low_thr = max(0.0, float(getattr(self.config, "velocity_low_threshold", 0.0) or 0.0))
-        high_thr_raw = float(getattr(self.config, "velocity_high_threshold", low_thr) or low_thr)
-        high_thr = high_thr_raw if high_thr_raw >= low_thr else low_thr
-
-        if agg_velocity >= high_thr:
-            candidate_band = "high"
-        elif agg_velocity >= low_thr:
-            candidate_band = "mid"
-        else:
-            candidate_band = "low"
-
         self.status.velocity_metric = round(agg_velocity, 6)
-        self._apply_velocity_band(candidate_band)
-
-    def _apply_velocity_band(self, candidate_band: str):
-        hyst = max(0, int(getattr(self.config, "velocity_hysteresis", 0) or 0))
-
-        if candidate_band == self._current_band:
-            # guarded: no change needed
-            self._pending_band = None
-            self._pending_count = 0
-        else:
-            if candidate_band == self._pending_band:
-                self._pending_count += 1
-            else:
-                self._pending_band = candidate_band
-                self._pending_count = 1
-
-            if self._pending_count > hyst:
-                self._current_band = candidate_band
-                self._pending_band = None
-                self._pending_count = 0
-
-        self.status.velocity_band = self._current_band
-        new_interval = self._band_to_interval(self._current_band)
-        interval_changed = new_interval != self.status.dynamic_scan_interval_seconds
-        band_changed = candidate_band == self._current_band and self._pending_count == 0 and self._pending_band is None and interval_changed
-        # update interval
-        self.status.dynamic_scan_interval_seconds = new_interval
-        if interval_changed:
-            # guarded: log only when interval actually changes to avoid spam
-            self.status.add_log(
-                f"⚙️ 價格速度: {self.status.velocity_metric:.6f} | 檔位: {self._current_band} | 掃描間隔 -> {new_interval}s"
-            )
-
-    def _band_to_interval(self, band: str) -> int:
-        low = int(getattr(self.config, "scan_interval_low", self.config.scan_interval_seconds) or 1)
-        mid = int(getattr(self.config, "scan_interval_mid", self.config.scan_interval_seconds) or 1)
-        high = int(getattr(self.config, "scan_interval_high", 1) or 1)
-        if band == "high":
-            return max(1, high)
-        if band == "low":
-            return max(1, low)
-        return max(1, mid)
+        self.status.velocity_band = "single"
+        # keep interval fixed to configured scan_interval_seconds
+        self.status.dynamic_scan_interval_seconds = int(getattr(self.config, "scan_interval_seconds", 2) or 1)
+        # Log every sweep with current speed
+        self.status.add_log(
+            f"⚙️ 價格速度: {self.status.velocity_metric:.6f} | 掃描間隔 {self.status.dynamic_scan_interval_seconds}s"
+        )
 
     def update_config(self, new_config: Dict[str, Any]):
         """動態更新配置"""
