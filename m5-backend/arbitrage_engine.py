@@ -1075,7 +1075,13 @@ class ArbitrageEngine:
         if self._is_on_cooldown():
             return opportunities
 
-        for market in markets:
+        # 保證仍在持倉的舊 bucket 也被掃描（避免只看當前候選窗口而漏配對）
+        market_pool: Dict[str, MarketInfo] = {m.slug: m for m in markets}
+        for holding in self.status.bargain_holdings:
+            if holding.status == "holding" and holding.market and holding.market.slug not in market_pool:
+                market_pool[holding.market.slug] = holding.market
+
+        for market in market_pool.values():
             if not market.up_token_id or not market.down_token_id:
                 continue
             if self._bargain_trades_remaining(market.slug) <= 0:
