@@ -232,6 +232,7 @@ class ArbitrageEngine:
         self._price_history: Dict[str, deque[float]] = {}
         self._last_logged_velocity: Optional[float] = None
         self._last_logged_trend: Optional[str] = None
+        self._prev_trend: Optional[str] = None
         self._trend_streak: int = 0
         self.status.velocity_band = "single"
         self.status.dynamic_scan_interval_seconds = getattr(config, "scan_interval_seconds", 2)
@@ -1293,10 +1294,9 @@ class ArbitrageEngine:
 
         # Trend stability gate: avoid flipping markets until trend holds for N scans
         stable_needed = max(1, int(getattr(self.config, "velocity_trend_stable_scans", 1) or 1))
-        trend_now = self.status.velocity_trend
-        if trend_now in ("up", "down") and self._trend_streak < stable_needed:
+        if self._trend_streak < stable_needed or self.status.velocity_trend == "flat":
             self.status.add_log(
-                f"🏷️ [撿便宜] 趨勢未穩定({trend_now}, {self._trend_streak}/{stable_needed})，暫緩買入"
+                f"🏷️ [撿便宜] 趨勢未穩定({self.status.velocity_trend}, {self._trend_streak}/{stable_needed})，暫緩買入"
             )
             return None
 
@@ -1913,7 +1913,8 @@ class ArbitrageEngine:
         interval_sec = max(1, self.status.dynamic_scan_interval_seconds)
         velocity_cents_per_sec = (self.status.velocity_metric * 100.0) / interval_sec
         direction_raw = window[-1] - window[0]
-        if abs(direction_raw) < 1e-6:
+        eps = float(getattr(self.config, "velocity_trend_epsilon", 0.0005) or 0.0005)
+        if abs(direction_raw) <= eps:
             trend = "flat"
         elif direction_raw > 0:
             trend = "up"
@@ -1921,11 +1922,12 @@ class ArbitrageEngine:
             trend = "down"
         self.status.velocity_trend = trend
 
-        # Update trend streak for stability gating
-        if self._last_logged_trend == trend:
+        # Update trend streak for stability gating (compare with previous trend each scan)
+        if self._prev_trend == trend:
             self._trend_streak += 1
         else:
             self._trend_streak = 1
+        self._prev_trend = trend
 
         # Log only when velocity value or trend changes
         should_log = (
