@@ -1408,6 +1408,70 @@ class ArbitrageEngine:
             else:
                 current_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
 
+            # ── 二次出場 (Bargain Sniper): 利潤達標則直接賣出並視為配對 ──
+            if holding.buy_price > 0:
+                profit_pct_now = (current_price - holding.buy_price) / holding.buy_price * 100
+                if profit_pct_now >= self.config.bargain_secondary_exit_profit_pct:
+                    self.status.add_log(
+                        f"🎯 [二次出場] {holding.market_slug} {holding.side} 利潤 {profit_pct_now:.2f}% ≥ {self.config.bargain_secondary_exit_profit_pct:.2f}% → 嘗試直接賣出"
+                    )
+                    unwind_ok = True
+                    if self.config.dry_run:
+                        holding.status = "paired"
+                        holding.paired_with = "tp-sniper"
+                    else:
+                        try:
+                            clob_client = self._get_clob_client()
+                            unwind_ok = self._try_unwind_position(
+                                clob_client, holding.token_id, holding.shares,
+                                current_price, "TP sniper"
+                            )
+                            if unwind_ok:
+                                holding.status = "paired"
+                                holding.paired_with = "tp-sniper"
+                            else:
+                                self.status.add_log("🎯 [二次出場失敗] 賣單未成交")
+                        except Exception as e:
+                            unwind_ok = False
+                            self.status.add_log(f"🎯 [二次出場異常] {str(e)[:120]}")
+
+                    if unwind_ok and holding.status == "paired":
+                        pnl = (current_price - holding.buy_price) * holding.shares
+                        record = TradeRecord(
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            market_slug=holding.market_slug,
+                            up_price=price_info.up_price,
+                            down_price=price_info.down_price,
+                            total_cost=holding.buy_price,
+                            order_size=holding.shares,
+                            expected_profit=pnl,
+                            profit_pct=profit_pct_now,
+                            status="executed" if not self.config.dry_run else "simulated",
+                            details=f"🎯 二次出場 {holding.side} 利潤 {profit_pct_now:.2f}%",
+                        )
+                        self.status.trade_history.append(record)
+                        self.status.total_profit += record.expected_profit
+                        # 持久化
+                        try:
+                            trade_db.record_trade(
+                                timestamp=record.timestamp,
+                                market_slug=record.market_slug,
+                                trade_type="bargain_tp",
+                                side=holding.side,
+                                up_price=record.up_price,
+                                down_price=record.down_price,
+                                total_cost=record.total_cost,
+                                order_size=record.order_size,
+                                profit=record.expected_profit,
+                                profit_pct=record.profit_pct,
+                                status=record.status,
+                                details=record.details,
+                            )
+                            trade_db.rebuild_daily_summary()
+                        except Exception:
+                            pass
+                        continue  # 處理下一個持倉
+
             # ── 4 分鐘強平：距離到期 ≤5s 就直接清算未配對持倉 ──
             if holding.market.time_remaining_seconds <= 5:
                 self.status.add_log(

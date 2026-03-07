@@ -59,6 +59,8 @@ class BotConfig(BaseModel):
     bargain_first_buy_bias: str = _str("BARGAIN_FIRST_BUY_BIAS", "AUTO")  # "UP", "DOWN", or "AUTO"
     # Only open new bargain rounds when remaining time is within this window (seconds)
     bargain_open_time_window_seconds: int = _int("BARGAIN_OPEN_TIME_WINDOW_SECONDS", 240)
+    # Secondary take-profit exit for unpaired holdings (percent gain vs buy)
+    bargain_secondary_exit_profit_pct: float = _float("BARGAIN_SECONDARY_EXIT_PROFIT_PCT", 9.5)
     # Escalation window now in minutes (was hours)
     bargain_pair_escalation_minutes: int = _int("BARGAIN_PAIR_ESCALATION_MINUTES", 15)
 

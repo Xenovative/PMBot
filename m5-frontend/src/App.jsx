@@ -908,6 +908,14 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   hint="兩側合計低於此才配對"
                 />
                 <ConfigField
+                  label="二次出場利潤%"
+                  type="number"
+                  step="0.1"
+                  value={configForm.bargain_secondary_exit_profit_pct ?? 9.5}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_secondary_exit_profit_pct: parseFloat(v) })}
+                  hint="未配對持倉利潤達此比例即直接賣出並視為配對 (例: 9.5%)"
+                />
+                <ConfigField
                   label="止損幅度"
                   type="number"
                   step="0.01"
