@@ -66,6 +66,8 @@ class BotConfig(BaseModel):
     bargain_pair_threshold: float = _float("BARGAIN_PAIR_THRESHOLD", 0.99)
     bargain_stop_loss_cents: float = _float("BARGAIN_STOP_LOSS_CENTS", 0.02)
     bargain_min_price: float = _float("BARGAIN_MIN_PRICE", 0.10)
+    # Toggle dynamic price bounds (velocity/time aware) vs static thresholds
+    bargain_dynamic_bounds_enabled: bool = _bool("BARGAIN_DYNAMIC_BOUNDS_ENABLED", True)
     bargain_max_rounds: int = _int("BARGAIN_MAX_ROUNDS", 56)
     bargain_stop_loss_defer_minutes: int = _int("BARGAIN_STOP_LOSS_DEFER_MINUTES", 10)
     bargain_stop_loss_cooldown_minutes: int = _int("BARGAIN_STOP_LOSS_COOLDOWN_MINUTES", 10)

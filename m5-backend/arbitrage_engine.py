@@ -170,6 +170,9 @@ class BotStatus:
     velocity_trend: Optional[str] = None
     dynamic_bargain_min_price: Optional[float] = None
     dynamic_bargain_max_price: Optional[float] = None
+    dynamic_bargain_min_bound: Optional[float] = None  # computed effective min bound
+    dynamic_bargain_max_bound: Optional[float] = None  # computed effective max bound
+    dynamic_bargain_bounds_enabled: Optional[bool] = None
 
     def get_trades_for_market(self, slug: str) -> int:
         return self.trades_per_market.get(slug, 0)
@@ -213,6 +216,9 @@ class BotStatus:
             "velocity_trend": self.velocity_trend,
             "dynamic_bargain_min_price": self.dynamic_bargain_min_price,
             "dynamic_bargain_max_price": self.dynamic_bargain_max_price,
+            "dynamic_bargain_min_bound": self.dynamic_bargain_min_bound,
+            "dynamic_bargain_max_bound": self.dynamic_bargain_max_bound,
+            "dynamic_bargain_bounds_enabled": self.dynamic_bargain_bounds_enabled,
             "start_time": self.start_time,
             # Feed UI from persisted log file if available (falls back to memory buffer)
             "logs": logs_for_status,
@@ -242,6 +248,7 @@ class ArbitrageEngine:
         self.status.velocity_band = "single"
         self.status.dynamic_scan_interval_seconds = getattr(config, "scan_interval_seconds", 2)
         self.status.dynamic_bargain_window_seconds = getattr(config, "bargain_open_time_window_seconds", 240)
+        self.status.dynamic_bargain_bounds_enabled = getattr(config, "bargain_dynamic_bounds_enabled", True)
 
     async def get_prices(self, market: MarketInfo) -> Optional[PriceInfo]:
         """從 CLOB API 獲取 UP/DOWN 代幣的當前價格和訂單簿深度"""
@@ -1085,6 +1092,14 @@ class ArbitrageEngine:
         safe_max_raw = base_max if math.isfinite(base_max) else safe_min
         safe_max = safe_max_raw if safe_max_raw > safe_min else safe_min + 0.01
 
+        # Toggle: when disabled, return static bounds immediately
+        dyn_enabled = bool(getattr(self.config, "bargain_dynamic_bounds_enabled", True))
+        self.status.dynamic_bargain_bounds_enabled = dyn_enabled
+        if not dyn_enabled:
+            self.status.dynamic_bargain_min_bound = safe_min
+            self.status.dynamic_bargain_max_bound = safe_max
+            return (safe_min, safe_max)
+
         dyn_min = self.status.dynamic_bargain_min_price
         dyn_max = self.status.dynamic_bargain_max_price
         if dyn_min is None or not math.isfinite(dyn_min) or dyn_min <= 0:
@@ -1134,6 +1149,24 @@ class ArbitrageEngine:
         dyn_max = min(safe_max, dyn_max)
         if dyn_max < dyn_min:
             dyn_max = dyn_min
+
+        # Publish for UI/debug visibility
+        self.status.dynamic_bargain_min_bound = dyn_min
+        self.status.dynamic_bargain_max_bound = dyn_max
+        # Occasional log when bounds move materially
+        last_bounds = getattr(self.status, "_last_logged_dyn_bounds", None)
+        should_log = False
+        if last_bounds:
+            prev_min, prev_max = last_bounds
+            if abs(prev_min - dyn_min) >= 0.01 or abs(prev_max - dyn_max) >= 0.01:
+                should_log = True
+        else:
+            should_log = True
+        if should_log and getattr(self.status, "scan_count", 0) % 5 == 0:
+            self.status.add_log(
+                f"🪙 動態價格區間: {dyn_min:.4f} - {dyn_max:.4f} (基準 {safe_min:.4f}-{safe_max:.4f})"
+            )
+            self.status._last_logged_dyn_bounds = (dyn_min, dyn_max)
 
         return (dyn_min, dyn_max)
 
