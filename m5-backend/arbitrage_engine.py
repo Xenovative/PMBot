@@ -123,6 +123,8 @@ class BargainHolding:
     status: str = "holding"  # "holding", "paired", "stopped_out"
     round: int = 1  # 堆疊輪次
     paired_with: Optional[str] = None  # 配對的另一側 holding timestamp (用於追蹤)
+    plummet_last_price: Optional[float] = None
+    plummet_last_ts: Optional[str] = None  # ISO timestamp for last plummet check
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -135,6 +137,7 @@ class BargainHolding:
             "timestamp": self.timestamp,
             "status": self.status,
             "round": self.round,
+            "plummet_last_price": self.plummet_last_price,
         }
 
 
@@ -1407,6 +1410,85 @@ class ArbitrageEngine:
                 current_price = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
             else:
                 current_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
+
+            # ── 急跌護欄：短時間內跌幅 >= 設定百分比 → 立刻平倉 ──
+            if holding.buy_price > 0:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                last_ts = holding.plummet_last_ts
+                last_price = holding.plummet_last_price
+                within_window = False
+                if last_ts:
+                    try:
+                        last_dt = datetime.fromisoformat(last_ts)
+                        if last_dt.tzinfo is None:
+                            last_dt = last_dt.replace(tzinfo=timezone.utc)
+                        delta_s = (datetime.now(timezone.utc) - last_dt).total_seconds()
+                        within_window = delta_s <= self.config.bargain_plummet_window_seconds
+                    except Exception:
+                        within_window = False
+                if last_price and within_window and last_price > 0:
+                    drop_pct = (last_price - current_price) / last_price * 100
+                    if drop_pct >= self.config.bargain_plummet_exit_pct:
+                        self.status.add_log(
+                            f"⚡ [急跌護欄] {holding.market_slug} {holding.side} 跌 {drop_pct:.1f}% ≥ {self.config.bargain_plummet_exit_pct:.1f}% / {self.config.bargain_plummet_window_seconds}s → 立刻平倉"
+                        )
+                        unwind_ok = True
+                        if self.config.dry_run:
+                            holding.status = "stopped_out"
+                        else:
+                            try:
+                                clob_client = self._get_clob_client()
+                                unwind_ok = self._try_unwind_position(
+                                    clob_client, holding.token_id, holding.shares,
+                                    current_price, "Plummet guard"
+                                )
+                                holding.status = "stopped_out"
+                                if not unwind_ok:
+                                    self.status.add_log("⚡ [急跌護欄失敗] 賣單未成交")
+                            except Exception as e:
+                                unwind_ok = False
+                                self.status.add_log(f"⚡ [急跌護欄異常] {str(e)[:120]}")
+
+                        pnl = (current_price - holding.buy_price) * holding.shares
+                        record = TradeRecord(
+                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            market_slug=holding.market_slug,
+                            up_price=price_info.up_price,
+                            down_price=price_info.down_price,
+                            total_cost=current_price,
+                            order_size=holding.shares,
+                            expected_profit=pnl,
+                            profit_pct=(pnl / (holding.buy_price * holding.shares) * 100) if holding.buy_price > 0 else 0,
+                            status="executed" if (unwind_ok and not self.config.dry_run) else "simulated",
+                            details=f"⚡ 急跌護欄 {holding.side} 跌 {drop_pct:.1f}%",
+                        )
+                        self.status.trade_history.append(record)
+                        self.status.total_profit += record.expected_profit
+                        self.status.total_trades += 1
+                        self.status.increment_trades_for_market(holding.market_slug)
+
+                        try:
+                            trade_db.record_trade(
+                                timestamp=record.timestamp,
+                                market_slug=record.market_slug,
+                                trade_type="bargain_plummet",
+                                side=holding.side,
+                                up_price=record.up_price,
+                                down_price=record.down_price,
+                                total_cost=record.total_cost,
+                                order_size=record.order_size,
+                                profit=record.expected_profit,
+                                profit_pct=record.profit_pct,
+                                status=record.status,
+                                details=record.details,
+                            )
+                            trade_db.rebuild_daily_summary()
+                        except Exception:
+                            pass
+                        continue
+
+                holding.plummet_last_price = current_price
+                holding.plummet_last_ts = now_iso
 
             # ── 二次出場 (Bargain Sniper): 利潤達標則直接賣出並視為配對 ──
             if holding.buy_price > 0:

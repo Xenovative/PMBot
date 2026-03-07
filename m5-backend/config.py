@@ -63,6 +63,9 @@ class BotConfig(BaseModel):
     bargain_secondary_exit_profit_pct: float = _float("BARGAIN_SECONDARY_EXIT_PROFIT_PCT", 9.5)
     # Escalation window now in minutes (was hours)
     bargain_pair_escalation_minutes: int = _int("BARGAIN_PAIR_ESCALATION_MINUTES", 15)
+    # Sudden plummet guard: if price drops >= pct within window, exit immediately
+    bargain_plummet_exit_pct: float = _float("BARGAIN_PLUMMET_EXIT_PCT", 20.0)
+    bargain_plummet_window_seconds: int = _int("BARGAIN_PLUMMET_WINDOW_SECONDS", 15)
 
     CLOB_HOST: str = "https://clob.polymarket.com"
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"

@@ -443,6 +443,8 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "bargain_max_rounds": config.bargain_max_rounds,
         "bargain_stop_loss_defer_minutes": config.bargain_stop_loss_defer_minutes,
         "bargain_first_buy_bias": config.bargain_first_buy_bias,
+        "bargain_plummet_exit_pct": config.bargain_plummet_exit_pct,
+        "bargain_plummet_window_seconds": config.bargain_plummet_window_seconds,
         "bargain_secondary_exit_profit_pct": config.bargain_secondary_exit_profit_pct,
         "bargain_pair_escalation_minutes": config.bargain_pair_escalation_minutes,
     }
@@ -468,6 +470,8 @@ class ConfigUpdate(BaseModel):
     bargain_max_rounds: Optional[int] = None
     bargain_stop_loss_defer_minutes: Optional[int] = None
     bargain_first_buy_bias: Optional[str] = None
+    bargain_plummet_exit_pct: Optional[float] = None
+    bargain_plummet_window_seconds: Optional[int] = None
     bargain_secondary_exit_profit_pct: Optional[float] = None
     bargain_pair_escalation_minutes: Optional[int] = None
 
