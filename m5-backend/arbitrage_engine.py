@@ -6,7 +6,7 @@ import math
 import time
 import httpx
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
 from pathlib import Path
 from collections import deque
@@ -58,47 +58,6 @@ class PriceInfo:
             "time_remaining_seconds": self.time_remaining_seconds,
             "time_remaining_display": self.time_remaining_display,
         }
-
-    def _compute_dynamic_price_bounds(self, market: MarketInfo, base_min: float, base_max: float) -> Tuple[float, float]:
-        """Derive dynamic min/max price using velocity and time-to-expiry. Pair threshold remains unchanged elsewhere."""
-        vel = float(self.status.velocity_metric or 0.0)
-        slow_thr = max(0.0, float(getattr(self.config, "velocity_slow_threshold", 0.0) or 0.0))
-        fast_thr_raw = float(getattr(self.config, "velocity_fast_threshold", slow_thr) or slow_thr)
-        fast_thr = fast_thr_raw if fast_thr_raw >= slow_thr else slow_thr
-
-        # Velocity ratio 0..1
-        if vel <= slow_thr:
-            ratio = 0.0
-        elif vel >= fast_thr:
-            ratio = 1.0
-        else:
-            span = fast_thr - slow_thr
-            ratio = (vel - slow_thr) / span if span > 0 else 0.0
-
-        min_slow = float(getattr(self.config, "bargain_price_min_multiplier_slow", 1.0) or 1.0)
-        min_fast = float(getattr(self.config, "bargain_price_min_multiplier_fast", min_slow) or min_slow)
-        max_slow = float(getattr(self.config, "bargain_price_max_multiplier_slow", 1.0) or 1.0)
-        max_fast = float(getattr(self.config, "bargain_price_max_multiplier_fast", max_slow) or max_slow)
-
-        min_mul = min_slow + ratio * (min_fast - min_slow)
-        max_mul = max_slow + ratio * (max_fast - max_slow)
-
-        dyn_min = max(0.0, base_min * min_mul)
-        dyn_max = max(0.0, base_max * max_mul)
-
-        # Time-to-expiry tightening: shrink max as expiry nears
-        tighten_start = int(getattr(self.config, "bargain_price_tighten_start_seconds", 120) or 120)
-        tighten_floor = max(0.1, float(getattr(self.config, "bargain_price_tighten_floor_multiplier", 0.8) or 0.8))
-        if market.time_remaining_seconds is not None and market.time_remaining_seconds <= tighten_start:
-            dyn_max *= tighten_floor
-
-        # Ensure min does not exceed max
-        if dyn_min > dyn_max:
-            dyn_min = dyn_max
-
-        self.status.dynamic_bargain_min_price = dyn_min
-        self.status.dynamic_bargain_max_price = dyn_max
-        return dyn_min, dyn_max
 
 
 @dataclass
@@ -1165,6 +1124,7 @@ class ArbitrageEngine:
             "round": max_round,
             "holdings": holdings,
         }
+
 
     async def check_bargain_opportunities(self, markets: List[MarketInfo]) -> List[Dict[str, Any]]:
         """
