@@ -53,12 +53,14 @@ class BotConfig(BaseModel):
     bargain_stop_loss_cents: float = _float("BARGAIN_STOP_LOSS_CENTS", 0.02)
     bargain_min_price: float = _float("BARGAIN_MIN_PRICE", 0.10)
     bargain_max_rounds: int = _int("BARGAIN_MAX_ROUNDS", 56)
-    bargain_stop_loss_defer_minutes: int = _int("BARGAIN_STOP_LOSS_DEFER_MINUTES", 30)
-    bargain_stop_loss_cooldown_minutes: int = _int("BARGAIN_STOP_LOSS_COOLDOWN_MINUTES", 30)
+    bargain_stop_loss_defer_minutes: int = _int("BARGAIN_STOP_LOSS_DEFER_MINUTES", 10)
+    bargain_stop_loss_cooldown_minutes: int = _int("BARGAIN_STOP_LOSS_COOLDOWN_MINUTES", 10)
     bargain_stop_loss_immune_rounds: int = _int("BARGAIN_STOP_LOSS_IMMUNE_ROUNDS", 3)
     bargain_first_buy_bias: str = _str("BARGAIN_FIRST_BUY_BIAS", "AUTO")  # "UP", "DOWN", or "AUTO"
+    # Only open new bargain rounds when remaining time is within this window (seconds)
+    bargain_open_time_window_seconds: int = _int("BARGAIN_OPEN_TIME_WINDOW_SECONDS", 240)
     # Escalation window now in minutes (was hours)
-    bargain_pair_escalation_minutes: int = _int("BARGAIN_PAIR_ESCALATION_MINUTES", 60)
+    bargain_pair_escalation_minutes: int = _int("BARGAIN_PAIR_ESCALATION_MINUTES", 15)
 
     CLOB_HOST: str = "https://clob.polymarket.com"
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"

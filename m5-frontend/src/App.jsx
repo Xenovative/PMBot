@@ -801,9 +801,16 @@ function Dashboard({ token, authHeaders, onLogout }) {
               <ConfigField
                 label="最少剩餘時間 (秒)"
                 type="number"
-                value={configForm.min_time_remaining_seconds ?? 3600}
+                value={configForm.min_time_remaining_seconds ?? 300}
                 onChange={(v) => setConfigForm({ ...configForm, min_time_remaining_seconds: parseInt(v) })}
-                hint="5 分鐘市場建議 300 秒 (5 分鐘)"
+                hint="每小時市場建議 600 秒 (10 分鐘)"
+              />
+              <ConfigField
+                label="開倉時間窗口 (秒)"
+                type="number"
+                value={configForm.bargain_open_time_window_seconds ?? 240}
+                onChange={(v) => setConfigForm({ ...configForm, bargain_open_time_window_seconds: parseInt(v) })}
+                hint="剩餘時間低於此秒數才開新倉 (5 分鐘市場建議 240)"
               />
               <ConfigField
                 label="每市場最大交易次數"

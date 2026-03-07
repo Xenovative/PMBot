@@ -1170,20 +1170,22 @@ class ArbitrageEngine:
                 if next_round > self.config.bargain_max_rounds:
                     continue  # 已達堆疊上限
 
+                # 時間窗口：只在剩餘時間 <= 設定秒數時才開新倉（5m 市場避免太早進場）
+                if market.time_remaining_seconds is not None and market.time_remaining_seconds > self.config.bargain_open_time_window_seconds:
+                    continue
+
                 price_ceiling = stack["last_buy_price"]
 
                 # 第一輪用 price_threshold 作為天花板
                 if stack["round"] == 0:
                     price_ceiling = self.BARGAIN_PRICE_THRESHOLD
 
-                # 找最便宜的一側開始新一輪
+                # 找最便宜的一側開始新一輪（回到原始：按價格/偏好，不用跑道排序）
                 candidates = []
                 if (up_ask >= self.BARGAIN_MIN_PRICE and up_ask < price_ceiling):
-                    runway_up = self.BARGAIN_PAIR_THRESHOLD - (up_ask + down_ask)
-                    candidates.append(("UP", up_ask, market.up_token_id, market.down_token_id, runway_up))
+                    candidates.append(("UP", up_ask, market.up_token_id, market.down_token_id))
                 if (down_ask >= self.BARGAIN_MIN_PRICE and down_ask < price_ceiling):
-                    runway_down = self.BARGAIN_PAIR_THRESHOLD - (down_ask + up_ask)
-                    candidates.append(("DOWN", down_ask, market.down_token_id, market.up_token_id, runway_down))
+                    candidates.append(("DOWN", down_ask, market.down_token_id, market.up_token_id))
 
                 if candidates:
                     # R1 開倉: 套用偏好方向（但仍須滿足閾值與天花板）
@@ -1195,9 +1197,9 @@ class ArbitrageEngine:
                         else:
                             # 偏好側未達條件 → 不開倉，等待價格進入區間
                             continue
-                    # 先看配對「跑道」(pairing runway) 再看價格：較大跑道意味著更容易配對成功
-                    candidates.sort(key=lambda c: (-(c[4]), c[1]))
-                    side, ask, token_id, comp_id, _runway = candidates[0]
+                    # 買最便宜的那側（或偏好側）
+                    candidates.sort(key=lambda c: c[1])
+                    side, ask, token_id, comp_id = candidates[0]
                     opportunities.append({
                         "market": market,
                         "side": side,
@@ -1406,8 +1408,8 @@ class ArbitrageEngine:
             else:
                 current_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
 
-            # ── 4 分鐘強平：距離到期 ≤30s 就直接清算未配對持倉 ──
-            if holding.market.time_remaining_seconds <= 30:
+            # ── 4 分鐘強平：距離到期 ≤5s 就直接清算未配對持倉 ──
+            if holding.market.time_remaining_seconds <= 5:
                 self.status.add_log(
                     f"⏰ [4m強平] {holding.market_slug} {holding.side} | 剩餘 {int(holding.market.time_remaining_seconds)}s，"
                     f"賣出 {holding.shares:.1f} 股 @ ~{current_price:.4f}"
