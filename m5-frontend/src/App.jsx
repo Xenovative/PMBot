@@ -312,7 +312,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-black/80 backdrop-blur">
                         <tr className="text-neon-cyan/50 border-b border-neon-cyan/10">
-                          <th className="text-left py-1.5 pr-3 font-medium">市場</th>
+                          <th className="text-left py-1.5 pr-3 font-medium">市場 / 倒數</th>
                           <th className="text-right py-1.5 px-2 font-medium">UP</th>
                           <th className="text-right py-1.5 px-2 font-medium">DOWN</th>
                           <th className="text-right py-1.5 px-2 font-medium">成本</th>
@@ -324,11 +324,16 @@ function Dashboard({ token, authHeaders, onLogout }) {
                           .sort(([,a], [,b]) => a.total_cost - b.total_cost)
                           .map(([slug, price]) => {
                             const profitable = price.total_cost < (config?.target_pair_cost ?? 0.99);
+                            const timeLabel = price.time_remaining_display || `${Math.max(0, Math.floor((price.time_remaining_seconds || 0) / 60))}分`;
                             return (
                               <tr key={slug} className={`border-b border-neon-cyan/5 ${profitable ? 'bg-neon-green/5' : ''}`}>
                                 <td className="py-2 pr-3">
                                   <span className="font-mono text-gray-300 truncate block max-w-[160px]" title={slug}>
                                     {slug}
+                                  </span>
+                                  <span className="text-[10px] text-neon-amber/70 inline-flex items-center gap-1 mt-0.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-neon-amber/60 animate-pulse"></span>
+                                    ⏳ {timeLabel}
                                   </span>
                                 </td>
                                 <td className="text-right py-2 px-2 font-mono text-white">

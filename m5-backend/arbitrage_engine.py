@@ -41,6 +41,8 @@ class PriceInfo:
     up_asks: List[Dict[str, float]] = field(default_factory=list)
     down_asks: List[Dict[str, float]] = field(default_factory=list)
     timestamp: str = ""
+    time_remaining_seconds: float = 0.0
+    time_remaining_display: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -53,6 +55,8 @@ class PriceInfo:
             "up_liquidity": self.up_liquidity,
             "down_liquidity": self.down_liquidity,
             "timestamp": self.timestamp,
+            "time_remaining_seconds": self.time_remaining_seconds,
+            "time_remaining_display": self.time_remaining_display,
         }
 
 
@@ -216,6 +220,8 @@ class ArbitrageEngine:
 
         price_info = PriceInfo()
         price_info.timestamp = datetime.now(timezone.utc).isoformat()
+        price_info.time_remaining_seconds = market.time_remaining_seconds
+        price_info.time_remaining_display = market.time_remaining_display
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
