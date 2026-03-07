@@ -167,6 +167,7 @@ class BotStatus:
     velocity_metric: Optional[float] = None
     dynamic_scan_interval_seconds: int = 0
     dynamic_bargain_window_seconds: Optional[int] = None
+    velocity_trend: Optional[str] = None
 
     def get_trades_for_market(self, slug: str) -> int:
         return self.trades_per_market.get(slug, 0)
@@ -207,6 +208,7 @@ class BotStatus:
             "velocity_metric": self.velocity_metric,
             "dynamic_scan_interval_seconds": self.dynamic_scan_interval_seconds,
             "dynamic_bargain_window_seconds": self.dynamic_bargain_window_seconds,
+            "velocity_trend": self.velocity_trend,
             "start_time": self.start_time,
             # Feed UI from persisted log file if available (falls back to memory buffer)
             "logs": logs_for_status,
@@ -1212,8 +1214,12 @@ class ArbitrageEngine:
                     candidates.append(("DOWN", down_ask, market.down_token_id, market.up_token_id))
 
                 if candidates:
-                    # R1 開倉: 套用偏好方向（但仍須滿足閾值與天花板）
+                    # R1 開倉: 套用偏好方向（或依速度趨勢動態偏好），仍須滿足閾值與天花板
                     bias = self.config.bargain_first_buy_bias.upper()
+                    if bias == "AUTO":
+                        trend_bias = self.status.velocity_trend
+                        if trend_bias in ("up", "down"):
+                            bias = trend_bias.upper()
                     if next_round == 1 and bias in ("UP", "DOWN"):
                         biased = [c for c in candidates if c[0] == bias]
                         if biased:
@@ -1862,6 +1868,7 @@ class ArbitrageEngine:
             trend = "up"
         else:
             trend = "down"
+        self.status.velocity_trend = trend
 
         # Log only when velocity value or trend changes
         should_log = (
