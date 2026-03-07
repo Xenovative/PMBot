@@ -1405,6 +1405,8 @@ class ArbitrageEngine:
                     f"⏰ [4m強平] {holding.market_slug} {holding.side} | 剩餘 {int(holding.market.time_remaining_seconds)}s，"
                     f"賣出 {holding.shares:.1f} 股 @ ~{current_price:.4f}"
                 )
+                # 執行強平並記錄損益
+                unwind_ok = True
                 if self.config.dry_run:
                     holding.status = "stopped_out"
                 else:
@@ -1421,6 +1423,44 @@ class ArbitrageEngine:
                             self.status.add_log("⏰ [4m強平失敗] 需手動處理!")
                     except Exception as e:
                         self.status.add_log(f"⏰ [4m強平異常] {str(e)[:120]}")
+
+                # 記錄 PnL（強平）
+                pnl = (current_price - holding.buy_price) * holding.shares
+                record = TradeRecord(
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    market_slug=holding.market_slug,
+                    up_price=price_info.up_price,
+                    down_price=price_info.down_price,
+                    total_cost=current_price,
+                    order_size=holding.shares,
+                    expected_profit=pnl,
+                    profit_pct=(pnl / (holding.buy_price * holding.shares) * 100) if holding.buy_price > 0 else 0,
+                    status="executed" if (unwind_ok and not self.config.dry_run) else "simulated",
+                    details=f"⏰ 4m強平 {holding.side} @~{current_price:.4f}",
+                )
+                self.status.trade_history.append(record)
+                self.status.total_profit += record.expected_profit
+                self.status.total_trades += 1
+                self.status.increment_trades_for_market(holding.market_slug)
+
+                try:
+                    trade_db.record_trade(
+                        timestamp=record.timestamp,
+                        market_slug=record.market_slug,
+                        trade_type="bargain_force_liq",
+                        side=holding.side,
+                        up_price=record.up_price,
+                        down_price=record.down_price,
+                        total_cost=record.total_cost,
+                        order_size=record.order_size,
+                        profit=record.expected_profit,
+                        profit_pct=record.profit_pct,
+                        status=record.status,
+                        details=record.details,
+                    )
+                    trade_db.rebuild_daily_summary()
+                except Exception:
+                    pass
                 continue
 
             # ── 價格回升 → 重置延遲計時器 ──
