@@ -1406,8 +1406,8 @@ class ArbitrageEngine:
             else:
                 current_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
 
-            # ── 4 分鐘強平：距離到期 ≤60s 就直接清算未配對持倉 ──
-            if holding.market.time_remaining_seconds <= 60:
+            # ── 4 分鐘強平：距離到期 ≤30s 就直接清算未配對持倉 ──
+            if holding.market.time_remaining_seconds <= 30:
                 self.status.add_log(
                     f"⏰ [4m強平] {holding.market_slug} {holding.side} | 剩餘 {int(holding.market.time_remaining_seconds)}s，"
                     f"賣出 {holding.shares:.1f} 股 @ ~{current_price:.4f}"
