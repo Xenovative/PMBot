@@ -1181,9 +1181,11 @@ class ArbitrageEngine:
                 # 找最便宜的一側開始新一輪
                 candidates = []
                 if (up_ask >= self.BARGAIN_MIN_PRICE and up_ask < price_ceiling):
-                    candidates.append(("UP", up_ask, market.up_token_id, market.down_token_id))
+                    runway_up = self.BARGAIN_PAIR_THRESHOLD - (up_ask + down_ask)
+                    candidates.append(("UP", up_ask, market.up_token_id, market.down_token_id, runway_up))
                 if (down_ask >= self.BARGAIN_MIN_PRICE and down_ask < price_ceiling):
-                    candidates.append(("DOWN", down_ask, market.down_token_id, market.up_token_id))
+                    runway_down = self.BARGAIN_PAIR_THRESHOLD - (down_ask + up_ask)
+                    candidates.append(("DOWN", down_ask, market.down_token_id, market.up_token_id, runway_down))
 
                 if candidates:
                     # R1 開倉: 套用偏好方向（但仍須滿足閾值與天花板）
@@ -1195,8 +1197,9 @@ class ArbitrageEngine:
                         else:
                             # 偏好側未達條件 → 不開倉，等待價格進入區間
                             continue
-                    candidates.sort(key=lambda c: c[1])
-                    side, ask, token_id, comp_id = candidates[0]
+                    # 先看配對「跑道」(pairing runway) 再看價格：較大跑道意味著更容易配對成功
+                    candidates.sort(key=lambda c: (-(c[4]), c[1]))
+                    side, ask, token_id, comp_id, _runway = candidates[0]
                     opportunities.append({
                         "market": market,
                         "side": side,
