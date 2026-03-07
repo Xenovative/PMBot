@@ -11,6 +11,7 @@ export default function LoginPage({ onLogin }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false)
   const totpRef = useRef(null)
 
   useEffect(() => {
@@ -241,6 +242,14 @@ export default function LoginPage({ onLogin }) {
               >
                 {loading ? 'AUTHENTICATING...' : 'LOGIN'}
               </button>
+
+              <button
+                type="button"
+                onClick={() => setShowForgotPasswordModal(true)}
+                className="w-full text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                忘記密碼？
+              </button>
             </form>
           )}
 
@@ -292,6 +301,27 @@ export default function LoginPage({ onLogin }) {
             </form>
           )}
         </div>
+
+        {showForgotPasswordModal && (
+          <div className="fixed inset-0 z-20 flex items-center justify-center px-4">
+            <div className="absolute inset-0 bg-black/75" onClick={() => setShowForgotPasswordModal(false)} />
+            <div className="relative z-10 w-full max-w-md cyber-panel p-6">
+              <h3 className="text-lg font-cyber neon-text-cyan mb-3">忘記密碼</h3>
+              <p className="text-sm text-gray-300 leading-6">
+                如需重設密碼或 2FA，請聯絡系統管理員協助重設您的登入憑證。
+              </p>
+              <div className="mt-5 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowForgotPasswordModal(false)}
+                  className="px-4 py-2 bg-neon-cyan/20 hover:bg-neon-cyan/30 border border-neon-cyan/40 text-neon-cyan rounded-lg text-sm font-medium transition-all shadow-neon-cyan"
+                >
+                  知道了
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <p className="text-center text-neon-cyan/20 text-xs mt-6 font-cyber tracking-wider">

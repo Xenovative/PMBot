@@ -216,6 +216,13 @@ async def auth_login(req: LoginRequest, request: Request):
     return {"status": "ok", "token": token}
 
 
+@app.post("/api/auth/reset_credentials")
+async def auth_reset_credentials(_user=Depends(auth.require_auth)):
+    """Reset password + 2FA so the app returns to initial setup state."""
+    auth.reset_credentials()
+    return {"status": "ok"}
+
+
 @app.post("/api/auth/2fa/setup")
 async def auth_2fa_setup(req: TotpSetupRequest = TotpSetupRequest(), _user=Depends(auth.require_auth)):
     """Start 2FA setup for a new device"""

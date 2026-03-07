@@ -310,6 +310,19 @@ def remove_device(device_id: str) -> bool:
     return True
 
 
+def reset_credentials() -> bool:
+    """Clear password and all 2FA state, forcing initial setup again."""
+    auth = _load_auth()
+    auth.pop("password_hash", None)
+    auth.pop("password_salt", None)
+    auth.pop("totp_secret", None)
+    auth.pop("totp_verified", None)
+    auth.pop("_pending_device", None)
+    auth["totp_devices"] = []
+    _save_auth(auth)
+    return True
+
+
 def disable_2fa() -> bool:
     """Remove all 2FA devices."""
     auth = _load_auth()
