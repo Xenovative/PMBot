@@ -813,6 +813,13 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 hint="每小時市場建議 120 秒 (2 分鐘)"
               />
               <ConfigField
+                label="掃描間隔 (秒)"
+                type="number"
+                value={configForm.scan_interval_seconds ?? 2}
+                onChange={(v) => setConfigForm({ ...configForm, scan_interval_seconds: parseInt(v) })}
+                hint="越低更新越快，但 API 請求會更多"
+              />
+              <ConfigField
                 label="最低流動性"
                 type="number"
                 value={configForm.min_liquidity ?? 50}

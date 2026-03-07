@@ -1091,8 +1091,6 @@ class ArbitrageEngine:
         for market in market_pool.values():
             if not market.up_token_id or not market.down_token_id:
                 continue
-            if self._bargain_trades_remaining(market.slug) <= 0:
-                continue
 
             # 持倉舊市場強制重新抓價格，避免使用過期 market_prices 導致錯過配對
             force_refresh = market.slug not in active_slugs
@@ -1168,6 +1166,8 @@ class ArbitrageEngine:
                         })
             else:
                 # ── 無未配對持倉: 開始新一輪 ──
+                if self._bargain_trades_remaining(market.slug) <= 0:
+                    continue
                 next_round = stack["round"] + 1
                 if next_round > self.config.bargain_max_rounds:
                     continue  # 已達堆疊上限

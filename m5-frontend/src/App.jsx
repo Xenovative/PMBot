@@ -196,6 +196,22 @@ function Dashboard({ token, authHeaders, onLogout }) {
 
   const effectiveStatus = status ?? polledStatus
   const isRunning = effectiveStatus?.running || false
+  const recentTradeRows = Array.from(
+    new Map(
+      [...(effectiveStatus?.trade_history || []), ...trades]
+        .map((tradeItem) => {
+          const tradeKey = [
+            tradeItem.timestamp,
+            tradeItem.market_slug,
+            tradeItem.total_cost,
+            tradeItem.expected_profit,
+            tradeItem.status,
+            tradeItem.details,
+          ].join('|')
+          return [tradeKey, tradeItem]
+        })
+    ).values()
+  ).slice(0, 20)
 
   return (
     <div className="min-h-screen text-gray-100 scanlines relative">
@@ -649,7 +665,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   <Shield className="w-4 h-4" />
                   最近交易
                 </h3>
-                {(status?.trade_history || []).length === 0 && trades.length === 0 ? (
+                {recentTradeRows.length === 0 ? (
                   <p className="text-xs text-gray-600 text-center py-6">尚無交易記錄</p>
                 ) : (
                   <div className="overflow-x-auto max-h-64 overflow-y-auto">
@@ -664,7 +680,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {[...(status?.trade_history || []), ...trades].slice(0, 20).map((t, i) => (
+                        {recentTradeRows.map((t, i) => (
                           <tr key={i} className="border-b border-neon-cyan/5 hover:bg-neon-cyan/5">
                             <td className="py-1.5 pr-2 text-gray-400 font-mono whitespace-nowrap">
                               {new Date(t.timestamp).toLocaleTimeString('zh-TW')}
@@ -799,6 +815,13 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 value={configForm.trade_cooldown_seconds ?? 300}
                 onChange={(v) => setConfigForm({ ...configForm, trade_cooldown_seconds: parseInt(v) })}
                 hint="5 分鐘市場建議 60 秒 (1 分鐘)"
+              />
+              <ConfigField
+                label="掃描間隔 (秒)"
+                type="number"
+                value={configForm.scan_interval_seconds ?? 2}
+                onChange={(v) => setConfigForm({ ...configForm, scan_interval_seconds: parseInt(v) })}
+                hint="越低更新越快，但 API 請求會更多"
               />
               <ConfigField
                 label="最低流動性"
