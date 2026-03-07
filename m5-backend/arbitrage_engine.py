@@ -1121,8 +1121,12 @@ class ArbitrageEngine:
                 except Exception:
                     pass
 
+                # 使用持倉側當前市場價格作為配對計算基準（若缺失則退回買價），判斷另一側能否使總和 < pair_threshold
                 if unpaired.side == "UP":
-                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price + escalation
+                    held_price = up_ask if up_ask > 0 else unpaired.buy_price
+                    if held_price <= 0:
+                        continue
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - held_price + escalation
                     if (down_ask >= self.BARGAIN_MIN_PRICE
                             and down_ask < target_price):
                         opportunities.append({
@@ -1138,7 +1142,10 @@ class ArbitrageEngine:
                             "pair_with": unpaired,
                         })
                 else:  # unpaired.side == "DOWN"
-                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price + escalation
+                    held_price = down_ask if down_ask > 0 else unpaired.buy_price
+                    if held_price <= 0:
+                        continue
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - held_price + escalation
                     if (up_ask >= self.BARGAIN_MIN_PRICE
                             and up_ask < target_price):
                         opportunities.append({
