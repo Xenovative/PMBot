@@ -1293,9 +1293,10 @@ class ArbitrageEngine:
 
         # Trend stability gate: avoid flipping markets until trend holds for N scans
         stable_needed = max(1, int(getattr(self.config, "velocity_trend_stable_scans", 1) or 1))
-        if self.status.velocity_trend in ("up", "down") and self._trend_streak < stable_needed:
+        trend_now = self.status.velocity_trend
+        if trend_now in ("up", "down") and self._trend_streak < stable_needed:
             self.status.add_log(
-                f"🏷️ [撿便宜] 趨勢未穩定({self.status.velocity_trend}, {self._trend_streak}/{stable_needed})，暫緩買入"
+                f"🏷️ [撿便宜] 趨勢未穩定({trend_now}, {self._trend_streak}/{stable_needed})，暫緩買入"
             )
             return None
 
