@@ -87,6 +87,13 @@ class BotConfig(BaseModel):
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"
     CHAIN_ID: int = 137
     POLYGON_RPC_URL: str = _str("POLYGON_RPC_URL", "https://polygon-rpc.com")
+    poly_relayer_enabled: bool = _bool("POLY_RELAYER_ENABLED", False)
+    poly_relayer_url: str = _str("POLY_RELAYER_URL", "https://relayer-v2.polymarket.com/")
+    poly_builder_api_key: str = _str("POLY_BUILDER_API_KEY", "")
+    poly_builder_secret: str = _str("POLY_BUILDER_SECRET", "")
+    poly_builder_passphrase: str = _str("POLY_BUILDER_PASSPHRASE", "")
+    relayer_helper_command: str = _str("RELAYER_HELPER_COMMAND", "node")
+    relayer_helper_script: str = _str("RELAYER_HELPER_SCRIPT", "")
 
 
 def get_config() -> BotConfig:

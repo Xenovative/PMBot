@@ -1,0 +1,11 @@
+{
+  "name": "pmbot-relayer-helper",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "dependencies": {
+    "@polymarket/builder-relayer-client": "latest",
+    "@polymarket/builder-signing-sdk": "latest",
+    "viem": "latest"
+  }
+}

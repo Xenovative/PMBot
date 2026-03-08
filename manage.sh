@@ -214,6 +214,7 @@ instance_menu() {
             "stop"      "Stop backend service" \
             "restart"   "Restart backend service" \
             "update"    "Update code from source" \
+            "relayer"   "Install/update relayer helper deps" \
             "env"       "Edit .env configuration" \
             "wallet"    "Change wallet / private key" \
             "logs"      "Tail live logs (last 50 lines)" \
@@ -228,6 +229,7 @@ instance_menu() {
             "stop")     action_stop "$name" ;;
             "restart")  action_restart "$name" ;;
             "update")   action_update "$name" ;;
+            "relayer")  action_relayer "$name" ;;
             "env")      action_edit_env "$name" ;;
             "wallet")   action_change_wallet "$name" ;;
             "logs")     action_logs "$name" ;;
@@ -236,6 +238,30 @@ instance_menu() {
             "back"|*)   return ;;
         esac
     done
+}
+
+# Install/update relayer helper dependencies (scripts/package.json)
+action_relayer() {
+    local name="$1"
+    local app_dir="/opt/pmbot-${name}"
+    local scripts_dir="$app_dir/scripts"
+
+    if [ ! -d "$scripts_dir" ]; then
+        whiptail --title "Relayer" --msgbox "Scripts directory not found at $scripts_dir. Run 'update' first to sync scripts." 10 70
+        return
+    fi
+
+    whiptail --title "Relayer" --yesno \
+        "Install/update relayer helper dependencies?\n\nThis will run 'npm install' in $scripts_dir" 12 70 || return
+
+    clear
+    echo -e "${CYAN}[Relayer] Installing/updating dependencies...${NC}"
+    mkdir -p "$NPM_CACHE_DIR"
+    chown -R "$APP_USER:$APP_USER" "$NPM_CACHE_DIR"
+    runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$scripts_dir" install --no-audit --no-fund
+    echo -e "${GREEN}✓ Relayer helper dependencies installed/updated${NC}"
+    echo ""
+    read -p "Press Enter to return..." _
 }
 
 # ============================================
@@ -332,6 +358,12 @@ action_update() {
         --exclude '*.db' --exclude '*.db-shm' --exclude '*.db-wal' \
         --exclude '__pycache__' --exclude '*.pyc' \
         "$SCRIPT_DIR/$selected_src/" "$app_dir/backend/"
+
+    if [ -d "$SCRIPT_DIR/scripts" ]; then
+        echo -e "${CYAN}    Syncing scripts (relayer helper)...${NC}"
+        rsync -a --delete "$SCRIPT_DIR/scripts/" "$app_dir/scripts/"
+        chown -R "$APP_USER:$APP_USER" "$app_dir/scripts"
+    fi
 
     local fsrc="${selected_src/backend/frontend}"
     if [ -d "$SCRIPT_DIR/$fsrc" ]; then
