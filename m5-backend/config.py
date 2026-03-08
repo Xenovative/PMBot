@@ -82,6 +82,8 @@ class BotConfig(BaseModel):
     # Sudden plummet guard: if price drops >= pct within window, exit immediately
     bargain_plummet_exit_pct: float = _float("BARGAIN_PLUMMET_EXIT_PCT", 20.0)
     bargain_plummet_window_seconds: int = _int("BARGAIN_PLUMMET_WINDOW_SECONDS", 15)
+    # Late liquidation threshold (seconds before expiry to force sell holdings)
+    late_liquidation_seconds: int = _int("LATE_LIQUIDATION_SECONDS", 90)
 
     CLOB_HOST: str = "https://clob.polymarket.com"
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"
