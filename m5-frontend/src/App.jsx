@@ -80,6 +80,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
   const [manualMarkets, setManualMarkets] = useState([])
   const [loading, setLoading] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
+  const [showRiskModal, setShowRiskModal] = useState(true)
   const [activeView, setActiveView] = useState('live')
   const logsEndRef = useRef(null)
 
@@ -140,6 +141,10 @@ function Dashboard({ token, authHeaders, onLogout }) {
   }
 
   async function startBot() {
+    if (showRiskModal) {
+      setShowRiskModal(true)
+      return
+    }
     try {
       await fetch(`${API}/api/bot/start`, { method: 'POST', headers: authHeaders })
     } catch (e) {
@@ -216,6 +221,39 @@ function Dashboard({ token, authHeaders, onLogout }) {
 
   return (
     <div className="min-h-screen text-gray-100 scanlines relative">
+      {showRiskModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur" />
+          <div className="relative z-10 max-w-lg w-full bg-gray-950 border border-neon-amber/40 shadow-neon-amber rounded-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <Shield className="w-6 h-6 text-neon-amber" />
+              <div>
+                <h2 className="text-lg font-bold text-neon-amber">高風險提醒</h2>
+                <p className="text-xs text-gray-400">本機器人會自動下單並可能導致本金全損，請確保你了解市場風險與錢包安全。</p>
+              </div>
+            </div>
+            <ul className="text-xs text-gray-300 space-y-1 list-disc list-inside bg-black/30 rounded-lg p-3 border border-neon-amber/20">
+              <li>自動交易可能遭受極端波動與流動性枯竭。</li>
+              <li>請妥善保管金鑰，不要在不可信環境啟動。</li>
+              <li>開啟後請持續監控，必要時立即停止。</li>
+            </ul>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={onLogout}
+                className="px-3 py-2 text-xs bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-gray-300"
+              >
+                登出
+              </button>
+              <button
+                onClick={() => setShowRiskModal(false)}
+                className="px-4 py-2 text-sm bg-neon-amber/20 hover:bg-neon-amber/30 border border-neon-amber/50 text-neon-amber rounded-lg font-semibold"
+              >
+                我已理解風險，繼續
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Background */}
       <div className="fixed inset-0 z-0">
         <img src="/background.jpeg" alt="" className="w-full h-full object-cover" />
