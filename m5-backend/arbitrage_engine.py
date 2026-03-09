@@ -2183,9 +2183,11 @@ class ArbitrageEngine:
                                     )
                                     self.status.add_log("⚡ [急跌護欄] 已掛出 GTC，待成交後才算完成")
                                 else:
+                                    self._clear_holding_pending_exit(holding)
                                     self.status.add_log("⚡ [急跌護欄失敗] 賣單未成交")
                             except Exception as e:
                                 unwind_result = {"success": False, "pending": False, "order_type": None, "response": None}
+                                self._clear_holding_pending_exit(holding)
                                 self.status.add_log(f"⚡ [急跌護欄異常] {str(e)[:120]}")
 
                         if self.config.dry_run or unwind_result.get("success"):
@@ -2314,9 +2316,11 @@ class ArbitrageEngine:
                                     unwind_result,
                                 )
                             else:
+                                self._clear_holding_pending_exit(holding)
                                 self.status.add_log("🎯 [二次出場失敗] 賣單未成交")
                         except Exception as e:
                             unwind_result = {"success": False, "pending": False, "order_type": None, "response": None}
+                            self._clear_holding_pending_exit(holding)
                             self.status.add_log(f"🎯 [二次出場異常] {str(e)[:120]}")
 
                     if (self.config.dry_run or unwind_result.get("success")) and holding.status == "paired":
@@ -2439,9 +2443,11 @@ class ArbitrageEngine:
                             )
                             self.status.add_log("⏰ [4m強平] 已掛出 GTC，待成交後才算完成")
                         else:
+                            self._clear_holding_pending_exit(holding)
                             self.status.add_log("⏰ [4m強平失敗] 需手動處理!")
                     except Exception as e:
                         unwind_result = {"success": False, "pending": False, "order_type": None, "response": None}
+                        self._clear_holding_pending_exit(holding)
                         self.status.add_log(f"⏰ [4m強平異常] {str(e)[:120]}")
 
                 # 記錄 PnL（強平）
@@ -2611,9 +2617,11 @@ class ArbitrageEngine:
                             )
                             self.status.add_log(f"🛑 [止損] 已掛出 GTC，待成交後才算完成")
                         else:
-                            self.status.add_log(f"🛑 [止損失敗] {holding.side} 需手動處理!")
+                            self._clear_holding_pending_exit(holding)
+                            self.status.add_log(f"🛑 [止損失敗] {holding.side} 賣單未成交")
                     except Exception as e:
                         unwind_result = {"success": False, "pending": False, "order_type": None, "response": None}
+                        self._clear_holding_pending_exit(holding)
                         self.status.add_log(f"🛑 [止損異常] {str(e)[:120]}")
 
                 # 止損後冷卻（防止「高買低賣」循環）
