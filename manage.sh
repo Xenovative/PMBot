@@ -184,7 +184,14 @@ analytics_format_overview() {
 import json
 import os
 
-payload = json.loads(os.environ.get("ANALYTICS_PAYLOAD", "{}"))
+payload_text = os.environ.get("ANALYTICS_PAYLOAD", "").strip()
+if not payload_text:
+    payload = {}
+else:
+    try:
+        payload = json.loads(payload_text)
+    except Exception:
+        payload = {}
 lines = [
     f"Total trades      : {payload.get('total_trades', 0)}",
     f"Successful        : {payload.get('successful', 0)}",
@@ -211,8 +218,15 @@ analytics_format_trades() {
 import json
 import os
 
-payload = json.loads(os.environ.get("ANALYTICS_PAYLOAD", "[]"))
-if not payload:
+payload_text = os.environ.get("ANALYTICS_PAYLOAD", "").strip()
+if not payload_text:
+    payload = []
+else:
+    try:
+        payload = json.loads(payload_text)
+    except Exception:
+        payload = []
+if not payload or not isinstance(payload, list):
     print("No trades found.")
     raise SystemExit(0)
 
@@ -239,8 +253,15 @@ analytics_format_merges() {
 import json
 import os
 
-payload = json.loads(os.environ.get("ANALYTICS_PAYLOAD", "[]"))
-if not payload:
+payload_text = os.environ.get("ANALYTICS_PAYLOAD", "").strip()
+if not payload_text:
+    payload = []
+else:
+    try:
+        payload = json.loads(payload_text)
+    except Exception:
+        payload = []
+if not payload or not isinstance(payload, list):
     print("No merges found.")
     raise SystemExit(0)
 
