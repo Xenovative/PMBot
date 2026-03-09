@@ -2,6 +2,7 @@
 套利引擎 - 核心套利邏輯、風險控制、交易執行（每日 Up or Down 市場版本）
 """
 import asyncio
+import json
 import math
 import time
 import httpx
@@ -249,6 +250,270 @@ class ArbitrageEngine:
         self.status.dynamic_scan_interval_seconds = getattr(config, "scan_interval_seconds", 2)
         self.status.dynamic_bargain_window_seconds = getattr(config, "bargain_open_time_window_seconds", 240)
         self.status.dynamic_bargain_bounds_enabled = getattr(config, "bargain_dynamic_bounds_enabled", True)
+        self._pending_unwind_kv_key = "pending_gtc_unwinds"
+
+    def _load_pending_unwinds(self) -> List[Dict[str, Any]]:
+        raw_pending = trade_db.kv_get(self._pending_unwind_kv_key, "[]")
+        try:
+            parsed_pending = json.loads(raw_pending)
+        except Exception:
+            return []
+        return parsed_pending if isinstance(parsed_pending, list) else []
+
+    def _save_pending_unwinds(self, pending_unwinds: List[Dict[str, Any]]):
+        try:
+            trade_db.kv_set(self._pending_unwind_kv_key, json.dumps(pending_unwinds, ensure_ascii=False))
+        except Exception as e:
+            self.status.add_log(f"⚠️ 儲存待成交 GTC 清單失敗: {str(e)[:120]}")
+
+    def _queue_pending_unwind(self, pending_payload: Dict[str, Any]):
+        pending_unwinds = self._load_pending_unwinds()
+        pending_unwinds = [
+            existing_pending
+            for existing_pending in pending_unwinds
+            if existing_pending.get("order_id") != pending_payload.get("order_id")
+        ]
+        pending_unwinds.append(pending_payload)
+        self._save_pending_unwinds(pending_unwinds)
+
+    def _remove_pending_unwind(self, order_id: str):
+        pending_unwinds = self._load_pending_unwinds()
+        filtered_pending = [
+            existing_pending for existing_pending in pending_unwinds if existing_pending.get("order_id") != order_id
+        ]
+        if len(filtered_pending) != len(pending_unwinds):
+            self._save_pending_unwinds(filtered_pending)
+
+    def _find_trade_fill_for_asset(self, clob_client, asset_id: str, after_ts_ms: int) -> Optional[Dict[str, Any]]:
+        from py_clob_client.clob_types import TradeParams
+
+        try:
+            recent_trades = clob_client.get_trades(TradeParams(asset_id=asset_id, after=after_ts_ms))
+        except Exception as e:
+            self.status.add_log(f"⚠️ 查詢成交紀錄失敗: {str(e)[:120]}")
+            return None
+
+        if not recent_trades:
+            return None
+
+        def _trade_timestamp(trade_item: Dict[str, Any]) -> int:
+            for key_name in ("match_time", "created_at", "timestamp"):
+                raw_value = trade_item.get(key_name)
+                if raw_value is None:
+                    continue
+                try:
+                    return int(raw_value)
+                except (TypeError, ValueError):
+                    continue
+            return 0
+
+        sorted_trades = sorted(recent_trades, key=_trade_timestamp, reverse=True)
+        return sorted_trades[0] if sorted_trades else None
+
+    def _parse_order_fill_state(self, order_payload: Dict[str, Any]) -> Tuple[float, bool]:
+        if not isinstance(order_payload, dict):
+            return 0.0, False
+
+        original_size = 0.0
+        for size_key in ("original_size", "size", "initial_size"):
+            raw_size = order_payload.get(size_key)
+            if raw_size is None:
+                continue
+            try:
+                original_size = float(raw_size)
+                break
+            except (TypeError, ValueError):
+                continue
+
+        filled_size = 0.0
+        for filled_key in ("filled_size", "matched_size", "filled", "size_matched"):
+            raw_filled = order_payload.get(filled_key)
+            if raw_filled is None:
+                continue
+            try:
+                filled_size = float(raw_filled)
+                break
+            except (TypeError, ValueError):
+                continue
+
+        status_text = str(order_payload.get("status", "")).lower()
+        is_filled = status_text in {"filled", "matched", "executed", "complete", "completed"}
+        if original_size > 0 and filled_size >= original_size - 0.0001:
+            is_filled = True
+        return filled_size, is_filled
+
+    def _finalize_pending_unwind_fill(self, pending_payload: Dict[str, Any], fill_trade: Optional[Dict[str, Any]], order_payload: Optional[Dict[str, Any]]):
+        trade_id = pending_payload.get("trade_id")
+        if not trade_id:
+            return
+
+        stored_trade = trade_db.get_trade_by_id(int(trade_id))
+        if not stored_trade:
+            self._remove_pending_unwind(str(pending_payload.get("order_id", "")))
+            return
+
+        exit_price = pending_payload.get("sell_price") or stored_trade.get("total_cost", 0)
+        if fill_trade:
+            for price_key in ("price", "match_price"):
+                raw_price = fill_trade.get(price_key)
+                if raw_price is None:
+                    continue
+                try:
+                    exit_price = float(raw_price)
+                    break
+                except (TypeError, ValueError):
+                    continue
+
+        realized_size = pending_payload.get("shares") or stored_trade.get("order_size", 0)
+        buy_price = pending_payload.get("buy_price") or 0
+        try:
+            realized_profit = (float(exit_price) - float(buy_price)) * float(realized_size)
+        except (TypeError, ValueError):
+            realized_profit = 0.0
+
+        realized_total_cost = 0.0
+        if pending_payload.get("side_label") == "UP":
+            realized_total_cost = float(exit_price)
+            updated_up_price = float(exit_price)
+            updated_down_price = float(stored_trade.get("down_price", 0) or 0)
+        elif pending_payload.get("side_label") == "DOWN":
+            realized_total_cost = float(exit_price)
+            updated_up_price = float(stored_trade.get("up_price", 0) or 0)
+            updated_down_price = float(exit_price)
+        else:
+            updated_up_price = float(stored_trade.get("up_price", 0) or 0)
+            updated_down_price = float(stored_trade.get("down_price", 0) or 0)
+            realized_total_cost = float(stored_trade.get("total_cost", 0) or 0)
+
+        profit_pct = 0.0
+        cost_basis = float(buy_price) * float(realized_size)
+        if cost_basis > 0:
+            profit_pct = realized_profit / cost_basis * 100
+
+        existing_details = str(stored_trade.get("details", "") or "")
+        reconciliation_details = (
+            f"{existing_details} | ✅ GTC 已成交 @ {float(exit_price):.4f}"
+            if existing_details else f"✅ GTC 已成交 @ {float(exit_price):.4f}"
+        )
+
+        trade_db.update_trade(
+            int(trade_id),
+            up_price=updated_up_price,
+            down_price=updated_down_price,
+            total_cost=realized_total_cost,
+            order_size=float(realized_size),
+            profit=realized_profit,
+            profit_pct=profit_pct,
+            status="executed",
+            details=reconciliation_details,
+        )
+        trade_db.rebuild_daily_summary()
+
+        self.status.total_profit += realized_profit
+        for trade_record in reversed(self.status.trade_history):
+            if trade_record.timestamp == stored_trade.get("timestamp") and trade_record.market_slug == stored_trade.get("market_slug"):
+                trade_record.status = "executed"
+                trade_record.total_cost = realized_total_cost
+                trade_record.order_size = float(realized_size)
+                trade_record.expected_profit = realized_profit
+                trade_record.profit_pct = profit_pct
+                trade_record.details = reconciliation_details
+                if pending_payload.get("side_label") == "UP":
+                    trade_record.up_price = float(exit_price)
+                elif pending_payload.get("side_label") == "DOWN":
+                    trade_record.down_price = float(exit_price)
+                break
+
+        self.status.add_log(
+            f"✅ 已確認待成交 GTC 成交 | {pending_payload.get('market_slug', '')} {pending_payload.get('side_label', '')} | "
+            f"{float(realized_size):.2f} 股 @ {float(exit_price):.4f}"
+        )
+        self._remove_pending_unwind(str(pending_payload.get("order_id", "")))
+
+    def _register_pending_unwind_trade(
+        self,
+        record: TradeRecord,
+        trade_id: int,
+        market: MarketInfo,
+        token_id: str,
+        side_label: str,
+        shares: float,
+        buy_price: float,
+        unwind_result: Dict[str, Any],
+    ):
+        response_payload = unwind_result.get("response") or {}
+        order_id = str(
+            response_payload.get("orderID")
+            or response_payload.get("orderId")
+            or response_payload.get("id")
+            or response_payload.get("order_id")
+            or ""
+        )
+        if not order_id:
+            self.status.add_log("⚠️ GTC 已掛出但缺少 order_id，無法自動對帳")
+            return
+
+        created_at_ms = int(time.time() * 1000)
+        pending_payload = {
+            "trade_id": int(trade_id),
+            "market_slug": market.slug,
+            "token_id": token_id,
+            "side_label": side_label,
+            "shares": float(getattr(record, "pending_unwind_shares", shares) or shares),
+            "buy_price": float(getattr(record, "pending_unwind_buy_price", buy_price) or buy_price),
+            "sell_price": float(getattr(record, "pending_unwind_sell_price", unwind_result.get("sell_price", buy_price)) or buy_price),
+            "order_id": order_id,
+            "created_at_ms": created_at_ms,
+            "record_timestamp": record.timestamp,
+        }
+        self._queue_pending_unwind(pending_payload)
+        self.status.add_log(f"📌 已登記待成交 GTC 對帳 | order_id={order_id[:12]} | {market.slug} {side_label}")
+
+    async def reconcile_pending_unwinds(self):
+        pending_unwinds = self._load_pending_unwinds()
+        if not pending_unwinds or self.config.dry_run:
+            return
+
+        try:
+            clob_client = self._get_clob_client()
+        except Exception as e:
+            self.status.add_log(f"⚠️ 無法建立 CLOB 客戶端以對帳待成交 GTC: {str(e)[:120]}")
+            return
+
+        for pending_payload in list(pending_unwinds):
+            order_id = str(pending_payload.get("order_id", "") or "")
+            if not order_id:
+                self._remove_pending_unwind(order_id)
+                continue
+
+            order_payload = None
+            try:
+                order_payload = clob_client.get_order(order_id)
+            except Exception as e:
+                self.status.add_log(f"⚠️ 查詢 GTC 訂單 {order_id[:12]} 失敗: {str(e)[:120]}")
+
+            filled_size, is_filled = self._parse_order_fill_state(order_payload or {})
+            if is_filled:
+                fill_trade = self._find_trade_fill_for_asset(
+                    clob_client,
+                    str(pending_payload.get("token_id", "") or ""),
+                    int(pending_payload.get("created_at_ms", 0) or 0),
+                )
+                self._finalize_pending_unwind_fill(pending_payload, fill_trade, order_payload)
+                continue
+
+            order_status_text = str((order_payload or {}).get("status", "")).lower()
+            if order_status_text in {"cancelled", "canceled", "expired"}:
+                stored_trade = trade_db.get_trade_by_id(int(pending_payload.get("trade_id", 0) or 0))
+                if stored_trade:
+                    details_text = str(stored_trade.get("details", "") or "")
+                    trade_db.update_trade(
+                        int(pending_payload.get("trade_id")),
+                        details=f"{details_text} | ⚠️ GTC 未成交 ({order_status_text})" if details_text else f"⚠️ GTC 未成交 ({order_status_text})",
+                    )
+                    trade_db.rebuild_daily_summary()
+                self.status.add_log(f"⚠️ 待成交 GTC 未完成並已{order_status_text}: {order_id[:12]}")
+                self._remove_pending_unwind(order_id)
 
     async def get_prices(self, market: MarketInfo) -> Optional[PriceInfo]:
         """從 CLOB API 獲取 UP/DOWN 代幣的當前價格和訂單簿深度"""
@@ -603,7 +868,7 @@ class ArbitrageEngine:
         緊急平倉：賣出已買入的一側代幣以避免單邊風險
         注意: MarketOrderArgs + create_market_order 對 SELL 有 bug（price 驗證失敗）
         改用 OrderArgs + create_order 限價賣單
-        嘗試順序: 買入價賣出 → 低價賣出 (0.01) → GTC 掛單
+        嘗試順序: 每個價格依序嘗試 FOK → FAK → GTC
         """
         from py_clob_client.clob_types import OrderArgs, OrderType
         from py_clob_client.order_builder.constants import SELL
@@ -612,7 +877,19 @@ class ArbitrageEngine:
         shares = math.floor(shares * 100) / 100
         if shares <= 0:
             self.status.add_log(f"  ⚠️ {side_label} 股數過小，無法平倉")
-            return False
+            return {"success": False, "pending": False, "order_type": None, "response": None}
+
+        available_shares = self._get_available_conditional_balance(clob_client, token_id)
+        if available_shares is not None:
+            available_shares = math.floor(max(available_shares, 0.0) * 100) / 100
+            if available_shares <= 0:
+                self.status.add_log(f"  ⏳ {side_label} 尚無可賣餘額，等待結算中")
+                return {"success": False, "pending": False, "order_type": None, "response": None}
+            if available_shares < shares:
+                self.status.add_log(
+                    f"  ℹ️ {side_label} 可賣股數僅 {available_shares:.2f} / 目標 {shares:.2f}，改用可用股數平倉"
+                )
+                shares = available_shares
 
         self.status.add_log(f"  🔥 緊急平倉 {side_label} | 賣出 {shares:.2f} 股 @ ~{buy_price:.4f}")
 
@@ -626,7 +903,7 @@ class ArbitrageEngine:
         sell_prices = list(dict.fromkeys(sell_prices))
 
         for sell_price in sell_prices:
-            for otype in [OrderType.FOK, OrderType.GTC]:
+            for otype in [OrderType.FOK, OrderType.FAK, OrderType.GTC]:
                 try:
                     order = OrderArgs(
                         token_id=token_id,
@@ -636,10 +913,29 @@ class ArbitrageEngine:
                     )
                     signed = clob_client.create_order(order)
                     resp = clob_client.post_order(signed, otype)
+                    if otype == OrderType.GTC:
+                        self.status.add_log(
+                            f"  📌 {side_label} 已掛出待成交 GTC @ {sell_price:.2f}: {resp}"
+                        )
+                        return {
+                            "success": False,
+                            "pending": True,
+                            "order_type": str(otype),
+                            "response": resp,
+                            "sell_price": sell_price,
+                            "shares": shares,
+                        }
                     self.status.add_log(
                         f"  ✅ {side_label} 平倉成功 ({otype}) @ {sell_price:.2f}: {resp}"
                     )
-                    return True
+                    return {
+                        "success": True,
+                        "pending": False,
+                        "order_type": str(otype),
+                        "response": resp,
+                        "sell_price": sell_price,
+                        "shares": shares,
+                    }
                 except Exception as e:
                     self.status.add_log(
                         f"  ⚠️ {side_label} 平倉 {otype} @ {sell_price:.2f} 失敗: {str(e)[:150]}"
@@ -647,7 +943,59 @@ class ArbitrageEngine:
                     continue
 
         self.status.add_log(f"  ❌ {side_label} 所有平倉方式均失敗!")
-        return False
+        return {"success": False, "pending": False, "order_type": None, "response": None}
+
+    def _get_available_conditional_balance(self, clob_client, token_id: str) -> Optional[float]:
+        from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+
+        try:
+            balance_response = clob_client.get_balance_allowance(
+                BalanceAllowanceParams(asset_type=AssetType.CONDITIONAL, token_id=token_id)
+            )
+        except Exception as e:
+            self.status.add_log(f"  ⚠️ 查詢可賣餘額失敗: {str(e)[:120]}")
+            return None
+
+        if not isinstance(balance_response, dict):
+            self.status.add_log(f"  ⚠️ 可賣餘額回應格式異常: {str(balance_response)[:120]}")
+            return None
+
+        candidate_keys = [
+            "balance",
+            "available",
+            "available_balance",
+            "availableBalance",
+            "asset_balance",
+            "assetBalance",
+        ]
+        for candidate_key in candidate_keys:
+            raw_balance = balance_response.get(candidate_key)
+            if raw_balance is None:
+                continue
+            try:
+                parsed_balance = float(raw_balance)
+            except (TypeError, ValueError):
+                continue
+            if parsed_balance > 1000:
+                parsed_balance = parsed_balance / 1_000_000
+            return parsed_balance
+
+        nested_balance = balance_response.get("balance")
+        if isinstance(nested_balance, dict):
+            for candidate_key in ("available", "balance", "value"):
+                raw_balance = nested_balance.get(candidate_key)
+                if raw_balance is None:
+                    continue
+                try:
+                    parsed_balance = float(raw_balance)
+                except (TypeError, ValueError):
+                    continue
+                if parsed_balance > 1000:
+                    parsed_balance = parsed_balance / 1_000_000
+                return parsed_balance
+
+        self.status.add_log(f"  ⚠️ 無法解析可賣餘額: {str(balance_response)[:120]}")
+        return None
 
     def _sell_fok(self, clob_client, token_id: str, shares: float, price_hint: float, side_label: str) -> bool:
         """嘗試單次 FOK 賣出（用於配對失敗時快速退出持倉）。"""
@@ -897,20 +1245,28 @@ class ArbitrageEngine:
                         )
                         # 平倉第一側
                         unwind_shares = first_result.get("shares", order_size)
-                        unwind_ok = False
+                        unwind_result = {"success": False, "pending": False, "order_type": None, "response": None}
                         for attempt in range(3):
                             wait_secs = 5 * (attempt + 1)
                             self.status.add_log(f"  ⏳ 等待 {wait_secs}s 鏈上結算後平倉 (第 {attempt+1}/3 次)")
                             await asyncio.sleep(wait_secs)
-                            unwind_ok = self._try_unwind_position(
+                            unwind_result = self._try_unwind_position(
                                 clob_client, first_token, unwind_shares,
                                 first_result.get("price", first_price), first_label
                             )
-                            if unwind_ok:
+                            if unwind_result.get("success") or unwind_result.get("pending"):
                                 break
-                        record.status = "failed"
-                        if unwind_ok:
+                        record.status = "pending" if unwind_result.get("pending") else "failed"
+                        if unwind_result.get("success"):
                             unwind_status = "已平倉"
+                        elif unwind_result.get("pending"):
+                            unwind_status = "📌 已掛出 GTC，待成交後才算完成"
+                            record.pending_unwind_result = dict(unwind_result)
+                            record.pending_unwind_token_id = first_token
+                            record.pending_unwind_side_label = first_label
+                            record.pending_unwind_shares = unwind_result.get("shares", unwind_shares)
+                            record.pending_unwind_buy_price = first_result.get("price", first_price)
+                            record.pending_unwind_sell_price = unwind_result.get("sell_price", first_result.get("price", first_price))
                         else:
                             comp_token = second_token
                             self._convert_orphan_to_bargain(
@@ -941,21 +1297,29 @@ class ArbitrageEngine:
                     )
                     unwind_shares = first_result.get("shares", order_size)
                     # 等待鏈上結算後再嘗試平倉（重試 3 次，間隔遞增）
-                    unwind_ok = False
+                    unwind_result = {"success": False, "pending": False, "order_type": None, "response": None}
                     for attempt in range(3):
                         wait_secs = 5 * (attempt + 1)
                         self.status.add_log(f"  ⏳ 等待 {wait_secs}s 鏈上結算後平倉 (第 {attempt+1}/3 次)")
                         await asyncio.sleep(wait_secs)
-                        unwind_ok = self._try_unwind_position(
+                        unwind_result = self._try_unwind_position(
                             clob_client, first_token, unwind_shares,
                             first_result.get("price", first_price), first_label
                         )
-                        if unwind_ok:
+                        if unwind_result.get("success") or unwind_result.get("pending"):
                             break
 
-                    record.status = "failed"
-                    if unwind_ok:
+                    record.status = "pending" if unwind_result.get("pending") else "failed"
+                    if unwind_result.get("success"):
                         unwind_status = "已平倉"
+                    elif unwind_result.get("pending"):
+                        unwind_status = "📌 已掛出 GTC，待成交後才算完成"
+                        record.pending_unwind_result = dict(unwind_result)
+                        record.pending_unwind_token_id = first_token
+                        record.pending_unwind_side_label = first_label
+                        record.pending_unwind_shares = unwind_result.get("shares", unwind_shares)
+                        record.pending_unwind_buy_price = first_result.get("price", first_price)
+                        record.pending_unwind_sell_price = unwind_result.get("sell_price", first_result.get("price", first_price))
                     else:
                         comp_token = second_token
                         self._convert_orphan_to_bargain(
@@ -1014,7 +1378,7 @@ class ArbitrageEngine:
 
         # 持久化到 SQLite
         try:
-            trade_db.record_trade(
+            trade_id = trade_db.record_trade(
                 timestamp=record.timestamp,
                 market_slug=record.market_slug,
                 trade_type="arbitrage",
@@ -1030,7 +1394,7 @@ class ArbitrageEngine:
             )
             trade_db.rebuild_daily_summary()
         except Exception:
-            pass
+            trade_id = 0
 
         if record.status in ("executed", "simulated") and market.condition_id:
             self.merger.track_trade(
@@ -1045,9 +1409,26 @@ class ArbitrageEngine:
                 merge_results = await self.merger.auto_merge_all()
                 for mr in merge_results:
                     self.status.add_log(
-                        f"🔄 合併結果: {mr.status} | {mr.amount:.0f} 對 → "
+                        f" 合併結果: {mr.status} | {mr.amount:.0f} 對 → "
                         f"{mr.usdc_received:.2f} USDC | {mr.details}"
                     )
+
+        pending_unwind_result = getattr(record, "pending_unwind_result", None)
+        if trade_id and isinstance(pending_unwind_result, dict) and pending_unwind_result.get("pending"):
+            pending_token_id = getattr(record, "pending_unwind_token_id", "")
+            pending_side_label = getattr(record, "pending_unwind_side_label", "")
+            pending_shares = getattr(record, "pending_unwind_shares", order_size)
+            pending_buy_price = getattr(record, "pending_unwind_buy_price", 0.0)
+            self._register_pending_unwind_trade(
+                record,
+                trade_id,
+                market,
+                pending_token_id,
+                pending_side_label,
+                pending_shares,
+                pending_buy_price,
+                pending_unwind_result,
+            )
 
     # ─── 撿便宜堆疊策略 (Bargain Hunter — Stacking) ───
     #

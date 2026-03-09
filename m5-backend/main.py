@@ -389,6 +389,9 @@ async def bot_loop():
             if engine.status.running:
                 await engine.scan_bargain_holdings()
 
+            if engine.status.running:
+                await engine.reconcile_pending_unwinds()
+
             await broadcast({"type": "status", "data": engine.status.to_dict()})
             await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
 

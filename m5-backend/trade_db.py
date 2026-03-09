@@ -53,7 +53,7 @@ def init_db(dry_run: bool = True):
             order_size  REAL    DEFAULT 0,
             profit      REAL    DEFAULT 0,
             profit_pct  REAL    DEFAULT 0,
-            status      TEXT    NOT NULL,                       -- executed | simulated | failed | skipped
+            status      TEXT    NOT NULL,                       -- executed | simulated | failed | skipped | pending
             details     TEXT    DEFAULT '',
             created_at  TEXT    DEFAULT (datetime('now'))
         );
@@ -163,6 +163,55 @@ def record_trade(
     )
     conn.commit()
     return cur.lastrowid
+
+
+def get_trade_by_id(trade_id: int) -> Optional[Dict[str, Any]]:
+    conn = _get_conn()
+    row = conn.execute("SELECT * FROM trades WHERE id=?", (trade_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_trade(
+    trade_id: int,
+    *,
+    up_price: Optional[float] = None,
+    down_price: Optional[float] = None,
+    total_cost: Optional[float] = None,
+    order_size: Optional[float] = None,
+    profit: Optional[float] = None,
+    profit_pct: Optional[float] = None,
+    status: Optional[str] = None,
+    details: Optional[str] = None,
+) -> bool:
+    update_fields: List[str] = []
+    update_values: List[Any] = []
+
+    for field_name, field_value in (
+        ("up_price", up_price),
+        ("down_price", down_price),
+        ("total_cost", total_cost),
+        ("order_size", order_size),
+        ("profit", profit),
+        ("profit_pct", profit_pct),
+        ("status", status),
+        ("details", details),
+    ):
+        if field_value is None:
+            continue
+        update_fields.append(f"{field_name}=?")
+        update_values.append(field_value)
+
+    if not update_fields:
+        return False
+
+    update_values.append(trade_id)
+    conn = _get_conn()
+    conn.execute(
+        f"UPDATE trades SET {', '.join(update_fields)} WHERE id=?",
+        update_values,
+    )
+    conn.commit()
+    return True
 
 
 def record_merge(

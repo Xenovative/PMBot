@@ -626,7 +626,7 @@ class ArbitrageEngine:
         緊急平倉：賣出已買入的一側代幣以避免單邊風險
         注意: MarketOrderArgs + create_market_order 對 SELL 有 bug（price 驗證失敗）
         改用 OrderArgs + create_order 限價賣單
-        嘗試順序: 買入價賣出 → 低價賣出 (0.01) → GTC 掛單
+        嘗試順序: 每個價格依序嘗試 FOK → FAK → GTC
         """
         from py_clob_client.clob_types import OrderArgs, OrderType
         from py_clob_client.order_builder.constants import SELL
@@ -636,6 +636,18 @@ class ArbitrageEngine:
         if shares <= 0:
             self.status.add_log(f"  ⚠️ {side_label} 股數過小，無法平倉")
             return False
+
+        available_shares = self._get_available_conditional_balance(clob_client, token_id)
+        if available_shares is not None:
+            available_shares = math.floor(max(available_shares, 0.0) * 100) / 100
+            if available_shares <= 0:
+                self.status.add_log(f"  ⏳ {side_label} 尚無可賣餘額，等待結算中")
+                return False
+            if available_shares < shares:
+                self.status.add_log(
+                    f"  ℹ️ {side_label} 可賣股數僅 {available_shares:.2f} / 目標 {shares:.2f}，改用可用股數平倉"
+                )
+                shares = available_shares
 
         self.status.add_log(f"  🔥 緊急平倉 {side_label} | 賣出 {shares:.2f} 股 @ ~{buy_price:.4f}")
 
@@ -649,7 +661,7 @@ class ArbitrageEngine:
         sell_prices = list(dict.fromkeys(sell_prices))
 
         for sell_price in sell_prices:
-            for otype in [OrderType.FOK, OrderType.GTC]:
+            for otype in [OrderType.FOK, OrderType.FAK, OrderType.GTC]:
                 try:
                     order = OrderArgs(
                         token_id=token_id,
@@ -671,6 +683,58 @@ class ArbitrageEngine:
 
         self.status.add_log(f"  ❌ {side_label} 所有平倉方式均失敗!")
         return False
+
+    def _get_available_conditional_balance(self, clob_client, token_id: str) -> Optional[float]:
+        from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+
+        try:
+            balance_response = clob_client.get_balance_allowance(
+                BalanceAllowanceParams(asset_type=AssetType.CONDITIONAL, token_id=token_id)
+            )
+        except Exception as e:
+            self.status.add_log(f"  ⚠️ 查詢可賣餘額失敗: {str(e)[:120]}")
+            return None
+
+        if not isinstance(balance_response, dict):
+            self.status.add_log(f"  ⚠️ 可賣餘額回應格式異常: {str(balance_response)[:120]}")
+            return None
+
+        candidate_keys = [
+            "balance",
+            "available",
+            "available_balance",
+            "availableBalance",
+            "asset_balance",
+            "assetBalance",
+        ]
+        for candidate_key in candidate_keys:
+            raw_balance = balance_response.get(candidate_key)
+            if raw_balance is None:
+                continue
+            try:
+                parsed_balance = float(raw_balance)
+            except (TypeError, ValueError):
+                continue
+            if parsed_balance > 1000:
+                parsed_balance = parsed_balance / 1_000_000
+            return parsed_balance
+
+        nested_balance = balance_response.get("balance")
+        if isinstance(nested_balance, dict):
+            for candidate_key in ("available", "balance", "value"):
+                raw_balance = nested_balance.get(candidate_key)
+                if raw_balance is None:
+                    continue
+                try:
+                    parsed_balance = float(raw_balance)
+                except (TypeError, ValueError):
+                    continue
+                if parsed_balance > 1000:
+                    parsed_balance = parsed_balance / 1_000_000
+                return parsed_balance
+
+        self.status.add_log(f"  ⚠️ 無法解析可賣餘額: {str(balance_response)[:120]}")
+        return None
 
     def _convert_orphan_to_bargain(self, market: 'MarketInfo', side: str,
                                     token_id: str, complement_token_id: str,
