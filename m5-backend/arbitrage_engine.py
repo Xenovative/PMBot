@@ -753,19 +753,35 @@ class ArbitrageEngine:
         pk = (self.config.private_key or "").strip()
         funder = (self.config.funder_address or "").strip()
 
+        placeholder_private_keys = {
+            "your_private_key",
+            "your_private_key_here",
+            "your_private_key_here_if_live_mode",
+        }
+        placeholder_funder_addresses = {
+            "your_funder_address_here",
+            "your_funder_address",
+        }
+
+        if pk.lower() in placeholder_private_keys:
+            pk = ""
+        if funder.lower() in placeholder_funder_addresses:
+            funder = ""
+
         issues: list[str] = []
         status = "ok"
 
-        if sig_type == 0:
-            if not pk:
-                issues.append("signature_type=0 (EOA) 需要 PRIVATE_KEY")
-        else:
-            if not pk:
-                issues.append("signature_type=1/2 (托管帳戶) 需要代理簽名者的 PRIVATE_KEY")
-            if not funder:
-                issues.append("signature_type=1/2 (托管帳戶) 需要 FUNDER_ADDRESS（Polymarket 帳戶的錢包地址）")
+        if not self.config.dry_run:
+            if sig_type == 0:
+                if not pk:
+                    issues.append("signature_type=0 (EOA) 需要 PRIVATE_KEY")
+            else:
+                if not pk:
+                    issues.append("signature_type=1/2 (托管帳戶) 需要代理簽名者的 PRIVATE_KEY")
+                if not funder:
+                    issues.append("signature_type=1/2 (托管帳戶) 需要 FUNDER_ADDRESS（Polymarket 帳戶的錢包地址）")
 
-        if pk:
+        if not self.config.dry_run and pk:
             try:
                 from py_clob_client.client import ClobClient
 
@@ -779,6 +795,9 @@ class ArbitrageEngine:
                 client.set_api_creds(client.create_or_derive_api_creds())
             except Exception as e:
                 issues.append(f"ClobClient 初始化失敗: {e}")
+
+        if self.config.dry_run and not pk:
+            issues.append("DRY_RUN 模式：未設定有效 PRIVATE_KEY，將以模擬模式啟動")
 
         if any("需要" in i or "失敗" in i for i in issues):
             status = "error"
