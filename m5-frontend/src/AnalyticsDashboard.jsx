@@ -62,10 +62,17 @@ function AnalyticsDashboard({ token }) {
 
   const exportCSV = () => {
     if (!recentTrades.length) return
-    const headers = Object.keys(recentTrades[0]).join(',')
-    const rows = recentTrades.map(t => Object.values(t).join(','))
-    const csv = [headers, ...rows].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
+    const escapeCsvCell = (incomingValue) => {
+      const normalizedValue = incomingValue == null ? '' : String(incomingValue)
+      const escapedValue = normalizedValue.replace(/"/g, '""')
+      return /[",\n\r]/.test(escapedValue) ? `"${escapedValue}"` : escapedValue
+    }
+    const headers = Object.keys(recentTrades[0]).map(escapeCsvCell).join(',')
+    const rows = recentTrades.map((tradeRow) =>
+      Object.values(tradeRow).map(escapeCsvCell).join(',')
+    )
+    const csv = ['\uFEFF' + headers, ...rows].join('\r\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
