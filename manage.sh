@@ -185,55 +185,84 @@ analytics_fetch_json() {
 }
 
 analytics_format_overview() {
-    "$PYTHON_BIN" -c 'import json, sys; payload = json.loads(sys.stdin.read()); lines = [
-f"Total trades      : {payload.get('"'"'total_trades'"'"', 0)}",
-f"Successful        : {payload.get('"'"'successful'"'"', 0)}",
-f"Failed            : {payload.get('"'"'failed'"'"', 0)}",
-f"Success rate      : {payload.get('"'"'success_rate'"'"', 0)}%",
-f"Total profit      : {payload.get('"'"'total_profit'"'"', 0)}",
-f"Average profit    : {payload.get('"'"'avg_profit'"'"', 0)}",
-f"Best trade        : {payload.get('"'"'best_trade_profit'"'"', 0)}",
-f"Worst trade       : {payload.get('"'"'worst_trade_profit'"'"', 0)}",
-f"Total volume      : {payload.get('"'"'total_volume'"'"', 0)}",
-f"Today's trades    : {payload.get('"'"'today_trades'"'"', 0)}",
-f"Today's profit    : {payload.get('"'"'today_profit'"'"', 0)}",
-f"Merge count       : {payload.get('"'"'total_merges'"'"', 0)}",
-f"Merge USDC        : {payload.get('"'"'total_merge_usdc'"'"', 0)}",
-]; print("\\n".join(lines))'
+    local analytics_payload
+    analytics_payload=$(cat)
+    ANALYTICS_PAYLOAD="$analytics_payload" "$PYTHON_BIN" - <<'PY'
+import json
+import os
+
+payload = json.loads(os.environ.get("ANALYTICS_PAYLOAD", "{}"))
+lines = [
+    f"Total trades      : {payload.get('total_trades', 0)}",
+    f"Successful        : {payload.get('successful', 0)}",
+    f"Failed            : {payload.get('failed', 0)}",
+    f"Success rate      : {payload.get('success_rate', 0)}%",
+    f"Total profit      : {payload.get('total_profit', 0)}",
+    f"Average profit    : {payload.get('avg_profit', 0)}",
+    f"Best trade        : {payload.get('best_trade_profit', 0)}",
+    f"Worst trade       : {payload.get('worst_trade_profit', 0)}",
+    f"Total volume      : {payload.get('total_volume', 0)}",
+    f"Today's trades    : {payload.get('today_trades', 0)}",
+    f"Today's profit    : {payload.get('today_profit', 0)}",
+    f"Merge count       : {payload.get('total_merges', 0)}",
+    f"Merge USDC        : {payload.get('total_merge_usdc', 0)}",
+]
+print("\n".join(lines))
+PY
 }
 
 analytics_format_trades() {
-    "$PYTHON_BIN" -c 'import json, sys; payload = json.loads(sys.stdin.read());
+    local analytics_payload
+    analytics_payload=$(cat)
+    ANALYTICS_PAYLOAD="$analytics_payload" "$PYTHON_BIN" - <<'PY'
+import json
+import os
+
+payload = json.loads(os.environ.get("ANALYTICS_PAYLOAD", "[]"))
 if not payload:
     print("No trades found.")
     raise SystemExit(0)
+
 formatted_lines = []
 for trade_row in payload[:20]:
-    formatted_lines.append(" | ".join([
-        str(trade_row.get("timestamp", "")),
-        str(trade_row.get("market_slug", "")),
-        str(trade_row.get("side", "")),
-        f"status={trade_row.get('"'"'status'"'"', '')}",
-        f"profit={trade_row.get('"'"'profit'"'"', 0)}",
-    ]))
-print("\\n".join(formatted_lines))'
+    formatted_lines.append(
+        " | ".join([
+            str(trade_row.get("timestamp", "")),
+            str(trade_row.get("market_slug", "")),
+            str(trade_row.get("side", "")),
+            f"status={trade_row.get('status', '')}",
+            f"profit={trade_row.get('profit', 0)}",
+        ])
+    )
+print("\n".join(formatted_lines))
+PY
 }
 
 analytics_format_merges() {
-    "$PYTHON_BIN" -c 'import json, sys; payload = json.loads(sys.stdin.read());
+    local analytics_payload
+    analytics_payload=$(cat)
+    ANALYTICS_PAYLOAD="$analytics_payload" "$PYTHON_BIN" - <<'PY'
+import json
+import os
+
+payload = json.loads(os.environ.get("ANALYTICS_PAYLOAD", "[]"))
 if not payload:
     print("No merges found.")
     raise SystemExit(0)
+
 formatted_lines = []
 for merge_row in payload[:20]:
-    formatted_lines.append(" | ".join([
-        str(merge_row.get("timestamp", "")),
-        str(merge_row.get("condition_id", ""))[:24],
-        f"status={merge_row.get('"'"'status'"'"', '')}",
-        f"usdc={merge_row.get('"'"'usdc_received'"'"', 0)}",
-        f"gas={merge_row.get('"'"'gas_cost'"'"', 0)}",
-    ]))
-print("\\n".join(formatted_lines))'
+    formatted_lines.append(
+        " | ".join([
+            str(merge_row.get("timestamp", "")),
+            str(merge_row.get("condition_id", ""))[:24],
+            f"status={merge_row.get('status', '')}",
+            f"usdc={merge_row.get('usdc_received', 0)}",
+            f"gas={merge_row.get('gas_cost', 0)}",
+        ])
+    )
+print("\n".join(formatted_lines))
+PY
 }
 
 analytics_menu() {
