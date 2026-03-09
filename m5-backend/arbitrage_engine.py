@@ -429,21 +429,16 @@ class ArbitrageEngine:
             f"✅ 已確認待成交 GTC 成交 | {pending_payload.get('market_slug', '')} {pending_payload.get('side_label', '')} | "
             f"{float(realized_size):.2f} 股 @ {float(exit_price):.4f}"
         )
-        pending_holding_timestamp = str(pending_payload.get("holding_timestamp", "") or "")
         pending_holding_reason = str(pending_payload.get("holding_exit_reason", "") or "")
-        if pending_holding_timestamp:
-            for holding in self.status.bargain_holdings:
-                if holding.timestamp != pending_holding_timestamp:
-                    continue
-                if pending_holding_reason == "tp-sniper":
-                    holding.status = "paired"
-                    holding.paired_with = "tp-sniper"
-                elif pending_holding_reason in {"plummet", "force_liq", "stop_loss"}:
-                    holding.status = "stopped_out"
-                holding.pending_exit_order_id = None
-                holding.pending_exit_reason = None
-                holding.pending_exit_trade_id = None
-                break
+        matched_holding = self._find_pending_unwind_holding(pending_payload)
+        if matched_holding:
+            if pending_holding_reason == "tp-sniper":
+                matched_holding.status = "paired"
+                matched_holding.paired_with = "tp-sniper"
+            elif pending_holding_reason in {"plummet", "force_liq", "stop_loss"}:
+                matched_holding.status = "stopped_out"
+            self._clear_holding_pending_exit(matched_holding)
+            self._remove_bargain_holding(matched_holding)
         self._remove_pending_unwind(str(pending_payload.get("order_id", "")))
 
     def _register_pending_unwind_trade(
@@ -494,6 +489,45 @@ class ArbitrageEngine:
             if bargain_holding.timestamp == holding_timestamp:
                 return bargain_holding
         return None
+
+    def _find_pending_unwind_holding(self, pending_payload: Dict[str, Any]) -> Optional[BargainHolding]:
+        holding_timestamp = str(pending_payload.get("holding_timestamp", "") or "")
+        matched_holding = self._find_holding_by_timestamp(holding_timestamp)
+        if matched_holding:
+            return matched_holding
+
+        pending_token_id = str(pending_payload.get("token_id", "") or "")
+        pending_market_slug = str(pending_payload.get("market_slug", "") or "")
+        pending_side_label = str(pending_payload.get("side_label", "") or "")
+        pending_trade_id = int(pending_payload.get("trade_id", 0) or 0)
+        pending_order_id = str(pending_payload.get("order_id", "") or "")
+
+        for bargain_holding in self.status.bargain_holdings:
+            if bargain_holding.status != "holding":
+                continue
+            if pending_token_id and bargain_holding.token_id == pending_token_id:
+                return bargain_holding
+            if pending_trade_id and bargain_holding.pending_exit_trade_id == pending_trade_id:
+                return bargain_holding
+            if pending_order_id and bargain_holding.pending_exit_order_id == pending_order_id:
+                return bargain_holding
+            if (
+                pending_market_slug
+                and pending_side_label
+                and bargain_holding.market_slug == pending_market_slug
+                and bargain_holding.side == pending_side_label
+            ):
+                return bargain_holding
+        return None
+
+    def _remove_bargain_holding(self, holding: Optional[BargainHolding]):
+        if not holding:
+            return
+        self.status.bargain_holdings = [
+            bargain_holding
+            for bargain_holding in self.status.bargain_holdings
+            if bargain_holding.timestamp != holding.timestamp
+        ]
 
     def _clear_holding_pending_exit(self, holding: Optional[BargainHolding]):
         if not holding:
