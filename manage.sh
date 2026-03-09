@@ -55,6 +55,29 @@ analytics_run_sql() {
     sqlite3 -readonly -json "$db_path" "$sql_query"
 }
 
+ analytics_table_exists() {
+     local name="$1"
+     local table_name="$2"
+     local db_path
+     db_path=$(analytics_db_path "$name") || return 1
+     local table_count
+     table_count=$(sqlite3 -readonly "$db_path" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='${table_name}';" 2>/dev/null)
+     [ "$table_count" = "1" ]
+ }
+
+ analytics_require_tables() {
+     local name="$1"
+     shift
+     local required_table_name
+     for required_table_name in "$@"; do
+         if ! analytics_table_exists "$name" "$required_table_name"; then
+             whiptail --title "Analytics: $name" --msgbox "Analytics is not available for this backend variant yet. Missing table: ${required_table_name}" 10 70
+             return 1
+         fi
+     done
+     return 0
+ }
+
 analytics_overview_json() {
     local name="$1"
     local db_path
@@ -225,6 +248,7 @@ analytics_menu() {
 
         case "$analytics_choice" in
             "overview")
+                analytics_require_tables "$name" "trades" "merges" || continue
                 local overview_json
                 overview_json=$(analytics_overview_json "$name") || {
                     whiptail --title "Analytics Overview: $name" --msgbox "Failed to load analytics overview." 8 55
@@ -235,6 +259,7 @@ analytics_menu() {
                 whiptail --title "Analytics Overview: $name" --scrolltext --msgbox "$overview_text" 20 70
                 ;;
             "trades")
+                analytics_require_tables "$name" "trades" || continue
                 local trades_json
                 trades_json=$(analytics_run_sql "$name" "SELECT timestamp, market_slug, side, status, profit FROM trades ORDER BY id DESC LIMIT 20;") || {
                     whiptail --title "Recent Trades: $name" --msgbox "Failed to load recent trades." 8 50
@@ -245,6 +270,7 @@ analytics_menu() {
                 whiptail --title "Recent Trades: $name" --scrolltext --msgbox "$trades_text" 24 100
                 ;;
             "merges")
+                analytics_require_tables "$name" "merges" || continue
                 local merges_json
                 merges_json=$(analytics_run_sql "$name" "SELECT timestamp, condition_id, status, usdc_received, gas_cost FROM merges ORDER BY id DESC LIMIT 20;") || {
                     whiptail --title "Recent Merges: $name" --msgbox "Failed to load recent merges." 8 50
