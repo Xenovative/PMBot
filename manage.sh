@@ -9,6 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_USER="pmbot"
 NPM_CACHE_DIR="/opt/pmbot/.npm-cache"
 
+ANALYTICS_TOKEN_DIR="/opt/pmbot/.tokens"
+
 # ── Colors for non-whiptail output ──
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
 YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
@@ -22,8 +24,273 @@ if ! command -v whiptail &>/dev/null; then
     apt-get install -y -qq whiptail
 fi
 
+if ! command -v curl &>/dev/null; then
+    apt-get install -y -qq curl
+fi
+
 PYTHON_BIN=$(command -v python3.12 || command -v python3)
 PM2_BIN=$(command -v pm2 || echo "pm2")
+
+analytics_target_url() {
+    local name="$1"
+    local backend_port
+    backend_port=$(inst_backend_port "$name")
+    if [ -z "$backend_port" ] || [ "$backend_port" = "?" ]; then
+        return 1
+    fi
+    echo "http://127.0.0.1:${backend_port}"
+}
+
+analytics_token_file() {
+    local name="$1"
+    mkdir -p "$ANALYTICS_TOKEN_DIR"
+    chmod 700 "$ANALYTICS_TOKEN_DIR" 2>/dev/null || true
+    echo "$ANALYTICS_TOKEN_DIR/${name}.token"
+}
+
+analytics_read_token() {
+    local name="$1"
+    local token_file
+    token_file=$(analytics_token_file "$name")
+    [ -f "$token_file" ] || return 1
+    cat "$token_file"
+}
+
+analytics_store_token() {
+    local name="$1"
+    local auth_token="$2"
+    local token_file
+    token_file=$(analytics_token_file "$name")
+    printf '%s' "$auth_token" > "$token_file"
+    chmod 600 "$token_file" 2>/dev/null || true
+}
+
+analytics_clear_token() {
+    local name="$1"
+    local token_file
+    token_file=$(analytics_token_file "$name")
+    rm -f "$token_file"
+}
+
+analytics_extract_json_field() {
+    local field_name="$1"
+    PAYLOAD_FIELD_NAME="$field_name" "$PYTHON_BIN" -c 'import json, os, sys; payload_text = sys.stdin.read();
+try:
+    parsed_payload = json.loads(payload_text)
+except Exception:
+    print("")
+    raise SystemExit(0)
+field_value = parsed_payload.get(os.environ["PAYLOAD_FIELD_NAME"], "")
+print("" if field_value is None else field_value)'
+}
+
+analytics_login() {
+    local name="$1"
+    local base_url
+    base_url=$(analytics_target_url "$name") || {
+        whiptail --title "Analytics: $name" --msgbox "Backend port not found for this instance." 8 55
+        return 1
+    }
+
+    local auth_status_response
+    auth_status_response=$(curl -sS --max-time 10 "${base_url}/api/auth/status" 2>/dev/null)
+    if [ -z "$auth_status_response" ]; then
+        whiptail --title "Analytics: $name" --msgbox "Backend auth endpoint is not reachable at ${base_url}." 9 65
+        return 1
+    fi
+
+    local setup_complete_value
+    setup_complete_value=$(printf '%s' "$auth_status_response" | analytics_extract_json_field "setup_complete")
+    if [ "$setup_complete_value" != "True" ] && [ "$setup_complete_value" != "true" ]; then
+        whiptail --title "Analytics: $name" --msgbox "Backend auth is not set up yet for this instance." 8 55
+        return 1
+    fi
+
+    local password_input
+    password_input=$(whiptail --title "Analytics Login: $name" \
+        --passwordbox "Enter backend password for ${name}:" \
+        10 60 \
+        3>&1 1>&2 2>&3) || return 1
+
+    local escaped_password
+    escaped_password=$(printf '%s' "$password_input" | sed 's/\\/\\\\/g; s/"/\\"/g')
+    local login_payload
+    login_payload=$(printf '{"password":"%s"}' "$escaped_password")
+
+    local login_response
+    login_response=$(curl -sS --max-time 15 \
+        -H 'Content-Type: application/json' \
+        -d "$login_payload" \
+        "${base_url}/api/auth/login" 2>/dev/null)
+
+    local needs_totp_value
+    needs_totp_value=$(printf '%s' "$login_response" | analytics_extract_json_field "needs_totp")
+    if [ "$needs_totp_value" = "True" ] || [ "$needs_totp_value" = "true" ]; then
+        local totp_code_input
+        totp_code_input=$(whiptail --title "Analytics Login: $name" \
+            --inputbox "Enter 2FA code for ${name}:" \
+            10 60 "" \
+            3>&1 1>&2 2>&3) || return 1
+        local escaped_totp_code
+        escaped_totp_code=$(printf '%s' "$totp_code_input" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        login_payload=$(printf '{"password":"%s","totp_code":"%s"}' "$escaped_password" "$escaped_totp_code")
+        login_response=$(curl -sS --max-time 15 \
+            -H 'Content-Type: application/json' \
+            -d "$login_payload" \
+            "${base_url}/api/auth/login" 2>/dev/null)
+    fi
+
+    local auth_token
+    auth_token=$(printf '%s' "$login_response" | analytics_extract_json_field "token")
+    if [ -z "$auth_token" ]; then
+        local login_error_message
+        login_error_message=$(printf '%s' "$login_response" | analytics_extract_json_field "error")
+        [ -z "$login_error_message" ] && login_error_message="Login failed."
+        whiptail --title "Analytics Login: $name" --msgbox "$login_error_message" 10 65
+        return 1
+    fi
+
+    analytics_store_token "$name" "$auth_token"
+}
+
+analytics_fetch_json() {
+    local name="$1"
+    local endpoint_path="$2"
+    local base_url
+    base_url=$(analytics_target_url "$name") || return 1
+
+    local auth_token
+    auth_token=$(analytics_read_token "$name" 2>/dev/null || true)
+    if [ -z "$auth_token" ]; then
+        analytics_login "$name" || return 1
+        auth_token=$(analytics_read_token "$name" 2>/dev/null || true)
+    fi
+
+    local response_body
+    response_body=$(curl -sS --max-time 15 \
+        -H "Authorization: Bearer ${auth_token}" \
+        "${base_url}${endpoint_path}" 2>/dev/null)
+
+    if printf '%s' "$response_body" | grep -q '"detail"[[:space:]]*:[[:space:]]*"Unauthorized"'; then
+        analytics_clear_token "$name"
+        analytics_login "$name" || return 1
+        auth_token=$(analytics_read_token "$name" 2>/dev/null || true)
+        response_body=$(curl -sS --max-time 15 \
+            -H "Authorization: Bearer ${auth_token}" \
+            "${base_url}${endpoint_path}" 2>/dev/null)
+    fi
+
+    [ -n "$response_body" ] || return 1
+    printf '%s' "$response_body"
+}
+
+analytics_format_overview() {
+    "$PYTHON_BIN" -c 'import json, sys; payload = json.loads(sys.stdin.read()); lines = [
+f"Total trades      : {payload.get('"'"'total_trades'"'"', 0)}",
+f"Successful        : {payload.get('"'"'successful'"'"', 0)}",
+f"Failed            : {payload.get('"'"'failed'"'"', 0)}",
+f"Success rate      : {payload.get('"'"'success_rate'"'"', 0)}%",
+f"Total profit      : {payload.get('"'"'total_profit'"'"', 0)}",
+f"Average profit    : {payload.get('"'"'avg_profit'"'"', 0)}",
+f"Best trade        : {payload.get('"'"'best_trade_profit'"'"', 0)}",
+f"Worst trade       : {payload.get('"'"'worst_trade_profit'"'"', 0)}",
+f"Total volume      : {payload.get('"'"'total_volume'"'"', 0)}",
+f"Today's trades    : {payload.get('"'"'today_trades'"'"', 0)}",
+f"Today's profit    : {payload.get('"'"'today_profit'"'"', 0)}",
+f"Merge count       : {payload.get('"'"'total_merges'"'"', 0)}",
+f"Merge USDC        : {payload.get('"'"'total_merge_usdc'"'"', 0)}",
+]; print("\\n".join(lines))'
+}
+
+analytics_format_trades() {
+    "$PYTHON_BIN" -c 'import json, sys; payload = json.loads(sys.stdin.read());
+if not payload:
+    print("No trades found.")
+    raise SystemExit(0)
+formatted_lines = []
+for trade_row in payload[:20]:
+    formatted_lines.append(" | ".join([
+        str(trade_row.get("timestamp", "")),
+        str(trade_row.get("market_slug", "")),
+        str(trade_row.get("side", "")),
+        f"status={trade_row.get('"'"'status'"'"', '')}",
+        f"profit={trade_row.get('"'"'profit'"'"', 0)}",
+    ]))
+print("\\n".join(formatted_lines))'
+}
+
+analytics_format_merges() {
+    "$PYTHON_BIN" -c 'import json, sys; payload = json.loads(sys.stdin.read());
+if not payload:
+    print("No merges found.")
+    raise SystemExit(0)
+formatted_lines = []
+for merge_row in payload[:20]:
+    formatted_lines.append(" | ".join([
+        str(merge_row.get("timestamp", "")),
+        str(merge_row.get("condition_id", ""))[:24],
+        f"status={merge_row.get('"'"'status'"'"', '')}",
+        f"usdc={merge_row.get('"'"'usdc_received'"'"', 0)}",
+        f"gas={merge_row.get('"'"'gas_cost'"'"', 0)}",
+    ]))
+print("\\n".join(formatted_lines))'
+}
+
+analytics_menu() {
+    local name="$1"
+    while true; do
+        local analytics_choice
+        analytics_choice=$(whiptail --title "Analytics: $name" \
+            --menu "Select analytics view" \
+            18 65 8 \
+            "overview" "Summary metrics from /api/analytics/overview" \
+            "trades"   "Recent trades" \
+            "merges"   "Recent merges" \
+            "login"    "Refresh backend login token" \
+            "back"     "← Back to instance menu" \
+            3>&1 1>&2 2>&3) || return
+
+        case "$analytics_choice" in
+            "overview")
+                local overview_json
+                overview_json=$(analytics_fetch_json "$name" "/api/analytics/overview") || {
+                    whiptail --title "Analytics Overview: $name" --msgbox "Failed to load analytics overview." 8 55
+                    continue
+                }
+                local overview_text
+                overview_text=$(printf '%s' "$overview_json" | analytics_format_overview)
+                whiptail --title "Analytics Overview: $name" --scrolltext --msgbox "$overview_text" 20 70
+                ;;
+            "trades")
+                local trades_json
+                trades_json=$(analytics_fetch_json "$name" "/api/analytics/trades?limit=20") || {
+                    whiptail --title "Recent Trades: $name" --msgbox "Failed to load recent trades." 8 50
+                    continue
+                }
+                local trades_text
+                trades_text=$(printf '%s' "$trades_json" | analytics_format_trades)
+                whiptail --title "Recent Trades: $name" --scrolltext --msgbox "$trades_text" 24 100
+                ;;
+            "merges")
+                local merges_json
+                merges_json=$(analytics_fetch_json "$name" "/api/analytics/merges?limit=20") || {
+                    whiptail --title "Recent Merges: $name" --msgbox "Failed to load recent merges." 8 50
+                    continue
+                }
+                local merges_text
+                merges_text=$(printf '%s' "$merges_json" | analytics_format_merges)
+                whiptail --title "Recent Merges: $name" --scrolltext --msgbox "$merges_text" 24 100
+                ;;
+            "login")
+                analytics_clear_token "$name"
+                analytics_login "$name"
+                ;;
+            "back"|*)
+                return
+                ;;
+        esac
+    done
+}
 
 # ============================================
 #  Helper: scan all deployed instances
@@ -208,11 +475,12 @@ instance_menu() {
         local action
         action=$(whiptail --title "Instance: $name" \
             --menu "$status_line" \
-            20 65 12 \
+            21 65 13 \
             "status"    "Show service status & recent logs" \
             "start"     "Start backend service" \
             "stop"      "Stop backend service" \
             "restart"   "Restart backend service" \
+            "analytics" "View backend analytics" \
             "update"    "Update code from source" \
             "relayer"   "Install/update relayer helper deps" \
             "env"       "Edit .env configuration" \
@@ -228,6 +496,7 @@ instance_menu() {
             "start")    action_start "$name" ;;
             "stop")     action_stop "$name" ;;
             "restart")  action_restart "$name" ;;
+            "analytics") analytics_menu "$name" ;;
             "update")   action_update "$name" ;;
             "relayer")  action_relayer "$name" ;;
             "env")      action_edit_env "$name" ;;
