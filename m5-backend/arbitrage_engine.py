@@ -128,6 +128,9 @@ class BargainHolding:
     plummet_last_ts: Optional[str] = None  # ISO timestamp for last plummet check
     plummet_high_price: Optional[float] = None  # 滾動時間窗內的高點
     plummet_window_start_ts: Optional[str] = None
+    pending_exit_order_id: Optional[str] = None
+    pending_exit_reason: Optional[str] = None
+    pending_exit_trade_id: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -142,6 +145,7 @@ class BargainHolding:
             "round": self.round,
             "plummet_last_price": self.plummet_last_price,
             "plummet_high_price": self.plummet_high_price,
+            "pending_exit_reason": self.pending_exit_reason,
         }
 
 
@@ -371,19 +375,16 @@ class ArbitrageEngine:
         except (TypeError, ValueError):
             realized_profit = 0.0
 
-        realized_total_cost = 0.0
+        realized_total_cost = float(stored_trade.get("total_cost", 0) or 0)
         if pending_payload.get("side_label") == "UP":
-            realized_total_cost = float(exit_price)
             updated_up_price = float(exit_price)
             updated_down_price = float(stored_trade.get("down_price", 0) or 0)
         elif pending_payload.get("side_label") == "DOWN":
-            realized_total_cost = float(exit_price)
             updated_up_price = float(stored_trade.get("up_price", 0) or 0)
             updated_down_price = float(exit_price)
         else:
             updated_up_price = float(stored_trade.get("up_price", 0) or 0)
             updated_down_price = float(stored_trade.get("down_price", 0) or 0)
-            realized_total_cost = float(stored_trade.get("total_cost", 0) or 0)
 
         profit_pct = 0.0
         cost_basis = float(buy_price) * float(realized_size)
@@ -428,6 +429,21 @@ class ArbitrageEngine:
             f"✅ 已確認待成交 GTC 成交 | {pending_payload.get('market_slug', '')} {pending_payload.get('side_label', '')} | "
             f"{float(realized_size):.2f} 股 @ {float(exit_price):.4f}"
         )
+        pending_holding_timestamp = str(pending_payload.get("holding_timestamp", "") or "")
+        pending_holding_reason = str(pending_payload.get("holding_exit_reason", "") or "")
+        if pending_holding_timestamp:
+            for holding in self.status.bargain_holdings:
+                if holding.timestamp != pending_holding_timestamp:
+                    continue
+                if pending_holding_reason == "tp-sniper":
+                    holding.status = "paired"
+                    holding.paired_with = "tp-sniper"
+                elif pending_holding_reason in {"plummet", "force_liq", "stop_loss"}:
+                    holding.status = "stopped_out"
+                holding.pending_exit_order_id = None
+                holding.pending_exit_reason = None
+                holding.pending_exit_trade_id = None
+                break
         self._remove_pending_unwind(str(pending_payload.get("order_id", "")))
 
     def _register_pending_unwind_trade(
@@ -465,9 +481,26 @@ class ArbitrageEngine:
             "order_id": order_id,
             "created_at_ms": created_at_ms,
             "record_timestamp": record.timestamp,
+            "holding_timestamp": str(getattr(record, "pending_unwind_holding_timestamp", "") or ""),
+            "holding_exit_reason": str(getattr(record, "pending_unwind_holding_reason", "") or ""),
         }
         self._queue_pending_unwind(pending_payload)
         self.status.add_log(f"📌 已登記待成交 GTC 對帳 | order_id={order_id[:12]} | {market.slug} {side_label}")
+
+    def _find_holding_by_timestamp(self, holding_timestamp: str) -> Optional[BargainHolding]:
+        if not holding_timestamp:
+            return None
+        for bargain_holding in self.status.bargain_holdings:
+            if bargain_holding.timestamp == holding_timestamp:
+                return bargain_holding
+        return None
+
+    def _clear_holding_pending_exit(self, holding: Optional[BargainHolding]):
+        if not holding:
+            return
+        holding.pending_exit_order_id = None
+        holding.pending_exit_reason = None
+        holding.pending_exit_trade_id = None
 
     async def reconcile_pending_unwinds(self):
         pending_unwinds = self._load_pending_unwinds()
@@ -512,6 +545,8 @@ class ArbitrageEngine:
                         details=f"{details_text} | ⚠️ GTC 未成交 ({order_status_text})" if details_text else f"⚠️ GTC 未成交 ({order_status_text})",
                     )
                     trade_db.rebuild_daily_summary()
+                cancelled_holding = self._find_holding_by_timestamp(str(pending_payload.get("holding_timestamp", "") or ""))
+                self._clear_holding_pending_exit(cancelled_holding)
                 self.status.add_log(f"⚠️ 待成交 GTC 未完成並已{order_status_text}: {order_id[:12]}")
                 self._remove_pending_unwind(order_id)
 
@@ -2020,6 +2055,9 @@ class ArbitrageEngine:
                         self.status.add_log(
                             f"⚡ [急跌護欄] {holding.market_slug} {holding.side} 跌 {drop_pct:.1f}% ≥ {self.config.bargain_plummet_exit_pct:.1f}% / {self.config.bargain_plummet_window_seconds}s → 立刻平倉"
                         )
+                        if holding.pending_exit_order_id:
+                            self.status.add_log(f"⚡ [急跌護欄] 已有待成交退出單 {holding.pending_exit_order_id[:12]}，略過重複掛單")
+                            continue
                         unwind_result = {"success": True, "pending": False, "order_type": None, "response": None}
                         if self.config.dry_run:
                             holding.status = "stopped_out"
@@ -2032,7 +2070,64 @@ class ArbitrageEngine:
                                 )
                                 if unwind_result.get("success"):
                                     holding.status = "stopped_out"
+                                    self._clear_holding_pending_exit(holding)
                                 elif unwind_result.get("pending"):
+                                    pending_response = unwind_result.get("response") or {}
+                                    holding.pending_exit_order_id = str(
+                                        pending_response.get("orderID")
+                                        or pending_response.get("orderId")
+                                        or pending_response.get("id")
+                                        or pending_response.get("order_id")
+                                        or ""
+                                    )
+                                    holding.pending_exit_reason = "plummet"
+                                    record = TradeRecord(
+                                        timestamp=datetime.now(timezone.utc).isoformat(),
+                                        market_slug=holding.market_slug,
+                                        up_price=price_info.up_price,
+                                        down_price=price_info.down_price,
+                                        total_cost=current_price,
+                                        order_size=holding.shares,
+                                        expected_profit=0,
+                                        profit_pct=0,
+                                        status="pending",
+                                        details=f"⚡ 急跌護欄 {holding.side} 已掛出 GTC，待成交",
+                                    )
+                                    record.pending_unwind_result = dict(unwind_result)
+                                    record.pending_unwind_token_id = holding.token_id
+                                    record.pending_unwind_side_label = holding.side
+                                    record.pending_unwind_shares = unwind_result.get("shares", holding.shares)
+                                    record.pending_unwind_buy_price = holding.buy_price
+                                    record.pending_unwind_sell_price = unwind_result.get("sell_price", current_price)
+                                    record.pending_unwind_holding_timestamp = holding.timestamp
+                                    record.pending_unwind_holding_reason = "plummet"
+                                    trade_id = trade_db.record_trade(
+                                        timestamp=record.timestamp,
+                                        market_slug=record.market_slug,
+                                        trade_type="bargain_plummet",
+                                        side=holding.side,
+                                        up_price=record.up_price,
+                                        down_price=record.down_price,
+                                        total_cost=record.total_cost,
+                                        order_size=record.order_size,
+                                        profit=record.expected_profit,
+                                        profit_pct=record.profit_pct,
+                                        status=record.status,
+                                        details=record.details,
+                                    )
+                                    trade_db.rebuild_daily_summary()
+                                    self.status.trade_history.append(record)
+                                    holding.pending_exit_trade_id = trade_id
+                                    self._register_pending_unwind_trade(
+                                        record,
+                                        trade_id,
+                                        holding.market,
+                                        holding.token_id,
+                                        holding.side,
+                                        holding.shares,
+                                        holding.buy_price,
+                                        unwind_result,
+                                    )
                                     self.status.add_log("⚡ [急跌護欄] 已掛出 GTC，待成交後才算完成")
                                 else:
                                     self.status.add_log("⚡ [急跌護欄失敗] 賣單未成交")
@@ -2089,6 +2184,9 @@ class ArbitrageEngine:
                     self.status.add_log(
                         f"🎯 [二次出場] {holding.market_slug} {holding.side} 利潤 {profit_pct_now:.2f}% ≥ {self.config.bargain_secondary_exit_profit_pct:.2f}% → 嘗試直接賣出"
                     )
+                    if holding.pending_exit_order_id:
+                        self.status.add_log(f"🎯 [二次出場] 已有待成交退出單 {holding.pending_exit_order_id[:12]}，略過重複掛單")
+                        continue
                     unwind_result = {"success": True, "pending": False, "order_type": None, "response": None}
                     if self.config.dry_run:
                         holding.status = "paired"
@@ -2103,8 +2201,65 @@ class ArbitrageEngine:
                             if unwind_result.get("success"):
                                 holding.status = "paired"
                                 holding.paired_with = "tp-sniper"
+                                self._clear_holding_pending_exit(holding)
                             elif unwind_result.get("pending"):
                                 self.status.add_log("🎯 [二次出場] 已掛出 GTC，待成交後才算完成")
+                                record = TradeRecord(
+                                    timestamp=datetime.now(timezone.utc).isoformat(),
+                                    market_slug=holding.market_slug,
+                                    up_price=price_info.up_price,
+                                    down_price=price_info.down_price,
+                                    total_cost=holding.buy_price,
+                                    order_size=holding.shares,
+                                    expected_profit=0,
+                                    profit_pct=0,
+                                    status="pending",
+                                    details=f"🎯 二次出場 {holding.side} 已掛出 GTC，待成交",
+                                )
+                                record.pending_unwind_result = dict(unwind_result)
+                                record.pending_unwind_token_id = holding.token_id
+                                record.pending_unwind_side_label = holding.side
+                                record.pending_unwind_shares = unwind_result.get("shares", holding.shares)
+                                record.pending_unwind_buy_price = holding.buy_price
+                                record.pending_unwind_sell_price = unwind_result.get("sell_price", current_price)
+                                record.pending_unwind_holding_timestamp = holding.timestamp
+                                record.pending_unwind_holding_reason = "tp-sniper"
+                                trade_id = trade_db.record_trade(
+                                    timestamp=record.timestamp,
+                                    market_slug=record.market_slug,
+                                    trade_type="bargain_tp",
+                                    side=holding.side,
+                                    up_price=record.up_price,
+                                    down_price=record.down_price,
+                                    total_cost=record.total_cost,
+                                    order_size=record.order_size,
+                                    profit=record.expected_profit,
+                                    profit_pct=record.profit_pct,
+                                    status=record.status,
+                                    details=record.details,
+                                )
+                                trade_db.rebuild_daily_summary()
+                                self.status.trade_history.append(record)
+                                pending_response = unwind_result.get("response") or {}
+                                holding.pending_exit_order_id = str(
+                                    pending_response.get("orderID")
+                                    or pending_response.get("orderId")
+                                    or pending_response.get("id")
+                                    or pending_response.get("order_id")
+                                    or ""
+                                )
+                                holding.pending_exit_reason = "tp-sniper"
+                                holding.pending_exit_trade_id = trade_id
+                                self._register_pending_unwind_trade(
+                                    record,
+                                    trade_id,
+                                    holding.market,
+                                    holding.token_id,
+                                    holding.side,
+                                    holding.shares,
+                                    holding.buy_price,
+                                    unwind_result,
+                                )
                             else:
                                 self.status.add_log("🎯 [二次出場失敗] 賣單未成交")
                         except Exception as e:
@@ -2154,6 +2309,9 @@ class ArbitrageEngine:
                     f"⏰ [4m強平] {holding.market_slug} {holding.side} | 剩餘 {int(holding.market.time_remaining_seconds)}s，"
                     f"賣出 {holding.shares:.1f} 股 @ ~{current_price:.4f}"
                 )
+                if holding.pending_exit_order_id:
+                    self.status.add_log(f"⏰ [4m強平] 已有待成交退出單 {holding.pending_exit_order_id[:12]}，略過重複掛單")
+                    continue
                 # 執行強平並記錄損益
                 unwind_result = {"success": True, "pending": False, "order_type": None, "response": None}
                 if self.config.dry_run:
@@ -2167,8 +2325,65 @@ class ArbitrageEngine:
                         )
                         if unwind_result.get("success"):
                             holding.status = "stopped_out"
+                            self._clear_holding_pending_exit(holding)
                             self.status.add_log("⏰ [4m強平成功]")
                         elif unwind_result.get("pending"):
+                            pending_response = unwind_result.get("response") or {}
+                            holding.pending_exit_order_id = str(
+                                pending_response.get("orderID")
+                                or pending_response.get("orderId")
+                                or pending_response.get("id")
+                                or pending_response.get("order_id")
+                                or ""
+                            )
+                            holding.pending_exit_reason = "force_liq"
+                            record = TradeRecord(
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                                market_slug=holding.market_slug,
+                                up_price=price_info.up_price,
+                                down_price=price_info.down_price,
+                                total_cost=current_price,
+                                order_size=holding.shares,
+                                expected_profit=0,
+                                profit_pct=0,
+                                status="pending",
+                                details=f"⏰ 4m強平 {holding.side} 已掛出 GTC，待成交",
+                            )
+                            record.pending_unwind_result = dict(unwind_result)
+                            record.pending_unwind_token_id = holding.token_id
+                            record.pending_unwind_side_label = holding.side
+                            record.pending_unwind_shares = unwind_result.get("shares", holding.shares)
+                            record.pending_unwind_buy_price = holding.buy_price
+                            record.pending_unwind_sell_price = unwind_result.get("sell_price", current_price)
+                            record.pending_unwind_holding_timestamp = holding.timestamp
+                            record.pending_unwind_holding_reason = "force_liq"
+                            trade_id = trade_db.record_trade(
+                                timestamp=record.timestamp,
+                                market_slug=record.market_slug,
+                                trade_type="bargain_force_liq",
+                                side=holding.side,
+                                up_price=record.up_price,
+                                down_price=record.down_price,
+                                total_cost=record.total_cost,
+                                order_size=record.order_size,
+                                profit=record.expected_profit,
+                                profit_pct=record.profit_pct,
+                                status=record.status,
+                                details=record.details,
+                            )
+                            trade_db.rebuild_daily_summary()
+                            self.status.trade_history.append(record)
+                            holding.pending_exit_trade_id = trade_id
+                            self._register_pending_unwind_trade(
+                                record,
+                                trade_id,
+                                holding.market,
+                                holding.token_id,
+                                holding.side,
+                                holding.shares,
+                                holding.buy_price,
+                                unwind_result,
+                            )
                             self.status.add_log("⏰ [4m強平] 已掛出 GTC，待成交後才算完成")
                         else:
                             self.status.add_log("⏰ [4m強平失敗] 需手動處理!")
@@ -2264,6 +2479,9 @@ class ArbitrageEngine:
                     f"買入: {holding.buy_price:.4f} → 現價: {current_price:.4f} "
                     f"(跌 {price_drop:.4f} >= {self.BARGAIN_STOP_LOSS_CENTS})"
                 )
+                if holding.pending_exit_order_id:
+                    self.status.add_log(f"🛑 [止損] 已有待成交退出單 {holding.pending_exit_order_id[:12]}，略過重複掛單")
+                    continue
                 if self.config.dry_run:
                     self.status.add_log(
                         f"🛑 [模擬止損] 賣出 {holding.shares:.1f} 股 {holding.side} @ ~{current_price:.4f}"
@@ -2279,8 +2497,65 @@ class ArbitrageEngine:
                         )
                         if unwind_result.get("success"):
                             holding.status = "stopped_out"
+                            self._clear_holding_pending_exit(holding)
                             self.status.add_log(f"🛑 [止損成功] {holding.side} 已賣出")
                         elif unwind_result.get("pending"):
+                            pending_response = unwind_result.get("response") or {}
+                            holding.pending_exit_order_id = str(
+                                pending_response.get("orderID")
+                                or pending_response.get("orderId")
+                                or pending_response.get("id")
+                                or pending_response.get("order_id")
+                                or ""
+                            )
+                            holding.pending_exit_reason = "stop_loss"
+                            record = TradeRecord(
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                                market_slug=holding.market_slug,
+                                up_price=price_info.up_price,
+                                down_price=price_info.down_price,
+                                total_cost=current_price,
+                                order_size=holding.shares,
+                                expected_profit=0,
+                                profit_pct=0,
+                                status="pending",
+                                details=f"🛑 R{holding.round}止損 {holding.side} 已掛出 GTC，待成交",
+                            )
+                            record.pending_unwind_result = dict(unwind_result)
+                            record.pending_unwind_token_id = holding.token_id
+                            record.pending_unwind_side_label = holding.side
+                            record.pending_unwind_shares = unwind_result.get("shares", holding.shares)
+                            record.pending_unwind_buy_price = holding.buy_price
+                            record.pending_unwind_sell_price = unwind_result.get("sell_price", current_price)
+                            record.pending_unwind_holding_timestamp = holding.timestamp
+                            record.pending_unwind_holding_reason = "stop_loss"
+                            trade_id = trade_db.record_trade(
+                                timestamp=record.timestamp,
+                                market_slug=record.market_slug,
+                                trade_type="bargain_stop",
+                                side=holding.side,
+                                up_price=record.up_price,
+                                down_price=record.down_price,
+                                total_cost=record.total_cost,
+                                order_size=record.order_size,
+                                profit=record.expected_profit,
+                                profit_pct=record.profit_pct,
+                                status=record.status,
+                                details=record.details,
+                            )
+                            trade_db.rebuild_daily_summary()
+                            self.status.trade_history.append(record)
+                            holding.pending_exit_trade_id = trade_id
+                            self._register_pending_unwind_trade(
+                                record,
+                                trade_id,
+                                holding.market,
+                                holding.token_id,
+                                holding.side,
+                                holding.shares,
+                                holding.buy_price,
+                                unwind_result,
+                            )
                             self.status.add_log(f"🛑 [止損] 已掛出 GTC，待成交後才算完成")
                         else:
                             self.status.add_log(f"🛑 [止損失敗] {holding.side} 需手動處理!")
