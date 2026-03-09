@@ -2020,59 +2020,63 @@ class ArbitrageEngine:
                         self.status.add_log(
                             f"⚡ [急跌護欄] {holding.market_slug} {holding.side} 跌 {drop_pct:.1f}% ≥ {self.config.bargain_plummet_exit_pct:.1f}% / {self.config.bargain_plummet_window_seconds}s → 立刻平倉"
                         )
-                        unwind_ok = True
+                        unwind_result = {"success": True, "pending": False, "order_type": None, "response": None}
                         if self.config.dry_run:
                             holding.status = "stopped_out"
                         else:
                             try:
                                 clob_client = self._get_clob_client()
-                                unwind_ok = self._try_unwind_position(
+                                unwind_result = self._try_unwind_position(
                                     clob_client, holding.token_id, holding.shares,
                                     current_price, "Plummet guard"
                                 )
-                                holding.status = "stopped_out"
-                                if not unwind_ok:
+                                if unwind_result.get("success"):
+                                    holding.status = "stopped_out"
+                                elif unwind_result.get("pending"):
+                                    self.status.add_log("⚡ [急跌護欄] 已掛出 GTC，待成交後才算完成")
+                                else:
                                     self.status.add_log("⚡ [急跌護欄失敗] 賣單未成交")
                             except Exception as e:
-                                unwind_ok = False
+                                unwind_result = {"success": False, "pending": False, "order_type": None, "response": None}
                                 self.status.add_log(f"⚡ [急跌護欄異常] {str(e)[:120]}")
 
-                        pnl = (current_price - holding.buy_price) * holding.shares
-                        record = TradeRecord(
-                            timestamp=datetime.now(timezone.utc).isoformat(),
-                            market_slug=holding.market_slug,
-                            up_price=price_info.up_price,
-                            down_price=price_info.down_price,
-                            total_cost=current_price,
-                            order_size=holding.shares,
-                            expected_profit=pnl,
-                            profit_pct=(pnl / (holding.buy_price * holding.shares) * 100) if holding.buy_price > 0 else 0,
-                            status="executed" if (unwind_ok and not self.config.dry_run) else "simulated",
-                            details=f"⚡ 急跌護欄 {holding.side} 跌 {drop_pct:.1f}%",
-                        )
-                        self.status.trade_history.append(record)
-                        self.status.total_profit += record.expected_profit
-                        self.status.total_trades += 1
-                        self.status.increment_trades_for_market(holding.market_slug)
-
-                        try:
-                            trade_db.record_trade(
-                                timestamp=record.timestamp,
-                                market_slug=record.market_slug,
-                                trade_type="bargain_plummet",
-                                side=holding.side,
-                                up_price=record.up_price,
-                                down_price=record.down_price,
-                                total_cost=record.total_cost,
-                                order_size=record.order_size,
-                                profit=record.expected_profit,
-                                profit_pct=record.profit_pct,
-                                status=record.status,
-                                details=record.details,
+                        if self.config.dry_run or unwind_result.get("success"):
+                            pnl = (current_price - holding.buy_price) * holding.shares
+                            record = TradeRecord(
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                                market_slug=holding.market_slug,
+                                up_price=price_info.up_price,
+                                down_price=price_info.down_price,
+                                total_cost=current_price,
+                                order_size=holding.shares,
+                                expected_profit=pnl,
+                                profit_pct=(pnl / (holding.buy_price * holding.shares) * 100) if holding.buy_price > 0 else 0,
+                                status="executed" if (unwind_result.get("success") and not self.config.dry_run) else "simulated",
+                                details=f"⚡ 急跌護欄 {holding.side} 跌 {drop_pct:.1f}%",
                             )
-                            trade_db.rebuild_daily_summary()
-                        except Exception:
-                            pass
+                            self.status.trade_history.append(record)
+                            self.status.total_profit += record.expected_profit
+                            self.status.total_trades += 1
+                            self.status.increment_trades_for_market(holding.market_slug)
+
+                            try:
+                                trade_db.record_trade(
+                                    timestamp=record.timestamp,
+                                    market_slug=record.market_slug,
+                                    trade_type="bargain_plummet",
+                                    side=holding.side,
+                                    up_price=record.up_price,
+                                    down_price=record.down_price,
+                                    total_cost=record.total_cost,
+                                    order_size=record.order_size,
+                                    profit=record.expected_profit,
+                                    profit_pct=record.profit_pct,
+                                    status=record.status,
+                                    details=record.details,
+                                )
+                                trade_db.rebuild_daily_summary()
+                            except Exception:
+                                pass
                         continue
 
                 holding.plummet_last_price = current_price
@@ -2085,27 +2089,29 @@ class ArbitrageEngine:
                     self.status.add_log(
                         f"🎯 [二次出場] {holding.market_slug} {holding.side} 利潤 {profit_pct_now:.2f}% ≥ {self.config.bargain_secondary_exit_profit_pct:.2f}% → 嘗試直接賣出"
                     )
-                    unwind_ok = True
+                    unwind_result = {"success": True, "pending": False, "order_type": None, "response": None}
                     if self.config.dry_run:
                         holding.status = "paired"
                         holding.paired_with = "tp-sniper"
                     else:
                         try:
                             clob_client = self._get_clob_client()
-                            unwind_ok = self._try_unwind_position(
+                            unwind_result = self._try_unwind_position(
                                 clob_client, holding.token_id, holding.shares,
                                 current_price, "TP sniper"
                             )
-                            if unwind_ok:
+                            if unwind_result.get("success"):
                                 holding.status = "paired"
                                 holding.paired_with = "tp-sniper"
+                            elif unwind_result.get("pending"):
+                                self.status.add_log("🎯 [二次出場] 已掛出 GTC，待成交後才算完成")
                             else:
                                 self.status.add_log("🎯 [二次出場失敗] 賣單未成交")
                         except Exception as e:
-                            unwind_ok = False
+                            unwind_result = {"success": False, "pending": False, "order_type": None, "response": None}
                             self.status.add_log(f"🎯 [二次出場異常] {str(e)[:120]}")
 
-                    if unwind_ok and holding.status == "paired":
+                    if (self.config.dry_run or unwind_result.get("success")) and holding.status == "paired":
                         pnl = (current_price - holding.buy_price) * holding.shares
                         record = TradeRecord(
                             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -2116,7 +2122,7 @@ class ArbitrageEngine:
                             order_size=holding.shares,
                             expected_profit=pnl,
                             profit_pct=profit_pct_now,
-                            status="executed" if not self.config.dry_run else "simulated",
+                            status="executed" if (unwind_result.get("success") and not self.config.dry_run) else "simulated",
                             details=f"🎯 二次出場 {holding.side} 利潤 {profit_pct_now:.2f}%",
                         )
                         self.status.trade_history.append(record)
@@ -2149,61 +2155,65 @@ class ArbitrageEngine:
                     f"賣出 {holding.shares:.1f} 股 @ ~{current_price:.4f}"
                 )
                 # 執行強平並記錄損益
-                unwind_ok = True
+                unwind_result = {"success": True, "pending": False, "order_type": None, "response": None}
                 if self.config.dry_run:
                     holding.status = "stopped_out"
                 else:
                     try:
                         clob_client = self._get_clob_client()
-                        unwind_ok = self._try_unwind_position(
+                        unwind_result = self._try_unwind_position(
                             clob_client, holding.token_id, holding.shares,
                             current_price, "4m auto-liquidate"
                         )
-                        holding.status = "stopped_out"
-                        if unwind_ok:
+                        if unwind_result.get("success"):
+                            holding.status = "stopped_out"
                             self.status.add_log("⏰ [4m強平成功]")
+                        elif unwind_result.get("pending"):
+                            self.status.add_log("⏰ [4m強平] 已掛出 GTC，待成交後才算完成")
                         else:
                             self.status.add_log("⏰ [4m強平失敗] 需手動處理!")
                     except Exception as e:
+                        unwind_result = {"success": False, "pending": False, "order_type": None, "response": None}
                         self.status.add_log(f"⏰ [4m強平異常] {str(e)[:120]}")
 
                 # 記錄 PnL（強平）
-                pnl = (current_price - holding.buy_price) * holding.shares
-                record = TradeRecord(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    market_slug=holding.market_slug,
-                    up_price=price_info.up_price,
-                    down_price=price_info.down_price,
-                    total_cost=current_price,
-                    order_size=holding.shares,
-                    expected_profit=pnl,
-                    profit_pct=(pnl / (holding.buy_price * holding.shares) * 100) if holding.buy_price > 0 else 0,
-                    status="executed" if (unwind_ok and not self.config.dry_run) else "simulated",
-                    details=f"⏰ 4m強平 {holding.side} @~{current_price:.4f}",
-                )
-                self.status.trade_history.append(record)
-                self.status.total_profit += record.expected_profit
-                self.status.total_trades += 1
-                self.status.increment_trades_for_market(holding.market_slug)
-
-                try:
-                    trade_db.record_trade(
-                        timestamp=record.timestamp,
-                        market_slug=record.market_slug,
-                        trade_type="bargain_force_liq",
-                        side=holding.side,
-                        up_price=record.up_price,
-                        down_price=record.down_price,
-                        total_cost=record.total_cost,
-                        order_size=record.order_size,
-                        profit=record.expected_profit,
-                        profit_pct=record.profit_pct,
-                        status=record.status,
-                        details=record.details,
+                if self.config.dry_run or unwind_result.get("success"):
+                    pnl = (current_price - holding.buy_price) * holding.shares
+                    record = TradeRecord(
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        market_slug=holding.market_slug,
+                        up_price=price_info.up_price,
+                        down_price=price_info.down_price,
+                        total_cost=current_price,
+                        order_size=holding.shares,
+                        expected_profit=pnl,
+                        profit_pct=(pnl / (holding.buy_price * holding.shares) * 100) if holding.buy_price > 0 else 0,
+                        status="executed" if (unwind_result.get("success") and not self.config.dry_run) else "simulated",
+                        details=f"⏰ 4m強平 {holding.side} @~{current_price:.4f}",
                     )
-                    trade_db.rebuild_daily_summary()
-                except Exception:
-                    pass
+                    self.status.trade_history.append(record)
+                    self.status.total_profit += record.expected_profit
+                    self.status.total_trades += 1
+                    self.status.increment_trades_for_market(holding.market_slug)
+
+                    try:
+                        trade_db.record_trade(
+                            timestamp=record.timestamp,
+                            market_slug=record.market_slug,
+                            trade_type="bargain_force_liq",
+                            side=holding.side,
+                            up_price=record.up_price,
+                            down_price=record.down_price,
+                            total_cost=record.total_cost,
+                            order_size=record.order_size,
+                            profit=record.expected_profit,
+                            profit_pct=record.profit_pct,
+                            status=record.status,
+                            details=record.details,
+                        )
+                        trade_db.rebuild_daily_summary()
+                    except Exception:
+                        pass
                 continue
 
             # ── 價格回升 → 重置延遲計時器 ──
@@ -2259,19 +2269,23 @@ class ArbitrageEngine:
                         f"🛑 [模擬止損] 賣出 {holding.shares:.1f} 股 {holding.side} @ ~{current_price:.4f}"
                     )
                     holding.status = "stopped_out"
+                    unwind_result = {"success": True, "pending": False, "order_type": None, "response": None}
                 else:
                     try:
                         clob_client = self._get_clob_client()
-                        unwind_ok = self._try_unwind_position(
+                        unwind_result = self._try_unwind_position(
                             clob_client, holding.token_id, holding.shares,
                             current_price, f"止損R{holding.round}-{holding.side}"
                         )
-                        holding.status = "stopped_out"
-                        if unwind_ok:
+                        if unwind_result.get("success"):
+                            holding.status = "stopped_out"
                             self.status.add_log(f"🛑 [止損成功] {holding.side} 已賣出")
+                        elif unwind_result.get("pending"):
+                            self.status.add_log(f"🛑 [止損] 已掛出 GTC，待成交後才算完成")
                         else:
                             self.status.add_log(f"🛑 [止損失敗] {holding.side} 需手動處理!")
                     except Exception as e:
+                        unwind_result = {"success": False, "pending": False, "order_type": None, "response": None}
                         self.status.add_log(f"🛑 [止損異常] {str(e)[:120]}")
 
                 # 止損後冷卻（防止「高買低賣」循環）
@@ -2280,43 +2294,45 @@ class ArbitrageEngine:
                 self._stop_loss_cooldown_until = datetime.now(timezone.utc) + timedelta(minutes=cooldown_min)
                 self.status.add_log(f"⏳ 止損冷卻中，{cooldown_min} 分鐘內不開新倉")
 
-                self.status.total_trades += 1
-                self.status.increment_trades_for_market(holding.market_slug)
+                if self.config.dry_run or unwind_result.get("success"):
+                    self.status.total_trades += 1
+                    self.status.increment_trades_for_market(holding.market_slug)
 
-                record = TradeRecord(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
-                    market_slug=holding.market_slug,
-                    up_price=price_info.up_price,
-                    down_price=price_info.down_price,
-                    total_cost=price_info.total_cost,
-                    order_size=holding.shares,
-                    expected_profit=-(price_drop * holding.shares),
-                    profit_pct=-(price_drop / holding.buy_price * 100) if holding.buy_price > 0 else 0,
-                    status="executed" if not self.config.dry_run else "simulated",
-                    details=f"🛑 R{holding.round}止損 {holding.side} | -{price_drop:.4f}/share",
-                )
-                self.status.trade_history.append(record)
-                self.status.total_profit += record.expected_profit
-
-                # 持久化止損記錄
-                try:
-                    trade_db.record_trade(
-                        timestamp=record.timestamp,
-                        market_slug=record.market_slug,
-                        trade_type="bargain_stop",
-                        side=holding.side,
-                        up_price=record.up_price,
-                        down_price=record.down_price,
-                        total_cost=record.total_cost,
-                        order_size=record.order_size,
-                        profit=record.expected_profit,
-                        profit_pct=record.profit_pct,
-                        status=record.status,
-                        details=record.details,
+                    pnl = (current_price - holding.buy_price) * holding.shares
+                    record = TradeRecord(
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        market_slug=holding.market_slug,
+                        up_price=price_info.up_price,
+                        down_price=price_info.down_price,
+                        total_cost=current_price,
+                        order_size=holding.shares,
+                        expected_profit=pnl,
+                        profit_pct=(pnl / (holding.buy_price * holding.shares) * 100) if holding.buy_price > 0 else 0,
+                        status="executed" if (unwind_result.get("success") and not self.config.dry_run) else "simulated",
+                        details=f"🛑 R{holding.round}止損 {holding.side} | -{price_drop:.4f}/share",
                     )
-                    trade_db.rebuild_daily_summary()
-                except Exception:
-                    pass
+                    self.status.trade_history.append(record)
+                    self.status.total_profit += record.expected_profit
+
+                    # 持久化止損記錄
+                    try:
+                        trade_db.record_trade(
+                            timestamp=record.timestamp,
+                            market_slug=record.market_slug,
+                            trade_type="bargain_stop",
+                            side=holding.side,
+                            up_price=record.up_price,
+                            down_price=record.down_price,
+                            total_cost=record.total_cost,
+                            order_size=record.order_size,
+                            profit=record.expected_profit,
+                            profit_pct=record.profit_pct,
+                            status=record.status,
+                            details=record.details,
+                        )
+                        trade_db.rebuild_daily_summary()
+                    except Exception:
+                        pass
 
     async def scan_market(self, market: MarketInfo) -> Optional[ArbitrageOpportunity]:
         """掃描單個市場的套利機會"""
@@ -2622,9 +2638,11 @@ class ArbitrageEngine:
             return
         self.status.add_log(f"✅ 測試買入成功 {shares} 股 @ {buy_price:.4f}，等待結算後平倉...")
         await asyncio.sleep(8)
-        unwound = self._try_unwind_position(clob, token_id, shares, buy_price, f"[測試]{side}")
-        if unwound:
+        unwind_result = self._try_unwind_position(clob, token_id, shares, buy_price, f"[測試]{side}")
+        if unwind_result.get("success"):
             trade_db.kv_set(_kv_key, "ok")
             self.status.add_log("✅ 連線測試完成：買入+平倉成功，錢包連線正常")
+        elif unwind_result.get("pending"):
+            self.status.add_log("⚠️ 連線測試已掛出 GTC，需待成交後再確認連線正常")
         else:
-            self.status.add_log("⚠️ 連線測試：買入成功但平倉失敗，請手動檢查持倉")
+            self.status.add_log("⚠️ 連線測試平倉失敗，請檢查 SELL 權限/餘額/掛單設定")
