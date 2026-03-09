@@ -32,9 +32,36 @@ PM2_BIN=$(command -v pm2 || echo "pm2")
 analytics_db_path() {
     local name="$1"
     local backend_dir="/opt/pmbot-${name}/backend"
+    local env_file="$backend_dir/.env"
+    local db_prefix="pmbot"
+    local db_mode_suffix="live"
+
+    if [[ "$name" == 4h* ]]; then
+        db_prefix="pmbot_4h"
+    elif [[ "$name" == hourly* ]]; then
+        db_prefix="pmbot_hourly"
+    elif [[ "$name" == daily* ]]; then
+        db_prefix="pmbot_daily"
+    elif [[ "$name" == m5* ]]; then
+        db_prefix="pmbot_m5"
+    fi
+
+    if [ -f "$env_file" ] && grep -q '^DRY_RUN=true' "$env_file" 2>/dev/null; then
+        db_mode_suffix="paper"
+    fi
+
     local db_candidates=(
+        "$backend_dir/${db_prefix}_${db_mode_suffix}.db"
+        "$backend_dir/${db_prefix}_live.db"
+        "$backend_dir/${db_prefix}_paper.db"
         "$backend_dir/pmbot_m5_live.db"
         "$backend_dir/pmbot_m5_paper.db"
+        "$backend_dir/pmbot_hourly_live.db"
+        "$backend_dir/pmbot_hourly_paper.db"
+        "$backend_dir/pmbot_daily_live.db"
+        "$backend_dir/pmbot_daily_paper.db"
+        "$backend_dir/pmbot_4h_live.db"
+        "$backend_dir/pmbot_4h_paper.db"
         "$backend_dir/pmbot.db"
     )
     local db_path
