@@ -178,6 +178,12 @@ class BotStatus:
     dynamic_bargain_min_bound: Optional[float] = None  # computed effective min bound
     dynamic_bargain_max_bound: Optional[float] = None  # computed effective max bound
     dynamic_bargain_bounds_enabled: Optional[bool] = None
+    run_loss_count: int = 0
+    awaiting_loss_confirmation: bool = False
+    loss_confirmation_started_at: Optional[str] = None
+    loss_confirmation_deadline_at: Optional[str] = None
+    loss_confirmation_timeout_seconds: int = 10
+    loss_confirmation_message: Optional[str] = None
 
     def get_trades_for_market(self, slug: str) -> int:
         return self.trades_per_market.get(slug, 0)
@@ -246,6 +252,12 @@ class BotStatus:
                 if h.status == "holding"
                 and getattr(getattr(h, "market", None), "time_remaining_seconds", 1) > 0
             ],
+            "run_loss_count": self.run_loss_count,
+            "awaiting_loss_confirmation": self.awaiting_loss_confirmation,
+            "loss_confirmation_started_at": self.loss_confirmation_started_at,
+            "loss_confirmation_deadline_at": self.loss_confirmation_deadline_at,
+            "loss_confirmation_timeout_seconds": self.loss_confirmation_timeout_seconds,
+            "loss_confirmation_message": self.loss_confirmation_message,
         }
 
 
@@ -271,6 +283,50 @@ class ArbitrageEngine:
         self.status.dynamic_bargain_window_seconds = getattr(config, "bargain_open_time_window_seconds", 240)
         self.status.dynamic_bargain_bounds_enabled = getattr(config, "bargain_dynamic_bounds_enabled", True)
         self._pending_unwind_kv_key = "pending_gtc_unwinds"
+        self._loss_pause_threshold = 2
+
+    def _mark_realized_pnl(self, realized_profit: float):
+        normalized_profit = float(realized_profit or 0.0)
+        self.status.total_profit += normalized_profit
+        if normalized_profit < 0:
+            self.status.run_loss_count += 1
+            self.status.add_log(
+                f"⚠️ 本輪已記錄虧損 {self.status.run_loss_count}/{self._loss_pause_threshold} | 損益 ${normalized_profit:.4f}"
+            )
+        if normalized_profit >= 0:
+            return
+        if self.status.awaiting_loss_confirmation:
+            return
+        if self.status.run_loss_count < self._loss_pause_threshold:
+            return
+        confirmation_started_at = datetime.now(timezone.utc)
+        confirmation_deadline_at = confirmation_started_at.timestamp() + int(self.status.loss_confirmation_timeout_seconds or 10)
+        self.status.awaiting_loss_confirmation = True
+        self.status.loss_confirmation_started_at = confirmation_started_at.isoformat()
+        self.status.loss_confirmation_deadline_at = datetime.fromtimestamp(
+            confirmation_deadline_at,
+            tz=timezone.utc,
+        ).isoformat()
+        self.status.loss_confirmation_message = "本輪已記錄 2 次虧損，機器人已暫停。請在 10 秒內選擇是否繼續，否則將自動停止。"
+        self.status.add_log("⏸️ 本輪累積 2 次虧損，已暫停機器人等待人工確認；10 秒內未回應將自動停止")
+
+    def continue_after_loss_confirmation(self):
+        self.status.awaiting_loss_confirmation = False
+        self.status.loss_confirmation_started_at = None
+        self.status.loss_confirmation_deadline_at = None
+        self.status.loss_confirmation_message = None
+        self.status.run_loss_count = 0
+        self.status.add_log("▶️ 已收到人工確認，繼續執行機器人")
+
+    def stop_after_loss_confirmation(self):
+        self.status.awaiting_loss_confirmation = False
+        self.status.loss_confirmation_started_at = None
+        self.status.loss_confirmation_deadline_at = None
+        self.status.loss_confirmation_message = None
+        self.status.add_log("⛔ 已選擇停止機器人（兩次虧損保護）")
+
+    def is_waiting_for_loss_confirmation(self) -> bool:
+        return bool(self.status.awaiting_loss_confirmation)
 
     def _load_pending_unwinds(self) -> List[Dict[str, Any]]:
         raw_pending = trade_db.kv_get(self._pending_unwind_kv_key, "[]")
@@ -426,7 +482,7 @@ class ArbitrageEngine:
             details=fill_details,
         )
         self.status.trade_history.append(realized_record)
-        self.status.total_profit += float(realized_profit)
+        self._mark_realized_pnl(float(realized_profit))
 
     def _finalize_pending_unwind_fill(self, pending_payload: Dict[str, Any], fill_trade: Optional[Dict[str, Any]], order_payload: Optional[Dict[str, Any]]):
         trade_id = pending_payload.get("trade_id")
@@ -1611,7 +1667,7 @@ class ArbitrageEngine:
         self.status.increment_trades_for_market(market.slug)
         self.status.last_trade_time = time.time()
         if record.status in ("executed", "simulated"):
-            self.status.total_profit += record.expected_profit
+            self._mark_realized_pnl(record.expected_profit)
         self.status.trade_history.append(record)
 
         # 持久化到 SQLite
@@ -2162,7 +2218,7 @@ class ArbitrageEngine:
                 details=f"🏷️ R{buy_round}配對 {pair_with.side}@{pair_with.buy_price:.4f}+{side}@{holding.buy_price:.4f}={combined:.4f}",
             )
             self.status.trade_history.append(record)
-            self.status.total_profit += record.expected_profit
+            self._mark_realized_pnl(record.expected_profit)
 
             # 持久化配對記錄
             try:
@@ -2366,7 +2422,7 @@ class ArbitrageEngine:
                                 details=f"⚡ 急跌護欄 {holding.side} 跌 {drop_pct:.1f}%",
                             )
                             self.status.trade_history.append(record)
-                            self.status.total_profit += record.expected_profit
+                            self._mark_realized_pnl(record.expected_profit)
                             self.status.total_trades += 1
                             self.status.increment_trades_for_market(holding.market_slug)
 
@@ -2499,7 +2555,7 @@ class ArbitrageEngine:
                             details=f"🎯 二次出場 {holding.side} 利潤 {profit_pct_now:.2f}%",
                         )
                         self.status.trade_history.append(record)
-                        self.status.total_profit += record.expected_profit
+                        self._mark_realized_pnl(record.expected_profit)
                         # 持久化
                         try:
                             trade_db.record_trade(
@@ -2627,7 +2683,7 @@ class ArbitrageEngine:
                         details=f"⏰ 4m強平 {holding.side} @~{current_price:.4f}",
                     )
                     self.status.trade_history.append(record)
-                    self.status.total_profit += record.expected_profit
+                    self._mark_realized_pnl(record.expected_profit)
                     self.status.total_trades += 1
                     self.status.increment_trades_for_market(holding.market_slug)
 
@@ -2809,7 +2865,7 @@ class ArbitrageEngine:
                         details=f"🛑 R{holding.round}止損 {holding.side} | -{price_drop:.4f}/share",
                     )
                     self.status.trade_history.append(record)
-                    self.status.total_profit += record.expected_profit
+                    self._mark_realized_pnl(record.expected_profit)
 
                     # 持久化止損記錄
                     try:

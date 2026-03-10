@@ -82,6 +82,8 @@ function Dashboard({ token, authHeaders, onLogout }) {
   const [mergeOpen, setMergeOpen] = useState(false)
   const [showRiskModal, setShowRiskModal] = useState(true)
   const [activeView, setActiveView] = useState('live')
+  const [lossConfirmationBusy, setLossConfirmationBusy] = useState(false)
+  const [lossConfirmationCountdown, setLossConfirmationCountdown] = useState(0)
   const logsEndRef = useRef(null)
 
   useEffect(() => {
@@ -202,6 +204,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
 
   const effectiveStatus = status ?? polledStatus
   const isRunning = effectiveStatus?.running || false
+  const awaitingLossConfirmation = effectiveStatus?.awaiting_loss_confirmation || false
   const recentTradeRows = Array.from(
     new Map(
       [...(effectiveStatus?.trade_history || []), ...trades]
@@ -219,8 +222,95 @@ function Dashboard({ token, authHeaders, onLogout }) {
     ).values()
   ).slice(0, 20)
 
+  useEffect(() => {
+    if (!awaitingLossConfirmation) {
+      setLossConfirmationCountdown(0)
+      setLossConfirmationBusy(false)
+      return
+    }
+
+    const updateCountdown = () => {
+      const deadlineText = effectiveStatus?.loss_confirmation_deadline_at
+      if (!deadlineText) {
+        setLossConfirmationCountdown(effectiveStatus?.loss_confirmation_timeout_seconds || 10)
+        return
+      }
+      const deadlineMs = new Date(deadlineText).getTime()
+      if (!Number.isFinite(deadlineMs)) {
+        setLossConfirmationCountdown(effectiveStatus?.loss_confirmation_timeout_seconds || 10)
+        return
+      }
+      const remainingMs = Math.max(0, deadlineMs - Date.now())
+      setLossConfirmationCountdown(Math.ceil(remainingMs / 1000))
+    }
+
+    updateCountdown()
+    const intervalId = setInterval(updateCountdown, 250)
+    return () => clearInterval(intervalId)
+  }, [awaitingLossConfirmation, effectiveStatus])
+
+  async function submitLossConfirmation(action) {
+    if (lossConfirmationBusy) return
+    setLossConfirmationBusy(true)
+    try {
+      await fetch(`${API}/api/bot/loss-confirmation`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ action }),
+      })
+    } catch (e) {
+      console.error('Failed to submit loss confirmation:', e)
+    } finally {
+      setLossConfirmationBusy(false)
+    }
+  }
+
   return (
     <div className="min-h-screen text-gray-100 scanlines relative">
+      {awaitingLossConfirmation && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/85 backdrop-blur-sm" />
+          <div className="relative z-10 max-w-lg w-full bg-gray-950 border border-neon-pink/40 shadow-neon-pink rounded-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <Shield className="w-6 h-6 text-neon-pink" />
+              <div>
+                <h2 className="text-lg font-bold text-neon-pink">兩次虧損保護</h2>
+                <p className="text-xs text-gray-400">5m 機器人已暫停，等待你的確認。</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-neon-pink/20 bg-black/30 p-4 space-y-2">
+              <p className="text-sm text-gray-200">
+                {effectiveStatus?.loss_confirmation_message || '本輪已記錄兩次虧損。是否繼續執行？'}
+              </p>
+              <div className="text-xs text-neon-amber font-medium">
+                若 {lossConfirmationCountdown} 秒內未回應，系統將自動停止機器人。
+              </div>
+              <div className="text-xs text-gray-500">
+                已記錄虧損次數: {effectiveStatus?.run_loss_count ?? 0}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => submitLossConfirmation('stop')}
+                disabled={lossConfirmationBusy}
+                className="px-4 py-2 text-sm bg-neon-pink/20 hover:bg-neon-pink/30 border border-neon-pink/50 text-neon-pink rounded-lg font-semibold disabled:opacity-60"
+              >
+                立即停止
+              </button>
+              <button
+                onClick={() => submitLossConfirmation('continue')}
+                disabled={lossConfirmationBusy}
+                className="px-4 py-2 text-sm bg-neon-green/20 hover:bg-neon-green/30 border border-neon-green/50 text-neon-green rounded-lg font-semibold disabled:opacity-60"
+              >
+                繼續執行
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showRiskModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur" />

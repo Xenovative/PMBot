@@ -158,6 +158,10 @@ class DeviceRemoveRequest(BaseModel):
     device_id: str
 
 
+class LossConfirmationRequest(BaseModel):
+    action: str
+
+
 @app.get("/api/auth/status")
 async def auth_status():
     """Check if initial setup is done and 2FA is enabled"""
@@ -294,6 +298,24 @@ async def bot_loop():
 
     try:
         while engine.status.running:
+            if engine.is_waiting_for_loss_confirmation():
+                deadline_text = engine.status.loss_confirmation_deadline_at
+                deadline_at: Optional[datetime] = None
+                if deadline_text:
+                    try:
+                        deadline_at = datetime.fromisoformat(deadline_text)
+                    except ValueError:
+                        deadline_at = None
+                if deadline_at and datetime.now(timezone.utc) >= deadline_at:
+                    engine.status.add_log("⏰ 兩次虧損確認逾時，機器人將自動停止")
+                    engine.stop_after_loss_confirmation()
+                    engine.status.running = False
+                    await broadcast({"type": "status", "data": engine.status.to_dict()})
+                    break
+                await broadcast({"type": "status", "data": engine.status.to_dict()})
+                await asyncio.sleep(1)
+                continue
+
             # 搜尋市場
             all_markets = await market_finder.find_all_crypto_markets()
 
@@ -583,6 +605,21 @@ async def stop_bot(_user=Depends(auth.require_auth)):
             pass
         bot_task = None
     return {"status": "stopped"}
+
+
+@app.post("/api/bot/loss-confirmation")
+async def resolve_loss_confirmation(req: LossConfirmationRequest, _user=Depends(auth.require_auth)):
+    normalized_action = (req.action or "").strip().lower()
+    if not engine.is_waiting_for_loss_confirmation():
+        return {"status": "no_pending_confirmation"}
+    if normalized_action == "continue":
+        engine.continue_after_loss_confirmation()
+        await broadcast({"type": "status", "data": engine.status.to_dict()})
+        return {"status": "continued"}
+    if normalized_action == "stop":
+        engine.stop_after_loss_confirmation()
+        return await stop_bot(_user)
+    return JSONResponse({"error": "Invalid action"}, status_code=400)
 
 
 # ─── 合併 API ───
