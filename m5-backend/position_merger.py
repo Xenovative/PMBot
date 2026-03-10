@@ -506,8 +506,8 @@ class PositionMerger:
             )
 
             tx_params = {
-                "from": wallet,
-                "nonce": self.w3.eth.get_transaction_count(wallet),
+                "from": owner,
+                "nonce": self.w3.eth.get_transaction_count(owner),
                 "gasPrice": self.w3.eth.gas_price,
                 "chainId": 137,
             }
@@ -515,7 +515,7 @@ class PositionMerger:
             # 估算 gas，若失敗提早報錯
             try:
                 gas_est = self.w3.eth.estimate_gas({
-                    "from": wallet,
+                    "from": owner,
                     "to": CTF_ADDRESS,
                     "data": tx_func._encode_transaction_data(),
                 })
