@@ -427,6 +427,7 @@ class ArbitrageEngine:
         realized_profit: float,
         is_partial_fill: bool,
     ):
+        stored_trade_id = stored_trade.get("id")
         side_label = str(pending_payload.get("side_label", "") or "")
         stored_trade_type = str(stored_trade.get("trade_type", "bargain_stop") or "bargain_stop")
         stored_market_slug = str(stored_trade.get("market_slug", "") or "")
@@ -454,20 +455,18 @@ class ArbitrageEngine:
         )
         fill_details = f"{stored_details} | {fill_details_suffix}" if stored_details else fill_details_suffix
 
-        trade_db.record_trade(
-            timestamp=stored_timestamp,
-            market_slug=stored_market_slug,
-            trade_type=stored_trade_type,
-            side=side_label,
-            up_price=realized_up_price,
-            down_price=realized_down_price,
-            total_cost=realized_cost_basis,
-            order_size=float(realized_size),
-            profit=float(realized_profit),
-            profit_pct=float(realized_profit_pct),
-            status="executed",
-            details=fill_details,
-        )
+        if stored_trade_id is not None:
+            trade_db.update_trade(
+                int(stored_trade_id),
+                up_price=float(realized_up_price),
+                down_price=float(realized_down_price),
+                total_cost=float(realized_cost_basis),
+                order_size=float(realized_size),
+                profit=float(realized_profit),
+                profit_pct=float(realized_profit_pct),
+                status="pending" if is_partial_fill else "executed",
+                details=fill_details,
+            )
 
         realized_record = TradeRecord(
             timestamp=stored_timestamp,
