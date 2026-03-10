@@ -227,7 +227,27 @@ function Dashboard({ token, authHeaders, onLogout }) {
     setLoading(false)
   }
 
-  const effectiveStatus = status ?? polledStatus
+  const effectiveStatus = useMemo(() => {
+    if (status && polledStatus) {
+      return {
+        ...status,
+        ...polledStatus,
+        trade_history: (status.trade_history?.length ?? 0) >= (polledStatus.trade_history?.length ?? 0)
+          ? status.trade_history
+          : polledStatus.trade_history,
+        current_opportunities: (status.current_opportunities?.length ?? 0) >= (polledStatus.current_opportunities?.length ?? 0)
+          ? status.current_opportunities
+          : polledStatus.current_opportunities,
+        bargain_holdings: (status.bargain_holdings?.length ?? 0) >= (polledStatus.bargain_holdings?.length ?? 0)
+          ? status.bargain_holdings
+          : polledStatus.bargain_holdings,
+        market_prices: Object.keys(status.market_prices || {}).length >= Object.keys(polledStatus.market_prices || {}).length
+          ? status.market_prices
+          : polledStatus.market_prices,
+      }
+    }
+    return status ?? polledStatus
+  }, [status, polledStatus])
   const isRunning = effectiveStatus?.running || false
   const awaitingLossConfirmation = effectiveStatus?.awaiting_loss_confirmation || false
   const recentTradeRows = Array.from(
