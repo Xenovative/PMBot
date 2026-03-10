@@ -73,6 +73,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
   const { status, markets, trades, mergeStatus, connected } = useWebSocket(wsUrl, token)
   const [polledStatus, setPolledStatus] = useState(null)
+  const [analyticsOverview, setAnalyticsOverview] = useState(null)
   const [config, setConfig] = useState(null)
   const [configForm, setConfigForm] = useState({})
   const [showKey, setShowKey] = useState(false)
@@ -82,6 +83,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
   const [mergeOpen, setMergeOpen] = useState(false)
   const [showRiskModal, setShowRiskModal] = useState(true)
   const [activeView, setActiveView] = useState('live')
+  const [pnlBreakdownOpen, setPnlBreakdownOpen] = useState(false)
   const [lossConfirmationBusy, setLossConfirmationBusy] = useState(false)
   const [lossConfirmationCountdown, setLossConfirmationCountdown] = useState(0)
   const logsEndRef = useRef(null)
@@ -106,6 +108,29 @@ function Dashboard({ token, authHeaders, onLogout }) {
 
     fetchStatus()
     const intervalId = setInterval(fetchStatus, 3000)
+
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
+  }, [authHeaders])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchAnalyticsOverview() {
+      try {
+        const res = await fetch(`${API}/api/analytics/overview`, { headers: authHeaders })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setAnalyticsOverview(data)
+      } catch (e) {
+        console.error('Failed to fetch analytics overview:', e)
+      }
+    }
+
+    fetchAnalyticsOverview()
+    const intervalId = setInterval(fetchAnalyticsOverview, 30000)
 
     return () => {
       cancelled = true
@@ -383,7 +408,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   : 'bg-gray-600/10 text-gray-300 border-gray-500/30'
               }`}>
                 <Activity className="w-3 h-3" />
-                <span className="hidden sm:inline">{isRunning ? `Bot運行中 · 掃描${status?.scan_count ?? 0}` : 'Bot已停止'}</span>
+                <span className="hidden sm:inline">{isRunning ? `Bot運行中 · 掃描${effectiveStatus?.scan_count ?? 0}` : 'Bot已停止'}</span>
               </div>
 
               {/* Mode Badge */}
@@ -456,19 +481,21 @@ function Dashboard({ token, authHeaders, onLogout }) {
               <StatCard
                 icon={<BarChart3 className="w-5 h-5" />}
                 label="交易"
-                value={status?.total_trades ?? 0}
+                value={effectiveStatus?.total_trades ?? 0}
                 color="blue"
               />
               <StatCard
                 icon={<DollarSign className="w-5 h-5" />}
                 label="利潤"
-                value={`$${(status?.total_profit ?? 0).toFixed(4)}`}
-                color={(status?.total_profit ?? 0) > 0 ? 'emerald' : 'red'}
+                value={`$${(effectiveStatus?.total_profit ?? 0).toFixed(4)}`}
+                color={(effectiveStatus?.total_profit ?? 0) > 0 ? 'emerald' : 'red'}
+                clickable={Boolean(analyticsOverview)}
+                onClick={() => setPnlBreakdownOpen(true)}
               />
               <StatCard
                 icon={<RefreshCw className="w-5 h-5" />}
                 label="掃描"
-                value={status?.scan_count ?? 0}
+                value={effectiveStatus?.scan_count ?? 0}
                 color="amber"
               />
               <StatCard
@@ -485,9 +512,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
               <div className="cyber-panel p-3 sm:p-5">
                 <h3 className="text-sm font-medium neon-text-cyan mb-3 flex items-center gap-2">
                   <TrendingUp className="w-4 h-4" />
-                  即時價格 — {Object.keys(status?.market_prices || {}).length} 個市場
+                  即時價格 — {Object.keys(effectiveStatus?.market_prices || {}).length} 個市場
                 </h3>
-                {status?.market_prices && Object.keys(status.market_prices).length > 0 ? (
+                {effectiveStatus?.market_prices && Object.keys(effectiveStatus.market_prices).length > 0 ? (
                   <div className="overflow-x-auto max-h-72 overflow-y-auto">
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-black/80 backdrop-blur">
@@ -500,7 +527,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {Object.entries(status.market_prices)
+                        {Object.entries(effectiveStatus.market_prices)
                           .sort(([,a], [,b]) => {
                             const ta = a.time_remaining_seconds ?? 0;
                             const tb = b.time_remaining_seconds ?? 0;
@@ -552,9 +579,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
               {/* Bargain Holdings */}
               <div className="cyber-panel-amber p-3 sm:p-5">
                 <h3 className="text-sm font-medium neon-text-amber mb-3 flex items-center gap-2">
-                  🏷️ 撿便宜持倉 ({(status?.bargain_holdings || []).length} 筆)
+                  🏷️ 撿便宜持倉 ({(effectiveStatus?.bargain_holdings || []).length} 筆)
                 </h3>
-                {(status?.bargain_holdings || []).length > 0 ? (
+                {(effectiveStatus?.bargain_holdings || []).length > 0 ? (
                   <div className="overflow-x-auto max-h-72 overflow-y-auto">
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-black/80 backdrop-blur">
@@ -569,7 +596,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {status.bargain_holdings.map((h, i) => (
+                        {effectiveStatus.bargain_holdings.map((h, i) => (
                           <tr key={i} className="border-b border-neon-amber/5 hover:bg-neon-amber/5">
                             <td className="py-1.5 px-2 font-mono text-neon-amber">R{h.round}</td>
                             <td className="py-1.5 px-2 truncate max-w-[120px]" title={h.market_slug}>{h.market_slug}</td>
@@ -622,14 +649,14 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   </button>
                 </div>
 
-                {(status?.current_opportunities || []).length === 0 ? (
+                {(effectiveStatus?.current_opportunities || []).length === 0 ? (
                   <div className="text-center py-6 text-gray-600">
                     <Zap className="w-6 h-6 mx-auto mb-1.5 opacity-50" />
                     <p className="text-xs">暫無套利機會</p>
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {status.current_opportunities.map((opp, i) => (
+                    {effectiveStatus.current_opportunities.map((opp, i) => (
                       <div key={i} className={`rounded-lg p-3 border ${
                         opp.is_viable
                           ? 'bg-neon-green/5 border-neon-green/20 shadow-neon-green'
@@ -1203,6 +1230,38 @@ function Dashboard({ token, authHeaders, onLogout }) {
 
       </main>
 
+      {pnlBreakdownOpen && analyticsOverview && (
+        <div className="fixed inset-0 z-[55] flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/75" onClick={() => setPnlBreakdownOpen(false)} />
+          <div className="relative z-10 w-full max-w-lg cyber-panel p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-cyber neon-text-cyan">PnL Breakdown</h3>
+                <p className="text-xs text-gray-500 mt-1">點擊外部區域可關閉</p>
+              </div>
+              <button
+                onClick={() => setPnlBreakdownOpen(false)}
+                className="px-3 py-1.5 bg-black/30 border border-neon-cyan/20 rounded-lg text-xs text-neon-cyan hover:bg-neon-cyan/10 transition-all"
+              >
+                關閉
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <BreakdownStat label="Net PnL" value={analyticsOverview.total_profit} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Gross Profit" value={analyticsOverview.gross_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Gross Loss" value={analyticsOverview.gross_loss ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Average Profit" value={analyticsOverview.avg_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Today Net PnL" value={analyticsOverview.today_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Today Profit" value={analyticsOverview.today_gross_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Today Loss" value={analyticsOverview.today_gross_loss ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Best Trade" value={analyticsOverview.best_trade ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Worst Trade" value={analyticsOverview.worst_trade ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
       <footer className="border-t border-neon-cyan/10 mt-8 py-4 text-center text-xs text-neon-cyan/30 relative z-10">
         <span className="font-cyber tracking-wider">PM DAILY ARB BOT</span> v1.0 | 僅供教育和研究用途 | 交易有風險，請謹慎操作
@@ -1211,7 +1270,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
   )
 }
 
-function StatCard({ icon, label, value, color = 'gray' }) {
+function StatCard({ icon, label, value, color = 'gray', clickable = false, onClick }) {
   const neonMap = {
     emerald: { border: 'border-neon-green/25', shadow: 'shadow-neon-green', text: 'text-neon-green', glow: 'neon-text-green' },
     blue: { border: 'border-neon-blue/25', shadow: 'shadow-neon-cyan', text: 'text-neon-blue', glow: 'neon-text-cyan' },
@@ -1224,12 +1283,31 @@ function StatCard({ icon, label, value, color = 'gray' }) {
   const n = neonMap[color] || neonMap.gray
 
   return (
-    <div className={`bg-black/40 backdrop-blur-sm border ${n.border} ${n.shadow} rounded-xl p-3 sm:p-4 transition-all hover:scale-[1.02]`}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!clickable}
+      className={`bg-black/40 backdrop-blur-sm border ${n.border} ${n.shadow} rounded-xl p-3 sm:p-4 transition-all hover:scale-[1.02] text-left w-full ${clickable ? 'cursor-pointer hover:bg-white/5' : 'cursor-default'}`}
+    >
       <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-2">
         <span className={`${n.text} [&>svg]:w-4 [&>svg]:h-4 sm:[&>svg]:w-5 sm:[&>svg]:h-5`}>{icon}</span>
         <span className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wider">{label}</span>
       </div>
       <p className={`text-base sm:text-xl font-bold font-cyber ${n.glow}`}>{value}</p>
+    </button>
+  )
+}
+
+function BreakdownStat({ label, value, positiveColor, negativeColor }) {
+  const numericValue = Number(value || 0)
+  const colorClass = numericValue >= 0 ? positiveColor : negativeColor
+
+  return (
+    <div className="bg-black/30 border border-neon-cyan/10 rounded-lg p-3">
+      <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-1">{label}</div>
+      <div className={`text-sm font-mono font-semibold ${colorClass}`}>
+        {numericValue > 0 ? '+' : ''}${numericValue.toFixed(4)}
+      </div>
     </div>
   )
 }

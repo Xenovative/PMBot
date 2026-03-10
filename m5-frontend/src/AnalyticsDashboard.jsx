@@ -11,6 +11,23 @@ import {
 
 const API = ''
 
+const tooltipContentStyle = {
+  background: 'rgba(5,5,20,0.96)',
+  border: '1px solid rgba(0,255,255,0.24)',
+  borderRadius: 8,
+  fontSize: 12,
+  boxShadow: '0 0 15px rgba(0,255,255,0.1)',
+}
+
+const tooltipLabelStyle = {
+  color: '#f3f4f6',
+  fontWeight: 700,
+}
+
+const tooltipItemStyle = {
+  color: '#f3f4f6',
+}
+
 function AnalyticsDashboard({ token }) {
   const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {}
   const [overview, setOverview] = useState(null)
@@ -230,7 +247,9 @@ function AnalyticsDashboard({ token }) {
                     <XAxis dataKey="hour" tickFormatter={formatHour} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
                     <YAxis tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} tickFormatter={v => `$${v.toFixed(2)}`} />
                     <Tooltip
-                      contentStyle={{ background: 'rgba(5,5,20,0.9)', border: '1px solid rgba(0,255,255,0.2)', borderRadius: 8, fontSize: 12, boxShadow: '0 0 15px rgba(0,255,255,0.1)' }}
+                      contentStyle={tooltipContentStyle}
+                      labelStyle={tooltipLabelStyle}
+                      itemStyle={tooltipItemStyle}
                       formatter={(v) => [`$${Number(v).toFixed(4)}`, '累計利潤']}
                       labelFormatter={formatHour}
                     />
@@ -257,7 +276,9 @@ function AnalyticsDashboard({ token }) {
                     <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
                     <YAxis tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} tickFormatter={v => `$${v.toFixed(2)}`} />
                     <Tooltip
-                      contentStyle={{ background: 'rgba(5,5,20,0.9)', border: '1px solid rgba(0,255,255,0.2)', borderRadius: 8, fontSize: 12, boxShadow: '0 0 15px rgba(0,255,255,0.1)' }}
+                      contentStyle={tooltipContentStyle}
+                      labelStyle={tooltipLabelStyle}
+                      itemStyle={tooltipItemStyle}
                       formatter={(v) => [`$${Number(v).toFixed(4)}`, '利潤']}
                       labelFormatter={formatDate}
                     />
@@ -291,7 +312,9 @@ function AnalyticsDashboard({ token }) {
                     <XAxis dataKey="hour" tickFormatter={formatHour} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
                     <YAxis tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} tickFormatter={v => `$${v.toFixed(2)}`} />
                     <Tooltip
-                      contentStyle={{ background: 'rgba(5,5,20,0.9)', border: '1px solid rgba(255,0,255,0.2)', borderRadius: 8, fontSize: 12, boxShadow: '0 0 15px rgba(255,0,255,0.1)' }}
+                      contentStyle={{ ...tooltipContentStyle, border: '1px solid rgba(255,0,255,0.24)', boxShadow: '0 0 15px rgba(255,0,255,0.1)' }}
+                      labelStyle={tooltipLabelStyle}
+                      itemStyle={tooltipItemStyle}
                       formatter={(v) => [`$${Number(v).toFixed(4)}`]}
                       labelFormatter={formatHour}
                     />
@@ -319,7 +342,9 @@ function AnalyticsDashboard({ token }) {
                     <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
                     <YAxis tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
                     <Tooltip
-                      contentStyle={{ background: 'rgba(5,5,20,0.9)', border: '1px solid rgba(0,255,255,0.2)', borderRadius: 8, fontSize: 12, boxShadow: '0 0 15px rgba(0,255,255,0.1)' }}
+                      contentStyle={tooltipContentStyle}
+                      labelStyle={tooltipLabelStyle}
+                      itemStyle={tooltipItemStyle}
                       labelFormatter={formatDate}
                     />
                     <Bar dataKey="successful" name="成功" stackId="a" fill="#00ff41" radius={[0, 0, 0, 0]} />
@@ -341,7 +366,9 @@ function AnalyticsDashboard({ token }) {
                     <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} tickFormatter={v => `${v}%`} />
                     <Tooltip
-                      contentStyle={{ background: 'rgba(5,5,20,0.9)', border: '1px solid rgba(255,0,255,0.2)', borderRadius: 8, fontSize: 12, boxShadow: '0 0 15px rgba(255,0,255,0.1)' }}
+                      contentStyle={{ ...tooltipContentStyle, border: '1px solid rgba(255,0,255,0.24)', boxShadow: '0 0 15px rgba(255,0,255,0.1)' }}
+                      labelStyle={tooltipLabelStyle}
+                      itemStyle={tooltipItemStyle}
                       formatter={(v) => [`${Number(v).toFixed(1)}%`, '勝率']}
                       labelFormatter={formatDate}
                     />
@@ -452,7 +479,9 @@ function AnalyticsDashboard({ token }) {
                         tickFormatter={v => v.length > 20 ? v.slice(0, 20) + '...' : v}
                       />
                       <Tooltip
-                        contentStyle={{ background: 'rgba(5,5,20,0.9)', border: '1px solid rgba(0,255,255,0.2)', borderRadius: 8, fontSize: 12, boxShadow: '0 0 15px rgba(0,255,255,0.1)' }}
+                        contentStyle={tooltipContentStyle}
+                        labelStyle={tooltipLabelStyle}
+                        itemStyle={tooltipItemStyle}
                         formatter={(v) => [`$${Number(v).toFixed(4)}`, '利潤']}
                       />
                       <Bar dataKey="total_profit" radius={[0, 4, 4, 0]}>
