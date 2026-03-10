@@ -1236,7 +1236,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
           <div className="relative z-10 w-full max-w-lg cyber-panel p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
-                <h3 className="text-lg font-cyber neon-text-cyan">PnL Breakdown</h3>
+                <h3 className="text-lg font-cyber neon-text-cyan">損益拆解</h3>
                 <p className="text-xs text-gray-500 mt-1">點擊外部區域可關閉</p>
               </div>
               <button
@@ -1248,15 +1248,15 @@ function Dashboard({ token, authHeaders, onLogout }) {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <BreakdownStat label="Net PnL" value={analyticsOverview.total_profit} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
-              <BreakdownStat label="Gross Profit" value={analyticsOverview.gross_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
-              <BreakdownStat label="Gross Loss" value={analyticsOverview.gross_loss ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
-              <BreakdownStat label="Average Profit" value={analyticsOverview.avg_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
-              <BreakdownStat label="Today Net PnL" value={analyticsOverview.today_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
-              <BreakdownStat label="Today Profit" value={analyticsOverview.today_gross_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
-              <BreakdownStat label="Today Loss" value={analyticsOverview.today_gross_loss ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
-              <BreakdownStat label="Best Trade" value={analyticsOverview.best_trade ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
-              <BreakdownStat label="Worst Trade" value={analyticsOverview.worst_trade ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="淨損益" value={analyticsOverview.total_profit} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="總獲利" value={analyticsOverview.gross_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="總虧損" value={analyticsOverview.gross_loss ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="平均獲利" value={analyticsOverview.avg_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="今日淨損益" value={analyticsOverview.today_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="今日總獲利" value={analyticsOverview.today_gross_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="今日總虧損" value={analyticsOverview.today_gross_loss ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="最佳交易" value={analyticsOverview.best_trade ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="最差交易" value={analyticsOverview.worst_trade ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
             </div>
           </div>
         </div>
