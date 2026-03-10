@@ -269,7 +269,10 @@ def get_per_market_stats() -> List[Dict]:
         SELECT market_slug, COUNT(*) AS total_trades,
             SUM(CASE WHEN status IN ('executed','simulated') THEN 1 ELSE 0 END) AS wins,
             SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS losses,
-            COALESCE(SUM(profit), 0) AS total_profit, COALESCE(AVG(profit), 0) AS avg_profit,
+            COALESCE(SUM(profit), 0) AS total_profit,
+            COALESCE(SUM(CASE WHEN profit > 0 THEN profit ELSE 0 END), 0) AS gross_profit,
+            COALESCE(SUM(CASE WHEN profit < 0 THEN profit ELSE 0 END), 0) AS gross_loss,
+            COALESCE(AVG(profit), 0) AS avg_profit,
             COALESCE(MAX(profit), 0) AS best_trade, COALESCE(MIN(profit), 0) AS worst_trade,
             COALESCE(AVG(total_cost), 0) AS avg_cost
         FROM trades GROUP BY market_slug ORDER BY total_profit DESC
@@ -308,14 +311,20 @@ def get_overview() -> Dict[str, Any]:
         SELECT COUNT(*) AS total_trades,
             SUM(CASE WHEN status IN ('executed','simulated') THEN 1 ELSE 0 END) AS successful,
             SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
-            COALESCE(SUM(profit), 0) AS total_profit, COALESCE(AVG(profit), 0) AS avg_profit,
+            COALESCE(SUM(profit), 0) AS total_profit,
+            COALESCE(SUM(CASE WHEN profit > 0 THEN profit ELSE 0 END), 0) AS gross_profit,
+            COALESCE(SUM(CASE WHEN profit < 0 THEN profit ELSE 0 END), 0) AS gross_loss,
+            COALESCE(AVG(profit), 0) AS avg_profit,
             COALESCE(MAX(profit), 0) AS best_trade, COALESCE(MIN(profit), 0) AS worst_trade,
             COALESCE(AVG(total_cost), 0) AS avg_cost, COUNT(DISTINCT market_slug) AS unique_markets
         FROM trades
     """).fetchone()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     today_row = conn.execute("""
-        SELECT COUNT(*) AS trades, COALESCE(SUM(profit), 0) AS profit
+        SELECT COUNT(*) AS trades,
+            COALESCE(SUM(profit), 0) AS profit,
+            COALESCE(SUM(CASE WHEN profit > 0 THEN profit ELSE 0 END), 0) AS gross_profit,
+            COALESCE(SUM(CASE WHEN profit < 0 THEN profit ELSE 0 END), 0) AS gross_loss
         FROM trades WHERE timestamp >= ?
     """, (today + "T00:00:00",)).fetchone()
     merge_row = conn.execute("""
@@ -328,10 +337,10 @@ def get_overview() -> Dict[str, Any]:
     total_valid = row["successful"] or 1
     return {
         "total_trades": row["total_trades"], "successful": row["successful"], "failed": row["failed"],
-        "total_profit": round(row["total_profit"], 4), "avg_profit": round(row["avg_profit"], 4),
+        "total_profit": round(row["total_profit"], 4), "gross_profit": round(row["gross_profit"], 4), "gross_loss": round(row["gross_loss"], 4), "avg_profit": round(row["avg_profit"], 4),
         "best_trade": round(row["best_trade"], 4), "worst_trade": round(row["worst_trade"], 4),
         "avg_cost": round(row["avg_cost"], 4), "unique_markets": row["unique_markets"],
         "win_rate": round(win_count / total_valid * 100, 1),
-        "today_trades": today_row["trades"], "today_profit": round(today_row["profit"], 4),
+        "today_trades": today_row["trades"], "today_profit": round(today_row["profit"], 4), "today_gross_profit": round(today_row["gross_profit"], 4), "today_gross_loss": round(today_row["gross_loss"], 4),
         "total_merges": merge_row["total_merges"], "total_merge_usdc": round(merge_row["total_usdc"], 2),
     }

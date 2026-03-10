@@ -192,18 +192,32 @@ else:
         payload = json.loads(payload_text)
     except Exception:
         payload = {}
+
+total_trades = payload.get('total_trades', 0)
+successful_trades = payload.get('successful', 0)
+success_rate = 0
+try:
+    success_rate = round((float(successful_trades) / float(total_trades) * 100), 1) if float(total_trades) > 0 else 0
+except Exception:
+    success_rate = 0
+
 lines = [
-    f"Total trades      : {payload.get('total_trades', 0)}",
-    f"Successful        : {payload.get('successful', 0)}",
+    f"Total trades      : {total_trades}",
+    f"Successful        : {successful_trades}",
     f"Failed            : {payload.get('failed', 0)}",
-    f"Success rate      : {payload.get('success_rate', 0)}%",
-    f"Total profit      : {payload.get('total_profit', 0)}",
+    f"Success rate      : {success_rate}%",
+    f"Net PnL           : {payload.get('total_profit', 0)}",
+    f"Gross Profit      : {payload.get('gross_profit', 0)}",
+    f"Gross Loss        : {payload.get('gross_loss', 0)}",
     f"Average profit    : {payload.get('avg_profit', 0)}",
-    f"Best trade        : {payload.get('best_trade_profit', 0)}",
-    f"Worst trade       : {payload.get('worst_trade_profit', 0)}",
-    f"Total volume      : {payload.get('total_volume', 0)}",
+    f"Best trade        : {payload.get('best_trade', 0)}",
+    f"Worst trade       : {payload.get('worst_trade', 0)}",
+    f"Average cost      : {payload.get('avg_cost', 0)}",
+    f"Unique markets    : {payload.get('unique_markets', 0)}",
     f"Today's trades    : {payload.get('today_trades', 0)}",
-    f"Today's profit    : {payload.get('today_profit', 0)}",
+    f"Today's Net PnL   : {payload.get('today_profit', 0)}",
+    f"Today's Profit    : {payload.get('today_gross_profit', 0)}",
+    f"Today's Loss      : {payload.get('today_gross_loss', 0)}",
     f"Merge count       : {payload.get('total_merges', 0)}",
     f"Merge USDC        : {payload.get('total_merge_usdc', 0)}",
 ]

@@ -23,6 +23,7 @@ function AnalyticsDashboard({ token }) {
   const [activeTab, setActiveTab] = useState('overview')
   const [loading, setLoading] = useState(false)
   const [tradesOpen, setTradesOpen] = useState(false)
+  const [pnlBreakdownOpen, setPnlBreakdownOpen] = useState(false)
   const [days, setDays] = useState(30)
 
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
@@ -178,6 +179,8 @@ function AnalyticsDashboard({ token }) {
               label="總利潤"
               value={`$${Number(overview.total_profit || 0).toFixed(4)}`}
               color={overview.total_profit >= 0 ? 'emerald' : 'red'}
+              clickable
+              onClick={() => setPnlBreakdownOpen(true)}
             />
             <MiniStat
               icon={<Activity className="w-4 h-4" />}
@@ -563,11 +566,43 @@ function AnalyticsDashboard({ token }) {
           <p className="text-xs mt-1">機器人開始交易後將自動記錄</p>
         </div>
       )}
+
+      {pnlBreakdownOpen && overview && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/75" onClick={() => setPnlBreakdownOpen(false)} />
+          <div className="relative z-10 w-full max-w-lg rounded-xl border border-gray-700 bg-gray-900 p-5 sm:p-6 shadow-2xl">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-white">PnL Breakdown</h3>
+                <p className="text-xs text-gray-500 mt-1">點擊外部區域可關閉</p>
+              </div>
+              <button
+                onClick={() => setPnlBreakdownOpen(false)}
+                className="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-200 hover:bg-gray-700 transition-colors"
+              >
+                關閉
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <BreakdownStat label="Net PnL" value={overview.total_profit} positiveColor="text-emerald-400" negativeColor="text-red-400" />
+              <BreakdownStat label="Gross Profit" value={overview.gross_profit ?? 0} positiveColor="text-emerald-400" negativeColor="text-red-400" />
+              <BreakdownStat label="Gross Loss" value={overview.gross_loss ?? 0} positiveColor="text-emerald-400" negativeColor="text-red-400" />
+              <BreakdownStat label="Average Profit" value={overview.avg_profit ?? 0} positiveColor="text-emerald-400" negativeColor="text-red-400" />
+              <BreakdownStat label="Today Net PnL" value={overview.today_profit ?? 0} positiveColor="text-emerald-400" negativeColor="text-red-400" />
+              <BreakdownStat label="Today Profit" value={overview.today_gross_profit ?? 0} positiveColor="text-emerald-400" negativeColor="text-red-400" />
+              <BreakdownStat label="Today Loss" value={overview.today_gross_loss ?? 0} positiveColor="text-emerald-400" negativeColor="text-red-400" />
+              <BreakdownStat label="Best Trade" value={overview.best_trade ?? 0} positiveColor="text-emerald-400" negativeColor="text-red-400" />
+              <BreakdownStat label="Worst Trade" value={overview.worst_trade ?? 0} positiveColor="text-emerald-400" negativeColor="text-red-400" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function MiniStat({ icon, label, value, color = 'gray' }) {
+function MiniStat({ icon, label, value, color = 'gray', clickable = false, onClick }) {
   const colors = {
     emerald: 'border-emerald-500/20 text-emerald-400',
     blue: 'border-blue-500/20 text-blue-400',
@@ -579,12 +614,31 @@ function MiniStat({ icon, label, value, color = 'gray' }) {
   }
 
   return (
-    <div className={`bg-gray-800/50 border rounded-lg p-3 ${colors[color]?.split(' ')[0] || ''}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`bg-gray-800/50 border rounded-lg p-3 text-left w-full ${colors[color]?.split(' ')[0] || ''} ${clickable ? 'cursor-pointer hover:bg-gray-800/80 transition-all hover:scale-[1.01]' : 'cursor-default'}`}
+      disabled={!clickable}
+    >
       <div className="flex items-center gap-1.5 mb-1">
         <span className={colors[color]?.split(' ')[1] || 'text-gray-400'}>{icon}</span>
         <span className="text-[10px] text-gray-500">{label}</span>
       </div>
       <p className={`text-sm font-bold font-mono ${colors[color]?.split(' ')[1] || 'text-gray-400'}`}>{value}</p>
+    </button>
+  )
+}
+
+function BreakdownStat({ label, value, positiveColor, negativeColor }) {
+  const numericValue = Number(value || 0)
+  const colorClass = numericValue >= 0 ? positiveColor : negativeColor
+
+  return (
+    <div className="rounded-lg border border-gray-800 bg-gray-800/60 p-3">
+      <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-1">{label}</div>
+      <div className={`text-sm font-mono font-semibold ${colorClass}`}>
+        {numericValue > 0 ? '+' : ''}${numericValue.toFixed(4)}
+      </div>
     </div>
   )
 }

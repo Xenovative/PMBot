@@ -24,6 +24,7 @@ function AnalyticsDashboard({ token }) {
   const [activeTab, setActiveTab] = useState('overview')
   const [loading, setLoading] = useState(false)
   const [tradesOpen, setTradesOpen] = useState(false)
+  const [pnlBreakdownOpen, setPnlBreakdownOpen] = useState(false)
   const [days, setDays] = useState(30)
 
   const fetchAll = useCallback(async () => {
@@ -162,6 +163,8 @@ function AnalyticsDashboard({ token }) {
               label="總利潤"
               value={`$${overview.total_profit.toFixed(4)}`}
               color={overview.total_profit >= 0 ? 'emerald' : 'red'}
+              clickable
+              onClick={() => setPnlBreakdownOpen(true)}
             />
             <MiniStat
               icon={<Activity className="w-4 h-4" />}
@@ -543,11 +546,43 @@ function AnalyticsDashboard({ token }) {
           <p className="text-xs mt-1">機器人開始交易後將自動記錄</p>
         </div>
       )}
+
+      {pnlBreakdownOpen && overview && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/75" onClick={() => setPnlBreakdownOpen(false)} />
+          <div className="relative z-10 w-full max-w-lg cyber-panel p-5 sm:p-6">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-cyber neon-text-cyan">PnL Breakdown</h3>
+                <p className="text-xs text-gray-500 mt-1">點擊外部區域可關閉</p>
+              </div>
+              <button
+                onClick={() => setPnlBreakdownOpen(false)}
+                className="px-3 py-1.5 bg-black/30 border border-neon-cyan/20 rounded-lg text-xs text-neon-cyan hover:bg-neon-cyan/10 transition-all"
+              >
+                關閉
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <BreakdownStat label="Net PnL" value={overview.total_profit} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Gross Profit" value={overview.gross_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Gross Loss" value={overview.gross_loss ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Average Profit" value={overview.avg_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Today Net PnL" value={overview.today_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Today Profit" value={overview.today_gross_profit ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Today Loss" value={overview.today_gross_loss ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Best Trade" value={overview.best_trade ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+              <BreakdownStat label="Worst Trade" value={overview.worst_trade ?? 0} positiveColor="text-neon-green" negativeColor="text-neon-pink" />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function MiniStat({ icon, label, value, color = 'gray' }) {
+function MiniStat({ icon, label, value, color = 'gray', clickable = false, onClick }) {
   const neonMap = {
     emerald: { border: 'border-neon-green/20', text: 'text-neon-green', glow: 'neon-text-green' },
     blue: { border: 'border-neon-blue/20', text: 'text-neon-blue', glow: 'neon-text-cyan' },
@@ -560,12 +595,31 @@ function MiniStat({ icon, label, value, color = 'gray' }) {
   const n = neonMap[color] || neonMap.gray
 
   return (
-    <div className={`bg-black/30 backdrop-blur-sm border ${n.border} rounded-lg p-2 sm:p-3`}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`bg-black/30 backdrop-blur-sm border ${n.border} rounded-lg p-2 sm:p-3 text-left w-full ${clickable ? 'cursor-pointer hover:bg-white/5 transition-all hover:scale-[1.01]' : 'cursor-default'}`}
+      disabled={!clickable}
+    >
       <div className="flex items-center gap-1.5 mb-1">
         <span className={n.text}>{icon}</span>
         <span className="text-[10px] text-gray-500 uppercase tracking-wider">{label}</span>
       </div>
       <p className={`text-xs sm:text-sm font-bold font-mono ${n.glow || n.text}`}>{value}</p>
+    </button>
+  )
+}
+
+function BreakdownStat({ label, value, positiveColor, negativeColor }) {
+  const numericValue = Number(value || 0)
+  const colorClass = numericValue >= 0 ? positiveColor : negativeColor
+
+  return (
+    <div className="bg-black/30 border border-neon-cyan/10 rounded-lg p-3">
+      <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-1">{label}</div>
+      <div className={`text-sm font-mono font-semibold ${colorClass}`}>
+        {numericValue > 0 ? '+' : ''}${numericValue.toFixed(4)}
+      </div>
     </div>
   )
 }
