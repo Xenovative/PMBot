@@ -1177,7 +1177,14 @@ class ArbitrageEngine:
             available_shares = math.floor(max(available_shares, 0.0) * 100) / 100
             if available_shares <= 0:
                 self.status.add_log(f"  ⏳ {side_label} 尚無可賣餘額，等待結算中")
-                return {"success": False, "pending": False, "order_type": None, "response": None}
+                return {
+                    "success": False,
+                    "pending": True,
+                    "order_type": "settlement_pending",
+                    "response": None,
+                    "sell_price": buy_price,
+                    "shares": shares,
+                }
             if available_shares < shares:
                 self.status.add_log(
                     f"  ℹ️ {side_label} 可賣股數僅 {available_shares:.2f} / 目標 {shares:.2f}，改用可用股數平倉"
@@ -2303,8 +2310,9 @@ class ArbitrageEngine:
                     self.status.add_log(
                         f"⚡ [急跌護欄] {holding.market_slug} {holding.side} 跌 {drop_pct:.1f}% ≥ {self.config.bargain_plummet_exit_pct:.1f}% → 立刻平倉"
                     )
-                    if holding.pending_exit_order_id:
-                        self.status.add_log(f"⚡ [急跌護欄] 已有待成交退出單 {holding.pending_exit_order_id[:12]}，略過重複掛單")
+                    if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
+                        pending_exit_label = holding.pending_exit_order_id[:12] if holding.pending_exit_order_id else str(holding.pending_exit_reason or "settlement_pending")
+                        self.status.add_log(f"⚡ [急跌護欄] 已有待成交退出狀態 {pending_exit_label}，略過重複掛單")
                         continue
                     unwind_result = {"success": True, "pending": False, "order_type": None, "response": None}
                     if self.config.dry_run:
@@ -2434,8 +2442,9 @@ class ArbitrageEngine:
                     self.status.add_log(
                         f"🎯 [二次出場] {holding.market_slug} {holding.side} 利潤 {profit_pct_now:.2f}% ≥ {self.config.bargain_secondary_exit_profit_pct:.2f}% → 嘗試直接賣出"
                     )
-                    if holding.pending_exit_order_id:
-                        self.status.add_log(f"🎯 [二次出場] 已有待成交退出單 {holding.pending_exit_order_id[:12]}，略過重複掛單")
+                    if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
+                        pending_exit_label = holding.pending_exit_order_id[:12] if holding.pending_exit_order_id else str(holding.pending_exit_reason or "settlement_pending")
+                        self.status.add_log(f"🎯 [二次出場] 已有待成交退出狀態 {pending_exit_label}，略過重複掛單")
                         continue
                     unwind_result = {"success": True, "pending": False, "order_type": None, "response": None}
                     if self.config.dry_run:
@@ -2603,8 +2612,9 @@ class ArbitrageEngine:
                     f"買入: {holding.buy_price:.4f} → 現價: {current_price:.4f} "
                     f"(跌 {price_drop:.4f} >= {self.BARGAIN_STOP_LOSS_CENTS})"
                 )
-                if holding.pending_exit_order_id:
-                    self.status.add_log(f"🛑 [止損] 已有待成交退出單 {holding.pending_exit_order_id[:12]}，略過重複掛單")
+                if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
+                    pending_exit_label = holding.pending_exit_order_id[:12] if holding.pending_exit_order_id else str(holding.pending_exit_reason or "settlement_pending")
+                    self.status.add_log(f"🛑 [止損] 已有待成交退出狀態 {pending_exit_label}，略過重複掛單")
                     continue
                 if self.config.dry_run:
                     self.status.add_log(
