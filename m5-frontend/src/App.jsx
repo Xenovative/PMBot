@@ -612,37 +612,52 @@ function Dashboard({ token, authHeaders, onLogout }) {
                           <th className="text-left py-1.5 px-2 font-medium">市場</th>
                           <th className="text-center py-1.5 px-2 font-medium">方向</th>
                           <th className="text-right py-1.5 px-2 font-medium">買入</th>
+                          <th className="text-right py-1.5 px-2 font-medium">損益%</th>
                           <th className="text-right py-1.5 px-2 font-medium">股數</th>
                           <th className="text-right py-1.5 px-2 font-medium">金額</th>
                           <th className="text-center py-1.5 px-2 font-medium">狀態</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {effectiveStatus.bargain_holdings.map((h, i) => (
-                          <tr key={i} className="border-b border-neon-amber/5 hover:bg-neon-amber/5">
-                            <td className="py-1.5 px-2 font-mono text-neon-amber">R{h.round}</td>
-                            <td className="py-1.5 px-2 truncate max-w-[120px]" title={h.market_slug}>{h.market_slug}</td>
-                            <td className="py-1.5 px-2 text-center">
-                              <span className={`px-1.5 py-0.5 rounded-full ${
-                                h.side === 'UP' ? 'bg-neon-green/10 text-neon-green' : 'bg-neon-pink/10 text-neon-pink'
-                              }`}>
-                                {h.side}
-                              </span>
-                            </td>
-                            <td className="py-1.5 px-2 text-right font-mono">{h.buy_price?.toFixed(4)}</td>
-                            <td className="py-1.5 px-2 text-right font-mono">{h.shares?.toFixed(1)}</td>
-                            <td className="py-1.5 px-2 text-right font-mono">${h.amount_usd?.toFixed(2)}</td>
-                            <td className="py-1.5 px-2 text-center">
-                              <span className={`px-1.5 py-0.5 rounded-full ${
-                                h.status === 'holding' ? 'bg-neon-amber/10 text-neon-amber' :
-                                h.status === 'paired' ? 'bg-neon-green/10 text-neon-green' :
-                                'bg-neon-pink/10 text-neon-pink'
-                              }`}>
-                                {h.status === 'holding' ? '持有' : h.status === 'paired' ? '已配對' : '止損'}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
+                        {effectiveStatus.bargain_holdings.map((h, i) => {
+                          const livePriceInfo = effectiveStatus?.market_prices?.[h.market_slug]
+                          const currentHoldingPrice = h.side === 'UP'
+                            ? (livePriceInfo?.up_best_ask > 0 ? livePriceInfo.up_best_ask : livePriceInfo?.up_price)
+                            : (livePriceInfo?.down_best_ask > 0 ? livePriceInfo.down_best_ask : livePriceInfo?.down_price)
+                          const hasProfitPct = Number.isFinite(currentHoldingPrice) && Number.isFinite(h.buy_price) && h.buy_price > 0
+                          const holdingProfitPct = hasProfitPct
+                            ? ((currentHoldingPrice - h.buy_price) / h.buy_price) * 100
+                            : null
+
+                          return (
+                            <tr key={i} className="border-b border-neon-amber/5 hover:bg-neon-amber/5">
+                              <td className="py-1.5 px-2 font-mono text-neon-amber">R{h.round}</td>
+                              <td className="py-1.5 px-2 truncate max-w-[120px]" title={h.market_slug}>{h.market_slug}</td>
+                              <td className="py-1.5 px-2 text-center">
+                                <span className={`px-1.5 py-0.5 rounded-full ${
+                                  h.side === 'UP' ? 'bg-neon-green/10 text-neon-green' : 'bg-neon-pink/10 text-neon-pink'
+                                }`}>
+                                  {h.side}
+                                </span>
+                              </td>
+                              <td className="py-1.5 px-2 text-right font-mono">{h.buy_price?.toFixed(4)}</td>
+                              <td className={`py-1.5 px-2 text-right font-mono ${holdingProfitPct == null ? 'text-gray-500' : holdingProfitPct >= 0 ? 'text-neon-green' : 'text-neon-pink'}`}>
+                                {holdingProfitPct == null ? '--' : `${holdingProfitPct >= 0 ? '+' : ''}${holdingProfitPct.toFixed(2)}%`}
+                              </td>
+                              <td className="py-1.5 px-2 text-right font-mono">{h.shares?.toFixed(1)}</td>
+                              <td className="py-1.5 px-2 text-right font-mono">${h.amount_usd?.toFixed(2)}</td>
+                              <td className="py-1.5 px-2 text-center">
+                                <span className={`px-1.5 py-0.5 rounded-full ${
+                                  h.status === 'holding' ? 'bg-neon-amber/10 text-neon-amber' :
+                                  h.status === 'paired' ? 'bg-neon-green/10 text-neon-green' :
+                                  'bg-neon-pink/10 text-neon-pink'
+                                }`}>
+                                  {h.status === 'holding' ? '持有' : h.status === 'paired' ? '已配對' : '止損'}
+                                </span>
+                              </td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
