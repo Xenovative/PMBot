@@ -228,25 +228,27 @@ function Dashboard({ token, authHeaders, onLogout }) {
   }
 
   const effectiveStatus = useMemo(() => {
-    if (status && polledStatus) {
-      return {
-        ...status,
-        ...polledStatus,
-        trade_history: (status.trade_history?.length ?? 0) >= (polledStatus.trade_history?.length ?? 0)
-          ? status.trade_history
-          : polledStatus.trade_history,
-        current_opportunities: (status.current_opportunities?.length ?? 0) >= (polledStatus.current_opportunities?.length ?? 0)
-          ? status.current_opportunities
-          : polledStatus.current_opportunities,
-        bargain_holdings: (status.bargain_holdings?.length ?? 0) >= (polledStatus.bargain_holdings?.length ?? 0)
-          ? status.bargain_holdings
-          : polledStatus.bargain_holdings,
-        market_prices: Object.keys(status.market_prices || {}).length >= Object.keys(polledStatus.market_prices || {}).length
-          ? status.market_prices
-          : polledStatus.market_prices,
-      }
+    if (!status && !polledStatus) return null
+
+    const websocketStatus = status || {}
+    const fallbackPolledStatus = polledStatus || {}
+    const websocketTradeHistory = Array.isArray(websocketStatus.trade_history) ? websocketStatus.trade_history : []
+    const polledTradeHistory = Array.isArray(fallbackPolledStatus.trade_history) ? fallbackPolledStatus.trade_history : []
+    const websocketOpportunities = Array.isArray(websocketStatus.current_opportunities) ? websocketStatus.current_opportunities : []
+    const polledOpportunities = Array.isArray(fallbackPolledStatus.current_opportunities) ? fallbackPolledStatus.current_opportunities : []
+    const websocketHoldings = Array.isArray(websocketStatus.bargain_holdings) ? websocketStatus.bargain_holdings : []
+    const polledHoldings = Array.isArray(fallbackPolledStatus.bargain_holdings) ? fallbackPolledStatus.bargain_holdings : []
+    const websocketMarketPrices = websocketStatus.market_prices && typeof websocketStatus.market_prices === 'object' ? websocketStatus.market_prices : {}
+    const polledMarketPrices = fallbackPolledStatus.market_prices && typeof fallbackPolledStatus.market_prices === 'object' ? fallbackPolledStatus.market_prices : {}
+
+    return {
+      ...websocketStatus,
+      ...fallbackPolledStatus,
+      trade_history: websocketTradeHistory.length >= polledTradeHistory.length ? websocketTradeHistory : polledTradeHistory,
+      current_opportunities: websocketOpportunities.length >= polledOpportunities.length ? websocketOpportunities : polledOpportunities,
+      bargain_holdings: websocketHoldings.length >= polledHoldings.length ? websocketHoldings : polledHoldings,
+      market_prices: Object.keys(websocketMarketPrices).length >= Object.keys(polledMarketPrices).length ? websocketMarketPrices : polledMarketPrices,
     }
-    return status ?? polledStatus
   }, [status, polledStatus])
   const isRunning = effectiveStatus?.running || false
   const awaitingLossConfirmation = effectiveStatus?.awaiting_loss_confirmation || false
