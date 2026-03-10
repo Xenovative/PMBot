@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import AnalyticsDashboard from './AnalyticsDashboard'
 import LoginPage from './LoginPage'
