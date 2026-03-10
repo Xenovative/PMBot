@@ -457,6 +457,7 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "max_trades_per_market": config.max_trades_per_market,
         "trade_cooldown_seconds": config.trade_cooldown_seconds,
         "scan_interval_seconds": config.scan_interval_seconds,
+        "loss_pause_threshold": config.loss_pause_threshold,
         "velocity_window_points": config.velocity_window_points,
         "velocity_slow_threshold": config.velocity_slow_threshold,
         "velocity_fast_threshold": config.velocity_fast_threshold,
@@ -499,6 +500,7 @@ class ConfigUpdate(BaseModel):
     max_trades_per_market: Optional[int] = None
     trade_cooldown_seconds: Optional[int] = None
     scan_interval_seconds: Optional[int] = None
+    loss_pause_threshold: Optional[int] = None
     velocity_window_points: Optional[int] = None
     velocity_slow_threshold: Optional[float] = None
     velocity_fast_threshold: Optional[float] = None

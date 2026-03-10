@@ -42,6 +42,7 @@ class BotConfig(BaseModel):
     max_trades_per_market: int = _int("MAX_TRADES_PER_MARKET", 3)
     trade_cooldown_seconds: int = _int("TRADE_COOLDOWN_SECONDS", 15)
     scan_interval_seconds: int = _int("SCAN_INTERVAL_SECONDS", 2)
+    loss_pause_threshold: int = _int("LOSS_PAUSE_THRESHOLD", 2)
     # Velocity tracking (single-speed reporting only)
     velocity_window_points: int = _int("VELOCITY_WINDOW_POINTS", 4)
     velocity_slow_threshold: float = _float("VELOCITY_SLOW_THRESHOLD", 0.002)

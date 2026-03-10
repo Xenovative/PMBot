@@ -283,7 +283,7 @@ class ArbitrageEngine:
         self.status.dynamic_bargain_window_seconds = getattr(config, "bargain_open_time_window_seconds", 240)
         self.status.dynamic_bargain_bounds_enabled = getattr(config, "bargain_dynamic_bounds_enabled", True)
         self._pending_unwind_kv_key = "pending_gtc_unwinds"
-        self._loss_pause_threshold = 2
+        self._loss_pause_threshold = max(1, int(getattr(config, "loss_pause_threshold", 2) or 2))
 
     def _mark_realized_pnl(self, realized_profit: float):
         normalized_profit = float(realized_profit or 0.0)
