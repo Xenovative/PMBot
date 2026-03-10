@@ -185,6 +185,17 @@ class BotStatus:
     def increment_trades_for_market(self, slug: str):
         self.trades_per_market[slug] = self.trades_per_market.get(slug, 0) + 1
 
+    def decrement_trades_for_market(self, slug: str):
+        current_trade_count = self.trades_per_market.get(slug, 0)
+        if current_trade_count <= 0:
+            self.trades_per_market.pop(slug, None)
+            return
+        updated_trade_count = current_trade_count - 1
+        if updated_trade_count <= 0:
+            self.trades_per_market.pop(slug, None)
+            return
+        self.trades_per_market[slug] = updated_trade_count
+
     def add_log(self, msg: str):
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         entry = f"[{ts}] {msg}"
@@ -229,7 +240,12 @@ class BotStatus:
             "logs": logs_for_status,
             "trade_history": [t.to_dict() for t in self.trade_history[-20:]],
             "current_opportunities": [o.to_dict() for o in self.current_opportunities],
-            "bargain_holdings": [h.to_dict() for h in self.bargain_holdings if h.status == "holding"],
+            "bargain_holdings": [
+                h.to_dict()
+                for h in self.bargain_holdings
+                if h.status == "holding"
+                and getattr(getattr(h, "market", None), "time_remaining_seconds", 1) > 0
+            ],
         }
 
 
@@ -368,12 +384,25 @@ class ArbitrageEngine:
                 except (TypeError, ValueError):
                     continue
 
-        realized_size = pending_payload.get("shares") or stored_trade.get("order_size", 0)
+        requested_size = float(pending_payload.get("shares") or 0)
+        filled_size, order_marked_filled = self._parse_order_fill_state(order_payload or {})
+        realized_size = filled_size if filled_size > 0 else requested_size
+        if requested_size > 0:
+            realized_size = min(realized_size, requested_size)
+        if realized_size <= 0:
+            return
+        remaining_size = max(0.0, requested_size - realized_size)
+        is_partial_fill = remaining_size > 0.0001 and not order_marked_filled
         buy_price = pending_payload.get("buy_price") or 0
         try:
             realized_profit = (float(exit_price) - float(buy_price)) * float(realized_size)
         except (TypeError, ValueError):
             realized_profit = 0.0
+
+        prior_realized_size = float(stored_trade.get("order_size", 0) or 0)
+        prior_realized_profit = float(stored_trade.get("profit", 0) or 0)
+        cumulative_realized_size = prior_realized_size + float(realized_size)
+        cumulative_realized_profit = prior_realized_profit + float(realized_profit)
 
         realized_total_cost = float(stored_trade.get("total_cost", 0) or 0)
         if pending_payload.get("side_label") == "UP":
@@ -392,9 +421,15 @@ class ArbitrageEngine:
             profit_pct = realized_profit / cost_basis * 100
 
         existing_details = str(stored_trade.get("details", "") or "")
+        if is_partial_fill:
+            reconciliation_suffix = (
+                f"⚠️ GTC 部分成交 {float(realized_size):.2f}/{float(requested_size):.2f} 股 @ {float(exit_price):.4f}"
+            )
+        else:
+            reconciliation_suffix = f"✅ GTC 已成交 @ {float(exit_price):.4f}"
         reconciliation_details = (
-            f"{existing_details} | ✅ GTC 已成交 @ {float(exit_price):.4f}"
-            if existing_details else f"✅ GTC 已成交 @ {float(exit_price):.4f}"
+            f"{existing_details} | {reconciliation_suffix}"
+            if existing_details else reconciliation_suffix
         )
 
         trade_db.update_trade(
@@ -402,10 +437,10 @@ class ArbitrageEngine:
             up_price=updated_up_price,
             down_price=updated_down_price,
             total_cost=realized_total_cost,
-            order_size=float(realized_size),
-            profit=realized_profit,
+            order_size=cumulative_realized_size,
+            profit=cumulative_realized_profit,
             profit_pct=profit_pct,
-            status="executed",
+            status="pending" if is_partial_fill else "executed",
             details=reconciliation_details,
         )
         trade_db.rebuild_daily_summary()
@@ -413,10 +448,10 @@ class ArbitrageEngine:
         self.status.total_profit += realized_profit
         for trade_record in reversed(self.status.trade_history):
             if trade_record.timestamp == stored_trade.get("timestamp") and trade_record.market_slug == stored_trade.get("market_slug"):
-                trade_record.status = "executed"
+                trade_record.status = "pending" if is_partial_fill else "executed"
                 trade_record.total_cost = realized_total_cost
-                trade_record.order_size = float(realized_size)
-                trade_record.expected_profit = realized_profit
+                trade_record.order_size = cumulative_realized_size
+                trade_record.expected_profit = cumulative_realized_profit
                 trade_record.profit_pct = profit_pct
                 trade_record.details = reconciliation_details
                 if pending_payload.get("side_label") == "UP":
@@ -425,12 +460,24 @@ class ArbitrageEngine:
                     trade_record.down_price = float(exit_price)
                 break
 
+        matched_holding = self._find_pending_unwind_holding(pending_payload)
+        if is_partial_fill:
+            if matched_holding:
+                matched_holding.shares = max(0.0, float(matched_holding.shares) - float(realized_size))
+                matched_holding.amount_usd = max(0.0, float(matched_holding.buy_price) * float(matched_holding.shares))
+                pending_payload["shares"] = remaining_size
+                self._queue_pending_unwind(pending_payload)
+            self.status.add_log(
+                f"⚠️ 已確認待成交 GTC 部分成交 | {pending_payload.get('market_slug', '')} {pending_payload.get('side_label', '')} | "
+                f"已成交 {float(realized_size):.2f} / 剩餘 {float(remaining_size):.2f} 股 @ {float(exit_price):.4f}"
+            )
+            return
+
         self.status.add_log(
             f"✅ 已確認待成交 GTC 成交 | {pending_payload.get('market_slug', '')} {pending_payload.get('side_label', '')} | "
             f"{float(realized_size):.2f} 股 @ {float(exit_price):.4f}"
         )
         pending_holding_reason = str(pending_payload.get("holding_exit_reason", "") or "")
-        matched_holding = self._find_pending_unwind_holding(pending_payload)
         if matched_holding:
             if pending_holding_reason == "tp-sniper":
                 matched_holding.status = "paired"
@@ -536,6 +583,48 @@ class ArbitrageEngine:
         holding.pending_exit_reason = None
         holding.pending_exit_trade_id = None
 
+    def _release_failed_bargain_slot(self, holding: Optional[BargainHolding]):
+        if not holding:
+            return
+        holding_market_slug = str(getattr(holding, "market_slug", "") or "")
+        if not holding_market_slug:
+            return
+        self.status.decrement_trades_for_market(holding_market_slug)
+        if self.status.total_trades > 0:
+            self.status.total_trades -= 1
+
+    def _cancel_pending_unwind_order(self, clob_client, order_id: str) -> bool:
+        normalized_order_id = str(order_id or "")
+        if not normalized_order_id:
+            return False
+        try:
+            cancel_response = clob_client.cancel_orders([normalized_order_id])
+            self.status.add_log(f"⚠️ 已取消待成交 GTC 剩餘單: {normalized_order_id[:12]}")
+            return bool(cancel_response is not None)
+        except Exception as e:
+            self.status.add_log(f"⚠️ 取消待成交 GTC {normalized_order_id[:12]} 失敗: {str(e)[:120]}")
+            return False
+
+    def _should_cancel_stale_pending_unwind(self, pending_payload: Dict[str, Any], matched_holding: Optional[BargainHolding]) -> Tuple[bool, str]:
+        pending_created_at_ms = int(pending_payload.get("created_at_ms", 0) or 0)
+        pending_age_seconds = 0.0
+        if pending_created_at_ms > 0:
+            pending_age_seconds = max(0.0, (time.time() * 1000 - pending_created_at_ms) / 1000.0)
+
+        stale_timeout_seconds = 30.0
+        if pending_age_seconds >= stale_timeout_seconds:
+            return True, f"逾時 {pending_age_seconds:.1f}s"
+
+        holding_time_remaining = getattr(getattr(matched_holding, "market", None), "time_remaining_seconds", None)
+        if holding_time_remaining is not None and holding_time_remaining <= 5:
+            return True, f"臨近到期 {holding_time_remaining:.1f}s"
+
+        pending_remaining_shares = float(pending_payload.get("shares", 0) or 0)
+        if pending_remaining_shares <= 0.01:
+            return True, f"剩餘股數過小 {pending_remaining_shares:.4f}"
+
+        return False, ""
+
     async def reconcile_pending_unwinds(self):
         pending_unwinds = self._load_pending_unwinds()
         if not pending_unwinds or self.config.dry_run:
@@ -553,6 +642,8 @@ class ArbitrageEngine:
                 self._remove_pending_unwind(order_id)
                 continue
 
+            matched_holding = self._find_pending_unwind_holding(pending_payload)
+
             order_payload = None
             try:
                 order_payload = clob_client.get_order(order_id)
@@ -569,7 +660,34 @@ class ArbitrageEngine:
                 self._finalize_pending_unwind_fill(pending_payload, fill_trade, order_payload)
                 continue
 
+            if filled_size > 0:
+                fill_trade = self._find_trade_fill_for_asset(
+                    clob_client,
+                    str(pending_payload.get("token_id", "") or ""),
+                    int(pending_payload.get("created_at_ms", 0) or 0),
+                )
+                self._finalize_pending_unwind_fill(pending_payload, fill_trade, order_payload)
+                continue
+
             order_status_text = str((order_payload or {}).get("status", "")).lower()
+            if order_status_text in {"live", "open", "active", "partially_filled", "partial", "partially-filled"}:
+                should_cancel_stale_order, stale_reason = self._should_cancel_stale_pending_unwind(pending_payload, matched_holding)
+                if should_cancel_stale_order:
+                    self._cancel_pending_unwind_order(clob_client, order_id)
+                    if matched_holding:
+                        self._clear_holding_pending_exit(matched_holding)
+                    stored_trade = trade_db.get_trade_by_id(int(pending_payload.get("trade_id", 0) or 0))
+                    if stored_trade:
+                        details_text = str(stored_trade.get("details", "") or "")
+                        trade_db.update_trade(
+                            int(pending_payload.get("trade_id")),
+                            details=f"{details_text} | ⚠️ GTC 剩餘單已清除 ({stale_reason})" if details_text else f"⚠️ GTC 剩餘單已清除 ({stale_reason})",
+                        )
+                        trade_db.rebuild_daily_summary()
+                    self.status.add_log(f"⚠️ 待成交 GTC 剩餘單已清除: {order_id[:12]} | {stale_reason}")
+                    self._remove_pending_unwind(order_id)
+                continue
+
             if order_status_text in {"cancelled", "canceled", "expired"}:
                 stored_trade = trade_db.get_trade_by_id(int(pending_payload.get("trade_id", 0) or 0))
                 if stored_trade:
@@ -579,8 +697,7 @@ class ArbitrageEngine:
                         details=f"{details_text} | ⚠️ GTC 未成交 ({order_status_text})" if details_text else f"⚠️ GTC 未成交 ({order_status_text})",
                     )
                     trade_db.rebuild_daily_summary()
-                cancelled_holding = self._find_holding_by_timestamp(str(pending_payload.get("holding_timestamp", "") or ""))
-                self._clear_holding_pending_exit(cancelled_holding)
+                self._clear_holding_pending_exit(matched_holding)
                 self.status.add_log(f"⚠️ 待成交 GTC 未完成並已{order_status_text}: {order_id[:12]}")
                 self._remove_pending_unwind(order_id)
 
@@ -2065,6 +2182,17 @@ class ArbitrageEngine:
             return
 
         for holding in active:
+            market_time_remaining = getattr(holding.market, "time_remaining_seconds", None)
+            if market_time_remaining is not None and market_time_remaining <= 0:
+                self._clear_holding_pending_exit(holding)
+                holding.status = "stopped_out"
+                self._release_failed_bargain_slot(holding)
+                self._remove_bargain_holding(holding)
+                self.status.add_log(
+                    f"⌛ [到期清理] {holding.market_slug} {holding.side} 已到期，從持倉列表移除"
+                )
+                continue
+
             # 獲取最新價格
             price_info = await self.get_prices(holding.market)
             if not price_info:
