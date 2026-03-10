@@ -362,6 +362,72 @@ class ArbitrageEngine:
             is_filled = True
         return filled_size, is_filled
 
+    def _record_realized_pending_unwind_fill(
+        self,
+        stored_trade: Dict[str, Any],
+        pending_payload: Dict[str, Any],
+        exit_price: float,
+        realized_size: float,
+        realized_profit: float,
+        is_partial_fill: bool,
+    ):
+        side_label = str(pending_payload.get("side_label", "") or "")
+        stored_trade_type = str(stored_trade.get("trade_type", "bargain_stop") or "bargain_stop")
+        stored_market_slug = str(stored_trade.get("market_slug", "") or "")
+        stored_timestamp = str(stored_trade.get("timestamp", "") or datetime.now(timezone.utc).isoformat())
+        stored_details = str(stored_trade.get("details", "") or "")
+
+        if side_label == "UP":
+            realized_up_price = float(exit_price)
+            realized_down_price = float(stored_trade.get("down_price", 0) or 0)
+        elif side_label == "DOWN":
+            realized_up_price = float(stored_trade.get("up_price", 0) or 0)
+            realized_down_price = float(exit_price)
+        else:
+            realized_up_price = float(stored_trade.get("up_price", 0) or 0)
+            realized_down_price = float(stored_trade.get("down_price", 0) or 0)
+
+        realized_cost_basis = float(pending_payload.get("buy_price", 0) or 0) * float(realized_size)
+        realized_profit_pct = 0.0
+        if realized_cost_basis > 0:
+            realized_profit_pct = float(realized_profit) / realized_cost_basis * 100
+
+        fill_details_suffix = (
+            f"⚠️ GTC 部分成交 @ {float(exit_price):.4f}"
+            if is_partial_fill else f"✅ GTC 已成交 @ {float(exit_price):.4f}"
+        )
+        fill_details = f"{stored_details} | {fill_details_suffix}" if stored_details else fill_details_suffix
+
+        trade_db.record_trade(
+            timestamp=stored_timestamp,
+            market_slug=stored_market_slug,
+            trade_type=stored_trade_type,
+            side=side_label,
+            up_price=realized_up_price,
+            down_price=realized_down_price,
+            total_cost=realized_cost_basis,
+            order_size=float(realized_size),
+            profit=float(realized_profit),
+            profit_pct=float(realized_profit_pct),
+            status="executed",
+            details=fill_details,
+        )
+
+        realized_record = TradeRecord(
+            timestamp=stored_timestamp,
+            market_slug=stored_market_slug,
+            up_price=realized_up_price,
+            down_price=realized_down_price,
+            total_cost=realized_cost_basis,
+            order_size=float(realized_size),
+            expected_profit=float(realized_profit),
+            profit_pct=float(realized_profit_pct),
+            status="executed",
+            details=fill_details,
+        )
+        self.status.trade_history.append(realized_record)
+        self.status.total_profit += float(realized_profit)
+
     def _finalize_pending_unwind_fill(self, pending_payload: Dict[str, Any], fill_trade: Optional[Dict[str, Any]], order_payload: Optional[Dict[str, Any]]):
         trade_id = pending_payload.get("trade_id")
         if not trade_id:
@@ -399,27 +465,6 @@ class ArbitrageEngine:
         except (TypeError, ValueError):
             realized_profit = 0.0
 
-        prior_realized_size = float(stored_trade.get("order_size", 0) or 0)
-        prior_realized_profit = float(stored_trade.get("profit", 0) or 0)
-        cumulative_realized_size = prior_realized_size + float(realized_size)
-        cumulative_realized_profit = prior_realized_profit + float(realized_profit)
-
-        realized_total_cost = float(stored_trade.get("total_cost", 0) or 0)
-        if pending_payload.get("side_label") == "UP":
-            updated_up_price = float(exit_price)
-            updated_down_price = float(stored_trade.get("down_price", 0) or 0)
-        elif pending_payload.get("side_label") == "DOWN":
-            updated_up_price = float(stored_trade.get("up_price", 0) or 0)
-            updated_down_price = float(exit_price)
-        else:
-            updated_up_price = float(stored_trade.get("up_price", 0) or 0)
-            updated_down_price = float(stored_trade.get("down_price", 0) or 0)
-
-        profit_pct = 0.0
-        cost_basis = float(buy_price) * float(realized_size)
-        if cost_basis > 0:
-            profit_pct = realized_profit / cost_basis * 100
-
         existing_details = str(stored_trade.get("details", "") or "")
         if is_partial_fill:
             reconciliation_suffix = (
@@ -432,33 +477,21 @@ class ArbitrageEngine:
             if existing_details else reconciliation_suffix
         )
 
+        self._record_realized_pending_unwind_fill(
+            stored_trade,
+            pending_payload,
+            float(exit_price),
+            float(realized_size),
+            float(realized_profit),
+            is_partial_fill,
+        )
+
         trade_db.update_trade(
             int(trade_id),
-            up_price=updated_up_price,
-            down_price=updated_down_price,
-            total_cost=realized_total_cost,
-            order_size=cumulative_realized_size,
-            profit=cumulative_realized_profit,
-            profit_pct=profit_pct,
             status="pending" if is_partial_fill else "executed",
             details=reconciliation_details,
         )
         trade_db.rebuild_daily_summary()
-
-        self.status.total_profit += realized_profit
-        for trade_record in reversed(self.status.trade_history):
-            if trade_record.timestamp == stored_trade.get("timestamp") and trade_record.market_slug == stored_trade.get("market_slug"):
-                trade_record.status = "pending" if is_partial_fill else "executed"
-                trade_record.total_cost = realized_total_cost
-                trade_record.order_size = cumulative_realized_size
-                trade_record.expected_profit = cumulative_realized_profit
-                trade_record.profit_pct = profit_pct
-                trade_record.details = reconciliation_details
-                if pending_payload.get("side_label") == "UP":
-                    trade_record.up_price = float(exit_price)
-                elif pending_payload.get("side_label") == "DOWN":
-                    trade_record.down_price = float(exit_price)
-                break
 
         matched_holding = self._find_pending_unwind_holding(pending_payload)
         if is_partial_fill:
