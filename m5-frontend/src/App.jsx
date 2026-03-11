@@ -1204,30 +1204,6 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 value={configForm.min_liquidity ?? 50}
                 onChange={(v) => setConfigForm({ ...configForm, min_liquidity: parseFloat(v) })}
               />
-              <div className="flex items-center gap-3">
-                <label className="text-sm text-gray-400">BTC 價差趨勢鎖定</label>
-                <button
-                  onClick={() => setConfigForm({ ...configForm, price_edge_distance_gate_enabled_btc: !configForm.price_edge_distance_gate_enabled_btc })}
-                  className={`relative w-12 h-6 rounded-full transition-all ${
-                    configForm.price_edge_distance_gate_enabled_btc !== false ? 'bg-neon-cyan/40 shadow-neon-cyan' : 'bg-gray-700'
-                  }`}
-                >
-                  <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-                    configForm.price_edge_distance_gate_enabled_btc !== false ? 'left-6' : 'left-0.5'
-                  }`} />
-                </button>
-                <span className="text-xs text-gray-500">
-                  {configForm.price_edge_distance_gate_enabled_btc !== false ? '啟用' : '停用'}
-                </span>
-              </div>
-              <ConfigField
-                label="BTC 價差觸發門檻 ($)"
-                type="number"
-                step="1"
-                value={configForm.price_edge_min_distance_usd_btc ?? 70}
-                onChange={(v) => setConfigForm({ ...configForm, price_edge_min_distance_usd_btc: parseFloat(v) })}
-                hint="當 RTDS 現價與參考價價差達此門檻時，才依趨勢方向鎖定進場"
-              />
               <ConfigField
                 label="監控幣種 (逗號分隔)"
                 value={(configForm.crypto_symbols || []).join(',')}
@@ -1248,6 +1224,38 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 <span className="text-xs text-gray-500">
                   {configForm.dry_run !== false ? '開啟 (安全)' : '關閉 (真實交易!)'}
                 </span>
+              </div>
+            </div>
+
+            <div className="border-t border-neon-cyan/15 pt-4 mt-2">
+              <h3 className="text-sm font-medium neon-text-cyan mb-3 flex items-center gap-2">
+                ₿ BTC RTDS 價差策略
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-gray-400">價差趨勢鎖定</label>
+                  <button
+                    onClick={() => setConfigForm({ ...configForm, price_edge_distance_gate_enabled_btc: !configForm.price_edge_distance_gate_enabled_btc })}
+                    className={`relative w-12 h-6 rounded-full transition-all ${
+                      configForm.price_edge_distance_gate_enabled_btc !== false ? 'bg-neon-cyan/40 shadow-neon-cyan' : 'bg-gray-700'
+                    }`}
+                  >
+                    <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                      configForm.price_edge_distance_gate_enabled_btc !== false ? 'left-6' : 'left-0.5'
+                    }`} />
+                  </button>
+                  <span className="text-xs text-gray-500">
+                    {configForm.price_edge_distance_gate_enabled_btc !== false ? '啟用' : '停用'}
+                  </span>
+                </div>
+                <ConfigField
+                  label="價差觸發門檻 ($)"
+                  type="number"
+                  step="1"
+                  value={configForm.price_edge_min_distance_usd_btc ?? 70}
+                  onChange={(v) => setConfigForm({ ...configForm, price_edge_min_distance_usd_btc: parseFloat(v) })}
+                  hint="當 RTDS 現價與參考價價差達此門檻時，才依趨勢方向鎖定進場"
+                />
               </div>
             </div>
 
