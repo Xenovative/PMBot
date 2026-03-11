@@ -597,6 +597,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
                                       參考 {formatUsdPrice(price.reference_price, 2)}
                                       {hasDistancePct ? ` · ${distancePct >= 0 ? '+' : ''}${(distancePct * 100).toFixed(3)}%` : ''}
                                     </span>
+                                    <span className="text-[9px] text-gray-600 max-w-[240px] truncate" title={price.reference_price_source || price.reference_source || ''}>
+                                      {price.reference_price_source || price.reference_source || ''}
+                                    </span>
                                   </div>
                                 </td>
                                 <td className="text-right py-2 px-2 font-mono text-white">
@@ -759,6 +762,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
                             <span className="text-gray-400">
                               參考
                               <span className="ml-1 font-mono text-white">{formatUsdPrice(opp.price_info?.reference_price, 2)}</span>
+                            </span>
+                            <span className="text-gray-500 max-w-full truncate" title={opp.market?.reference_price_source || opp.price_info?.reference_source || opp.market?.reference_source || ''}>
+                              {opp.market?.reference_price_source || opp.price_info?.reference_source || opp.market?.reference_source || ''}
                             </span>
                             <span className="text-gray-400">
                               偏向

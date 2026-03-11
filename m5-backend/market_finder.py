@@ -39,6 +39,7 @@ class MarketInfo:
         self.id = raw.get("id", "")
         self.question = raw.get("question", "")
         self.slug = raw.get("slug", "")
+        self.start_date = raw.get("startTime") or raw.get("startDate") or ""
         self.end_date = raw.get("endDate", "")
         self.active = raw.get("active", False)
         self.closed = raw.get("closed", False)
@@ -139,6 +140,15 @@ class MarketInfo:
         return ids[1] if len(ids) >= 2 else None
 
     @property
+    def start_datetime(self) -> Optional[datetime]:
+        if self.start_date:
+            try:
+                return datetime.fromisoformat(self.start_date.replace("Z", "+00:00"))
+            except:
+                return None
+        return None
+
+    @property
     def end_datetime(self) -> Optional[datetime]:
         if self.end_date:
             try:
@@ -170,6 +180,7 @@ class MarketInfo:
             "id": self.id,
             "question": self.question,
             "slug": self.slug,
+            "start_date": self.start_date,
             "end_date": self.end_date,
             "active": self.active,
             "closed": self.closed,
@@ -194,6 +205,7 @@ class MarketFinder:
     def __init__(self, config: BotConfig):
         self.config = config
         self.gamma_host = config.GAMMA_HOST
+        self._reference_price_cache: Dict[str, Optional[float]] = {}
 
     async def _fetch_underlying_prices_from_coingecko(self, normalized_symbols: List[str]) -> Dict[str, float]:
         coingecko_ids = {
@@ -276,6 +288,64 @@ class MarketFinder:
                     prices_by_symbol[symbol] = fallback_price
         return prices_by_symbol
 
+    async def _fetch_fallback_reference_price(self, symbol: str, start_datetime: Optional[datetime]) -> Optional[float]:
+        normalized_symbol = str(symbol or "").strip().lower()
+        if not normalized_symbol or start_datetime is None:
+            return None
+        bucket_timestamp = int(start_datetime.timestamp())
+        cache_key = f"{normalized_symbol}:{bucket_timestamp}"
+        if cache_key in self._reference_price_cache:
+            return self._reference_price_cache[cache_key]
+        coingecko_ids = {
+            "btc": "bitcoin",
+            "eth": "ethereum",
+            "sol": "solana",
+        }
+        coin_id = coingecko_ids.get(normalized_symbol)
+        if not coin_id:
+            self._reference_price_cache[cache_key] = None
+            return None
+        range_start = bucket_timestamp - 120
+        range_end = bucket_timestamp + 120
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart/range",
+                    params={
+                        "vs_currency": "usd",
+                        "from": range_start,
+                        "to": range_end,
+                    },
+                    headers={"accept": "application/json"},
+                )
+                if response.status_code != 200:
+                    self._reference_price_cache[cache_key] = None
+                    return None
+                payload = response.json() or {}
+        except Exception:
+            self._reference_price_cache[cache_key] = None
+            return None
+        price_points = payload.get("prices") or []
+        closest_price: Optional[float] = None
+        closest_distance_ms: Optional[int] = None
+        target_timestamp_ms = bucket_timestamp * 1000
+        for price_point in price_points:
+            if not isinstance(price_point, list) or len(price_point) < 2:
+                continue
+            observed_timestamp_ms = price_point[0]
+            observed_price = _safe_float(price_point[1])
+            if observed_price is None or observed_price <= 0:
+                continue
+            try:
+                timestamp_distance_ms = abs(int(observed_timestamp_ms) - target_timestamp_ms)
+            except (TypeError, ValueError):
+                continue
+            if closest_distance_ms is None or timestamp_distance_ms < closest_distance_ms:
+                closest_distance_ms = timestamp_distance_ms
+                closest_price = observed_price
+        self._reference_price_cache[cache_key] = closest_price
+        return closest_price
+
     def _resolve_underlying_price_source_label(self, symbol: str) -> Optional[str]:
         normalized_symbol = str(symbol or "").strip().lower()
         if normalized_symbol == "btc":
@@ -289,7 +359,9 @@ class MarketFinder:
     def _resolve_reference_price_source_label(self, symbol: str, market: MarketInfo) -> Optional[str]:
         normalized_symbol = str(symbol or "").strip().lower()
         if normalized_symbol == "btc":
-            return "Chainlink BTC/USD CEX Price Stream"
+            if getattr(market, "reference_price", None):
+                return "Chainlink BTC/USD CEX Price Stream"
+            return "Estimated bucket-open reference (fallback, not Chainlink official)"
         existing_reference_source = getattr(market, "reference_source", None)
         if existing_reference_source:
             return str(existing_reference_source)
@@ -352,6 +424,11 @@ class MarketFinder:
             markets = await self._fetch_markets(crypto)
             for m in self._filter_by_window(markets):
                 if m.id not in seen_ids:
+                    if not getattr(m, "reference_price", None):
+                        fallback_reference_price = await self._fetch_fallback_reference_price(crypto, m.start_datetime)
+                        if fallback_reference_price is not None and fallback_reference_price > 0:
+                            m.reference_price = fallback_reference_price
+                            m.reference_source = "bucket_open_fallback"
                     m.underlying_symbol = crypto.upper()
                     m.underlying_price = underlying_prices.get(crypto)
                     m.underlying_price_source = self._resolve_underlying_price_source_label(crypto)
