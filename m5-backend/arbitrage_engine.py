@@ -2996,20 +2996,38 @@ class ArbitrageEngine:
 
         if opportunity.is_viable:
             self.status.opportunities_found += 1
-            self.status.add_log(
-                f"💰 發現套利機會! {market.slug} | "
-                f"UP: {price_info.up_price:.4f} DOWN: {price_info.down_price:.4f} | "
-                f"總成本: {price_info.total_cost:.4f} | "
-                f"利潤: ${opportunity.potential_profit:.4f} ({opportunity.profit_pct:.2f}%)"
-            )
+            if opportunity.trend_lock_active and opportunity.trend_lock_side:
+                distance_text = "--"
+                if price_info.distance_to_reference is not None:
+                    distance_text = f"${abs(price_info.distance_to_reference):.2f}"
+                self.status.add_log(
+                    f"🧭 BTC RTDS 趨勢鎖定可進場! {market.slug} | "
+                    f"方向: {opportunity.trend_lock_side} | 距離: {distance_text} | "
+                    f"UP: {price_info.up_price:.4f} DOWN: {price_info.down_price:.4f}"
+                )
+            else:
+                self.status.add_log(
+                    f"💰 發現套利機會! {market.slug} | "
+                    f"UP: {price_info.up_price:.4f} DOWN: {price_info.down_price:.4f} | "
+                    f"總成本: {price_info.total_cost:.4f} | "
+                    f"利潤: ${opportunity.potential_profit:.4f} ({opportunity.profit_pct:.2f}%)"
+                )
         else:
             if self.status.scan_count % 5 == 0:
                 price_context_suffix = f" | {price_info.price_edge_summary}" if price_info.price_edge_summary else ""
-                self.status.add_log(
-                    f"🔍 掃描 #{self.status.scan_count} | {market.slug} | "
-                    f"UP: {price_info.up_price:.4f} DOWN: {price_info.down_price:.4f} | "
-                    f"總成本: {price_info.total_cost:.4f} | {opportunity.reason}{price_context_suffix}"
-                )
+                if str(price_info.underlying_symbol or "").strip().upper() == "BTC":
+                    self.status.add_log(
+                        f"🧭 BTC RTDS 掃描 #{self.status.scan_count} | {market.slug} | "
+                        f"UP: {price_info.up_price:.4f} DOWN: {price_info.down_price:.4f} | "
+                        f"現貨差: {price_info.distance_to_reference if price_info.distance_to_reference is not None else '--'} | "
+                        f"{opportunity.reason}{price_context_suffix}"
+                    )
+                else:
+                    self.status.add_log(
+                        f"🔍 掃描 #{self.status.scan_count} | {market.slug} | "
+                        f"UP: {price_info.up_price:.4f} DOWN: {price_info.down_price:.4f} | "
+                        f"總成本: {price_info.total_cost:.4f} | {opportunity.reason}{price_context_suffix}"
+                    )
 
         return opportunity
 
