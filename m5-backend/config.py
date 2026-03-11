@@ -62,6 +62,8 @@ class BotConfig(BaseModel):
     crypto_symbols: List[str] = _str("CRYPTO_SYMBOLS", "btc,eth,sol").split(",")
     price_edge_distance_gate_enabled_btc: bool = _bool("PRICE_EDGE_DISTANCE_GATE_ENABLED_BTC", True)
     price_edge_min_distance_usd_btc: float = _float("PRICE_EDGE_MIN_DISTANCE_USD_BTC", 70.0)
+    price_edge_distance_decay_start_seconds_btc: int = _int("PRICE_EDGE_DISTANCE_DECAY_START_SECONDS_BTC", 300)
+    price_edge_distance_floor_multiplier_btc: float = _float("PRICE_EDGE_DISTANCE_FLOOR_MULTIPLIER_BTC", 0.5)
 
     # Bargain Hunter Settings
     bargain_enabled: bool = _bool("BARGAIN_ENABLED", True)

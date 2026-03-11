@@ -971,6 +971,9 @@ class ArbitrageEngine:
             reference_distance_threshold = float(getattr(self.config, "price_edge_min_distance_pct", 0.0015) or 0.0015)
             btc_distance_gate_enabled = bool(getattr(self.config, "price_edge_distance_gate_enabled_btc", True))
             btc_min_distance_usd = float(getattr(self.config, "price_edge_min_distance_usd_btc", 70.0) or 70.0)
+            btc_decay_start_seconds = max(1, int(getattr(self.config, "price_edge_distance_decay_start_seconds_btc", 300) or 300))
+            btc_floor_multiplier = float(getattr(self.config, "price_edge_distance_floor_multiplier_btc", 0.5) or 0.5)
+            btc_floor_multiplier = min(1.0, max(0.05, btc_floor_multiplier))
             distance_to_reference = price_info.distance_to_reference
             if (
                 btc_distance_gate_enabled
@@ -979,9 +982,19 @@ class ArbitrageEngine:
                 and distance_to_reference is not None
             ):
                 absolute_distance_usd = abs(distance_to_reference)
-                if absolute_distance_usd < btc_min_distance_usd:
+                market_time_remaining_seconds = max(0.0, float(getattr(market, "time_remaining_seconds", 0.0) or 0.0))
+                if market_time_remaining_seconds >= btc_decay_start_seconds:
+                    btc_effective_distance_usd = btc_min_distance_usd
+                else:
+                    time_progress_ratio = market_time_remaining_seconds / float(btc_decay_start_seconds)
+                    btc_effective_multiplier = btc_floor_multiplier + ((1.0 - btc_floor_multiplier) * time_progress_ratio)
+                    btc_effective_distance_usd = btc_min_distance_usd * btc_effective_multiplier
+                if absolute_distance_usd < btc_effective_distance_usd:
                     is_viable = False
-                    reason = f"BTC 現價與參考價距離 ${absolute_distance_usd:.2f} 未達門檻 ${btc_min_distance_usd:.0f}"
+                    reason = (
+                        f"BTC 現價與參考價距離 ${absolute_distance_usd:.2f} 未達動態門檻 "
+                        f"${btc_effective_distance_usd:.2f} (基準 ${btc_min_distance_usd:.2f}, 剩餘 {market.time_remaining_display})"
+                    )
                 else:
                     locked_trend_side = "UP" if distance_to_reference > 0 else "DOWN"
                     locked_trend_active = True
@@ -2158,6 +2171,30 @@ class ArbitrageEngine:
                 if not price_info:
                     continue
                 self.status.market_prices[market.slug] = price_info
+
+            self._populate_price_context(market, price_info)
+
+            underlying_symbol = str(price_info.underlying_symbol or "").strip().upper()
+            if underlying_symbol == "BTC" and bool(getattr(self.config, "price_edge_distance_gate_enabled_btc", True)):
+                btc_min_distance_usd = float(getattr(self.config, "price_edge_min_distance_usd_btc", 70.0) or 70.0)
+                btc_decay_start_seconds = max(1, int(getattr(self.config, "price_edge_distance_decay_start_seconds_btc", 300) or 300))
+                btc_floor_multiplier = float(getattr(self.config, "price_edge_distance_floor_multiplier_btc", 0.5) or 0.5)
+                btc_floor_multiplier = min(1.0, max(0.05, btc_floor_multiplier))
+                btc_distance_to_reference = price_info.distance_to_reference
+                market_time_remaining_seconds = max(0.0, float(getattr(market, "time_remaining_seconds", 0.0) or 0.0))
+                if market_time_remaining_seconds >= btc_decay_start_seconds:
+                    btc_effective_distance_usd = btc_min_distance_usd
+                else:
+                    btc_time_progress_ratio = market_time_remaining_seconds / float(btc_decay_start_seconds)
+                    btc_effective_multiplier = btc_floor_multiplier + ((1.0 - btc_floor_multiplier) * btc_time_progress_ratio)
+                    btc_effective_distance_usd = btc_min_distance_usd * btc_effective_multiplier
+                if btc_distance_to_reference is None or abs(btc_distance_to_reference) < btc_effective_distance_usd:
+                    if self.status.scan_count % 5 == 0:
+                        btc_distance_text = "--" if btc_distance_to_reference is None else f"${abs(btc_distance_to_reference):.2f}"
+                        self.status.add_log(
+                            f"🚫 BTC 撿便宜封鎖 | {market.slug} | 現貨差 {btc_distance_text} < RTDS 門檻 ${btc_effective_distance_usd:.2f}"
+                        )
+                    continue
 
             up_ask = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
             down_ask = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price

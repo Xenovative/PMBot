@@ -476,6 +476,8 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "crypto_symbols": config.crypto_symbols,
         "price_edge_distance_gate_enabled_btc": config.price_edge_distance_gate_enabled_btc,
         "price_edge_min_distance_usd_btc": config.price_edge_min_distance_usd_btc,
+        "price_edge_distance_decay_start_seconds_btc": config.price_edge_distance_decay_start_seconds_btc,
+        "price_edge_distance_floor_multiplier_btc": config.price_edge_distance_floor_multiplier_btc,
         "private_key_set": bool(config.private_key),
         "funder_address_set": bool(config.funder_address),
         "bargain_enabled": config.bargain_enabled,
@@ -521,6 +523,8 @@ class ConfigUpdate(BaseModel):
     crypto_symbols: Optional[list] = None
     price_edge_distance_gate_enabled_btc: Optional[bool] = None
     price_edge_min_distance_usd_btc: Optional[float] = None
+    price_edge_distance_decay_start_seconds_btc: Optional[int] = None
+    price_edge_distance_floor_multiplier_btc: Optional[float] = None
     bargain_enabled: Optional[bool] = None
     bargain_price_threshold: Optional[float] = None
     bargain_pair_threshold: Optional[float] = None
