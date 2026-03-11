@@ -1,9 +1,13 @@
 """
 市場搜尋器 - 負責找到 Polymarket 上的 5 分鐘加密貨幣市場
 """
+import asyncio
 import re
 import httpx
+import json
+import websockets
 from datetime import datetime, timezone, timedelta
+from collections import deque
 from typing import Optional, List, Dict, Any
 from config import BotConfig
 
@@ -36,6 +40,7 @@ def _extract_first_price_hint(text: str) -> Optional[float]:
 class MarketInfo:
     def __init__(self, raw: Dict[str, Any]):
         self.raw = raw
+        self.events = raw.get("events") if isinstance(raw.get("events"), list) else []
         self.id = raw.get("id", "")
         self.question = raw.get("question", "")
         self.slug = raw.get("slug", "")
@@ -149,6 +154,21 @@ class MarketInfo:
         return None
 
     @property
+    def event_start_datetime(self) -> Optional[datetime]:
+        if not self.events:
+            return None
+        first_event = self.events[0] if isinstance(self.events[0], dict) else None
+        if not first_event:
+            return None
+        event_start_text = first_event.get("startTime") or first_event.get("startDate")
+        if not event_start_text:
+            return None
+        try:
+            return datetime.fromisoformat(str(event_start_text).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+
+    @property
     def slug_bucket_datetime(self) -> Optional[datetime]:
         slug_match = re.search(r"-(\d{10})$", str(self.slug or ""))
         if not slug_match:
@@ -160,6 +180,8 @@ class MarketInfo:
 
     @property
     def reference_anchor_datetime(self) -> Optional[datetime]:
+        if self.event_start_datetime is not None:
+            return self.event_start_datetime
         market_end_datetime = self.end_datetime
         if market_end_datetime is not None:
             return market_end_datetime - timedelta(minutes=5)
@@ -219,9 +241,88 @@ class MarketInfo:
 
 
 class MarketFinder:
+    _chainlink_listener_started = False
+    _chainlink_listener_lock: Optional[asyncio.Lock] = None
+    _chainlink_prices_by_symbol: Dict[str, deque] = {}
+
     def __init__(self, config: BotConfig):
         self.config = config
         self.gamma_host = config.GAMMA_HOST
+        if MarketFinder._chainlink_listener_lock is None:
+            MarketFinder._chainlink_listener_lock = asyncio.Lock()
+
+    @classmethod
+    async def ensure_chainlink_listener(cls):
+        if cls._chainlink_listener_started:
+            return
+        if cls._chainlink_listener_lock is None:
+            cls._chainlink_listener_lock = asyncio.Lock()
+        async with cls._chainlink_listener_lock:
+            if cls._chainlink_listener_started:
+                return
+            asyncio.create_task(cls._run_chainlink_listener())
+            cls._chainlink_listener_started = True
+
+    @classmethod
+    async def _run_chainlink_listener(cls):
+        websocket_url = "wss://ws-live-data.polymarket.com"
+        subscribe_message = json.dumps({
+            "action": "subscribe",
+            "subscriptions": [
+                {
+                    "topic": "crypto_prices_chainlink",
+                    "type": "*",
+                    "filters": '{"symbol":"btc/usd"}',
+                }
+            ],
+        })
+        while True:
+            try:
+                async with websockets.connect(websocket_url, ping_interval=20, ping_timeout=20) as websocket:
+                    await websocket.send(subscribe_message)
+                    async for raw_message in websocket:
+                        try:
+                            parsed_message = json.loads(raw_message)
+                        except json.JSONDecodeError:
+                            continue
+                        payload = parsed_message.get("payload") if isinstance(parsed_message, dict) else None
+                        if not isinstance(payload, dict):
+                            continue
+                        symbol = str(payload.get("symbol") or "").strip().lower()
+                        observed_timestamp = payload.get("timestamp")
+                        observed_value = _safe_float(payload.get("value"))
+                        if symbol != "btc/usd" or observed_value is None or observed_value <= 0:
+                            continue
+                        try:
+                            observed_timestamp_ms = int(observed_timestamp)
+                        except (TypeError, ValueError):
+                            continue
+                        symbol_history = cls._chainlink_prices_by_symbol.setdefault(symbol, deque(maxlen=5000))
+                        symbol_history.append((observed_timestamp_ms, observed_value))
+            except Exception:
+                await asyncio.sleep(3)
+
+    @classmethod
+    def _get_chainlink_reference_price(cls, symbol: str, anchor_datetime: Optional[datetime]) -> Optional[float]:
+        normalized_symbol = str(symbol or "").strip().lower()
+        if normalized_symbol == "btc":
+            normalized_symbol = "btc/usd"
+        if not normalized_symbol or anchor_datetime is None:
+            return None
+        symbol_history = cls._chainlink_prices_by_symbol.get(normalized_symbol)
+        if not symbol_history:
+            return None
+        target_timestamp_ms = int(anchor_datetime.timestamp() * 1000)
+        closest_price: Optional[float] = None
+        closest_distance_ms: Optional[int] = None
+        for observed_timestamp_ms, observed_value in symbol_history:
+            timestamp_distance_ms = abs(int(observed_timestamp_ms) - target_timestamp_ms)
+            if closest_distance_ms is None or timestamp_distance_ms < closest_distance_ms:
+                closest_distance_ms = timestamp_distance_ms
+                closest_price = observed_value
+        if closest_distance_ms is None or closest_distance_ms > 15000:
+            return None
+        return closest_price
 
     async def _fetch_underlying_prices_from_coingecko(self, normalized_symbols: List[str]) -> Dict[str, float]:
         coingecko_ids = {
@@ -375,6 +476,7 @@ class MarketFinder:
         """搜尋所有配置的加密貨幣，限定於短期(5m)窗口"""
         all_markets = []
         seen_ids = set()
+        await self.ensure_chainlink_listener()
         underlying_prices = await self._fetch_underlying_prices(self.config.crypto_symbols)
 
         for crypto in self.config.crypto_symbols:
@@ -382,6 +484,11 @@ class MarketFinder:
             markets = await self._fetch_markets(crypto)
             for m in self._filter_by_window(markets):
                 if m.id not in seen_ids:
+                    if not getattr(m, "reference_price", None):
+                        websocket_reference_price = self._get_chainlink_reference_price(crypto, m.reference_anchor_datetime)
+                        if websocket_reference_price is not None and websocket_reference_price > 0:
+                            m.reference_price = websocket_reference_price
+                            m.reference_source = "chainlink_rtds_bucket_open"
                     m.underlying_symbol = crypto.upper()
                     m.underlying_price = underlying_prices.get(crypto)
                     m.underlying_price_source = self._resolve_underlying_price_source_label(crypto)

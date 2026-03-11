@@ -118,6 +118,7 @@ async def startup_credential_check():
         print("[startup] credential check:", result)
     if result.get("status") == "error":
         raise RuntimeError(f"credential check failed: {result.get('issues')}")
+    await market_finder.ensure_chainlink_listener()
 
 
 @app.get("/api/check_credentials")
