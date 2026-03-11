@@ -987,7 +987,7 @@ class ArbitrageEngine:
                     btc_effective_distance_usd = btc_min_distance_usd
                 else:
                     time_progress_ratio = market_time_remaining_seconds / float(btc_decay_start_seconds)
-                    btc_effective_multiplier = btc_floor_multiplier + ((1.0 - btc_floor_multiplier) * time_progress_ratio)
+                    btc_effective_multiplier = btc_floor_multiplier + ((1.0 - btc_floor_multiplier) * (time_progress_ratio ** 2))
                     btc_effective_distance_usd = btc_min_distance_usd * btc_effective_multiplier
                 if absolute_distance_usd < btc_effective_distance_usd:
                     is_viable = False
@@ -2186,7 +2186,7 @@ class ArbitrageEngine:
                     btc_effective_distance_usd = btc_min_distance_usd
                 else:
                     btc_time_progress_ratio = market_time_remaining_seconds / float(btc_decay_start_seconds)
-                    btc_effective_multiplier = btc_floor_multiplier + ((1.0 - btc_floor_multiplier) * btc_time_progress_ratio)
+                    btc_effective_multiplier = btc_floor_multiplier + ((1.0 - btc_floor_multiplier) * (btc_time_progress_ratio ** 2))
                     btc_effective_distance_usd = btc_min_distance_usd * btc_effective_multiplier
                 if btc_distance_to_reference is None or abs(btc_distance_to_reference) < btc_effective_distance_usd:
                     if self.status.scan_count % 5 == 0:
