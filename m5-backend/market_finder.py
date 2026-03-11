@@ -305,8 +305,10 @@ class MarketFinder:
         if not coin_id:
             self._reference_price_cache[cache_key] = None
             return None
-        range_start = bucket_timestamp - 120
-        range_end = bucket_timestamp + 120
+        now_timestamp = int(datetime.now(timezone.utc).timestamp())
+        is_recent_bucket = abs(now_timestamp - bucket_timestamp) <= 900
+        range_start = bucket_timestamp - (600 if is_recent_bucket else 120)
+        range_end = min(now_timestamp, bucket_timestamp + (600 if is_recent_bucket else 120))
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
@@ -359,6 +361,8 @@ class MarketFinder:
     def _resolve_reference_price_source_label(self, symbol: str, market: MarketInfo) -> Optional[str]:
         normalized_symbol = str(symbol or "").strip().lower()
         if normalized_symbol == "btc":
+            if getattr(market, "reference_source", None) == "bucket_open_fallback":
+                return "Estimated bucket-open reference (fallback, not Chainlink official)"
             if getattr(market, "reference_price", None):
                 return "Chainlink BTC/USD CEX Price Stream"
             return "Estimated bucket-open reference (fallback, not Chainlink official)"
@@ -384,6 +388,12 @@ class MarketFinder:
     def _slug_for_timestamp(self, crypto: str, ts: int) -> str:
         """Construct 5m slug: btc-updown-5m-<ts>"""
         return f"{crypto.lower()}-updown-5m-{ts}"
+
+    def _is_current_market_bucket(self, market: MarketInfo) -> bool:
+        time_remaining_seconds = float(getattr(market, "time_remaining_seconds", 0) or 0)
+        if time_remaining_seconds <= 0:
+            return False
+        return time_remaining_seconds <= 300
 
     async def _fetch_markets(self, crypto: str) -> List[MarketInfo]:
         markets: List[MarketInfo] = []
@@ -424,11 +434,14 @@ class MarketFinder:
             markets = await self._fetch_markets(crypto)
             for m in self._filter_by_window(markets):
                 if m.id not in seen_ids:
-                    if not getattr(m, "reference_price", None):
+                    if self._is_current_market_bucket(m) and not getattr(m, "reference_price", None):
                         fallback_reference_price = await self._fetch_fallback_reference_price(crypto, m.start_datetime)
                         if fallback_reference_price is not None and fallback_reference_price > 0:
                             m.reference_price = fallback_reference_price
                             m.reference_source = "bucket_open_fallback"
+                    if not self._is_current_market_bucket(m) and getattr(m, "reference_source", None) == "bucket_open_fallback":
+                        m.reference_price = None
+                        m.reference_source = None
                     m.underlying_symbol = crypto.upper()
                     m.underlying_price = underlying_prices.get(crypto)
                     m.underlying_price_source = self._resolve_underlying_price_source_label(crypto)
