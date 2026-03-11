@@ -315,7 +315,19 @@ async def bot_loop():
             if engine.status.scan_count % 10 == 0:
                 engine.status.add_log(f"📊 監控 {len(valid_markets)} 個活躍市場")
 
-            engine.status.current_opportunities = []
+            # 並行掃描所有市場
+            scan_tasks = [engine.scan_market(m) for m in valid_markets]
+            results = await asyncio.gather(*scan_tasks, return_exceptions=True)
+
+            all_opportunities = []
+            for market, result in zip(valid_markets, results):
+                if isinstance(result, Exception):
+                    engine.status.add_log(f"⚠️ 掃描 {market.slug} 失敗: {str(result)[:80]}")
+                    continue
+                if result and result.is_viable:
+                    all_opportunities.append(result)
+
+            engine.status.current_opportunities = all_opportunities
 
             # 強制到期平倉（撿便宜未配對持倉）
             await engine.enforce_late_liquidation(valid_markets)
