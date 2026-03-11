@@ -149,6 +149,23 @@ class MarketInfo:
         return None
 
     @property
+    def slug_bucket_datetime(self) -> Optional[datetime]:
+        slug_match = re.search(r"-(\d{10})$", str(self.slug or ""))
+        if not slug_match:
+            return None
+        try:
+            return datetime.fromtimestamp(int(slug_match.group(1)), tz=timezone.utc)
+        except (TypeError, ValueError, OSError):
+            return None
+
+    @property
+    def reference_anchor_datetime(self) -> Optional[datetime]:
+        market_end_datetime = self.end_datetime
+        if market_end_datetime is not None:
+            return market_end_datetime - timedelta(minutes=5)
+        return self.slug_bucket_datetime
+
+    @property
     def end_datetime(self) -> Optional[datetime]:
         if self.end_date:
             try:
@@ -435,7 +452,7 @@ class MarketFinder:
             for m in self._filter_by_window(markets):
                 if m.id not in seen_ids:
                     if self._is_current_market_bucket(m) and not getattr(m, "reference_price", None):
-                        fallback_reference_price = await self._fetch_fallback_reference_price(crypto, m.start_datetime)
+                        fallback_reference_price = await self._fetch_fallback_reference_price(crypto, m.reference_anchor_datetime)
                         if fallback_reference_price is not None and fallback_reference_price > 0:
                             m.reference_price = fallback_reference_price
                             m.reference_source = "bucket_open_fallback"
