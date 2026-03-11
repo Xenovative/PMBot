@@ -575,13 +575,13 @@ function Dashboard({ token, authHeaders, onLogout }) {
                             const underlyingLabel = price.underlying_symbol || slug.split('-')[0]?.toUpperCase() || 'SPOT';
                             const referencePrice = Number(price.reference_price);
                             const underlyingPrice = Number(price.underlying_price);
-                            const hasDistancePct = Number.isFinite(referencePrice) && referencePrice > 0 && Number.isFinite(underlyingPrice) && underlyingPrice > 0;
-                            const distancePct = hasDistancePct ? ((underlyingPrice - referencePrice) / referencePrice) : null;
-                            const distancePctClassName = !hasDistancePct
+                            const hasPriceDifference = Number.isFinite(referencePrice) && referencePrice > 0 && Number.isFinite(underlyingPrice) && underlyingPrice > 0;
+                            const priceDifference = hasPriceDifference ? (underlyingPrice - referencePrice) : null;
+                            const priceDifferenceClassName = !hasPriceDifference
                               ? 'text-gray-500'
-                              : Math.abs(distancePct) < 0.000001
+                              : Math.abs(priceDifference) < 0.005
                                 ? 'text-gray-400'
-                                : distancePct > 0
+                                : priceDifference > 0
                                   ? 'text-neon-green'
                                   : 'text-neon-pink';
                             return (
@@ -604,9 +604,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
                                     </span>
                                     <span className="text-[10px] text-gray-500 whitespace-nowrap">
                                       參考 {formatUsdPrice(price.reference_price, 2)}
-                                      {hasDistancePct ? (
-                                        <span className={`ml-1 ${distancePctClassName}`}>
-                                          · {distancePct >= 0 ? '+' : ''}{(distancePct * 100).toFixed(3)}%
+                                      {hasPriceDifference ? (
+                                        <span className={`ml-1 ${priceDifferenceClassName}`}>
+                                          · {priceDifference >= 0 ? '+' : ''}{formatUsdPrice(priceDifference, 2)}
                                         </span>
                                       ) : ''}
                                     </span>
