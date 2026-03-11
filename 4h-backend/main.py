@@ -357,6 +357,9 @@ async def bot_loop():
             if engine.status.running:
                 await engine.scan_bargain_holdings()
 
+            if engine.status.running:
+                await engine.reconcile_pending_unwinds()
+
             await broadcast({"type": "status", "data": engine.status.to_dict()})
             await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
 
@@ -394,10 +397,16 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "order_size": config.order_size,
         "dry_run": config.dry_run,
         "min_time_remaining_seconds": config.min_time_remaining_seconds,
+        "signature_type": config.signature_type,
         "max_trades_per_market": config.max_trades_per_market,
         "trade_cooldown_seconds": config.trade_cooldown_seconds,
+        "scan_interval_seconds": getattr(config, "scan_interval_seconds", 2),
         "min_liquidity": config.min_liquidity,
         "crypto_symbols": config.crypto_symbols,
+        "price_edge_distance_gate_enabled_btc": getattr(config, "price_edge_distance_gate_enabled_btc", True),
+        "price_edge_min_distance_usd_btc": getattr(config, "price_edge_min_distance_usd_btc", 70.0),
+        "price_edge_distance_decay_start_seconds_btc": getattr(config, "price_edge_distance_decay_start_seconds_btc", 300),
+        "price_edge_distance_floor_multiplier_btc": getattr(config, "price_edge_distance_floor_multiplier_btc", 0.5),
         "private_key_set": bool(config.private_key),
         "funder_address_set": bool(config.funder_address),
         "bargain_enabled": config.bargain_enabled,
@@ -408,9 +417,11 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "bargain_max_rounds": config.bargain_max_rounds,
         "bargain_stop_loss_defer_minutes": config.bargain_stop_loss_defer_minutes,
         "bargain_first_buy_bias": config.bargain_first_buy_bias,
+        "bargain_plummet_exit_pct": getattr(config, "bargain_plummet_exit_pct", 20.0),
+        "bargain_plummet_window_seconds": getattr(config, "bargain_plummet_window_seconds", 15),
+        "bargain_secondary_exit_profit_pct": getattr(config, "bargain_secondary_exit_profit_pct", 9.5),
         "bargain_pair_escalation_minutes": config.bargain_pair_escalation_minutes,
         "late_liquidation_seconds": config.late_liquidation_seconds,
-        "signature_type": config.signature_type,
     }
 
 
@@ -422,8 +433,13 @@ class ConfigUpdate(BaseModel):
     signature_type: Optional[int] = None
     max_trades_per_market: Optional[int] = None
     trade_cooldown_seconds: Optional[int] = None
+    scan_interval_seconds: Optional[int] = None
     min_liquidity: Optional[float] = None
     crypto_symbols: Optional[list] = None
+    price_edge_distance_gate_enabled_btc: Optional[bool] = None
+    price_edge_min_distance_usd_btc: Optional[float] = None
+    price_edge_distance_decay_start_seconds_btc: Optional[int] = None
+    price_edge_distance_floor_multiplier_btc: Optional[float] = None
     bargain_enabled: Optional[bool] = None
     bargain_price_threshold: Optional[float] = None
     bargain_pair_threshold: Optional[float] = None
@@ -432,6 +448,9 @@ class ConfigUpdate(BaseModel):
     bargain_max_rounds: Optional[int] = None
     bargain_stop_loss_defer_minutes: Optional[int] = None
     bargain_first_buy_bias: Optional[str] = None
+    bargain_plummet_exit_pct: Optional[float] = None
+    bargain_plummet_window_seconds: Optional[int] = None
+    bargain_secondary_exit_profit_pct: Optional[float] = None
     bargain_pair_escalation_minutes: Optional[int] = None
     late_liquidation_seconds: Optional[int] = None
 

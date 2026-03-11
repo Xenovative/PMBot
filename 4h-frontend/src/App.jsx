@@ -831,6 +831,38 @@ function Dashboard({ token, authHeaders, onLogout }) {
               </div>
             </div>
 
+            <div className="border-t border-neon-cyan/15 pt-4 mt-2">
+              <h3 className="text-sm font-medium neon-text-cyan mb-3 flex items-center gap-2">
+                ₿ BTC RTDS 價差策略
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-gray-400">價差趨勢鎖定</label>
+                  <button
+                    onClick={() => setConfigForm({ ...configForm, price_edge_distance_gate_enabled_btc: !configForm.price_edge_distance_gate_enabled_btc })}
+                    className={`relative w-12 h-6 rounded-full transition-all ${
+                      configForm.price_edge_distance_gate_enabled_btc !== false ? 'bg-neon-cyan/40 shadow-neon-cyan' : 'bg-gray-700'
+                    }`}
+                  >
+                    <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+                      configForm.price_edge_distance_gate_enabled_btc !== false ? 'left-6' : 'left-0.5'
+                    }`} />
+                  </button>
+                  <span className="text-xs text-gray-500">
+                    {configForm.price_edge_distance_gate_enabled_btc !== false ? '啟用' : '停用'}
+                  </span>
+                </div>
+                <ConfigField
+                  label="價差觸發門檻 ($)"
+                  type="number"
+                  step="1"
+                  value={configForm.price_edge_min_distance_usd_btc ?? 70}
+                  onChange={(v) => setConfigForm({ ...configForm, price_edge_min_distance_usd_btc: parseFloat(v) })}
+                  hint="當 RTDS 現價與參考價價差達此門檻時，才依趨勢方向鎖定進場"
+                />
+              </div>
+            </div>
+
             {/* Bargain Hunter Settings */}
             <div className="border-t border-neon-amber/15 pt-4 mt-2">
               <h3 className="text-sm font-medium neon-text-amber mb-3 flex items-center gap-2">
@@ -876,6 +908,29 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   value={configForm.bargain_pair_threshold ?? 0.99}
                   onChange={(v) => setConfigForm({ ...configForm, bargain_pair_threshold: parseFloat(v) })}
                   hint="兩側合計低於此才配對"
+                />
+                <ConfigField
+                  label="二次出場利潤%"
+                  type="number"
+                  step="0.1"
+                  value={configForm.bargain_secondary_exit_profit_pct ?? 9.5}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_secondary_exit_profit_pct: parseFloat(v) })}
+                  hint="未配對持倉利潤達此比例即直接賣出並視為配對"
+                />
+                <ConfigField
+                  label="急跌護欄跌幅%"
+                  type="number"
+                  step="0.1"
+                  value={configForm.bargain_plummet_exit_pct ?? 20}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_plummet_exit_pct: parseFloat(v) })}
+                  hint="在時間窗內跌幅達此比例即立刻平倉"
+                />
+                <ConfigField
+                  label="急跌護欄時間窗 (秒)"
+                  type="number"
+                  value={configForm.bargain_plummet_window_seconds ?? 15}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_plummet_window_seconds: parseInt(v) })}
+                  hint="連續監控的秒數，用高點作為基準判斷跌幅"
                 />
                 <ConfigField
                   label="止損幅度"

@@ -461,17 +461,25 @@ function Dashboard({ token, authHeaders, onLogout }) {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                <ConfigField label="私鑰" value={configForm.private_key || ''} onChange={(v) => setConfigForm({ ...configForm, private_key: v })} />
-                <ConfigField label="資金地址 (Funder)" value={configForm.funder_address || ''} onChange={(v) => setConfigForm({ ...configForm, funder_address: v })} />
-                <ConfigField label="簽名類型" value={configForm.signature_type ?? ''} onChange={(v) => setConfigForm({ ...configForm, signature_type: v === '' ? '' : parseInt(v) })} type="number" />
-                <ConfigField label="目標配對成本" value={configForm.target_pair_cost ?? ''} onChange={(v) => setConfigForm({ ...configForm, target_pair_cost: v === '' ? '' : parseFloat(v) })} type="number" step="0.0001" />
-                <ConfigField label="下單數量" value={configForm.order_size ?? ''} onChange={(v) => setConfigForm({ ...configForm, order_size: v === '' ? '' : parseFloat(v) })} type="number" />
-                <ConfigField label="最少剩餘秒數" value={configForm.min_time_remaining_seconds ?? ''} onChange={(v) => setConfigForm({ ...configForm, min_time_remaining_seconds: v === '' ? '' : parseInt(v) })} type="number" />
+                <ConfigField label="目標成本" value={configForm.target_pair_cost ?? ''} onChange={(v) => setConfigForm({ ...configForm, target_pair_cost: v === '' ? '' : parseFloat(v) })} type="number" step="0.01" />
+                <ConfigField label="每筆下單數量" value={configForm.order_size ?? ''} onChange={(v) => setConfigForm({ ...configForm, order_size: v === '' ? '' : parseFloat(v) })} type="number" />
+                <ConfigField label="最少剩餘時間 (秒)" value={configForm.min_time_remaining_seconds ?? ''} onChange={(v) => setConfigForm({ ...configForm, min_time_remaining_seconds: v === '' ? '' : parseInt(v) })} type="number" />
                 <ConfigField label="每市場最大交易次數" value={configForm.max_trades_per_market ?? ''} onChange={(v) => setConfigForm({ ...configForm, max_trades_per_market: v === '' ? '' : parseInt(v) })} type="number" />
                 <ConfigField label="交易冷卻 (秒)" value={configForm.trade_cooldown_seconds ?? ''} onChange={(v) => setConfigForm({ ...configForm, trade_cooldown_seconds: v === '' ? '' : parseInt(v) })} type="number" />
+                <ConfigField label="掃描間隔 (秒)" value={configForm.scan_interval_seconds ?? ''} onChange={(v) => setConfigForm({ ...configForm, scan_interval_seconds: v === '' ? '' : parseInt(v) })} type="number" />
                 <ConfigField label="最低流動性" value={configForm.min_liquidity ?? ''} onChange={(v) => setConfigForm({ ...configForm, min_liquidity: v === '' ? '' : parseFloat(v) })} type="number" />
-                <ConfigField label="監控幣種 (逗號)" value={(configForm.crypto_symbols || []).join(',')}
-                  onChange={(v) => setConfigForm({ ...configForm, crypto_symbols: v.split(',').map(s => s.trim()).filter(Boolean) })} />
+                <ConfigField label="監控幣種 (逗號)" value={(configForm.crypto_symbols || []).join(',')} onChange={(v) => setConfigForm({ ...configForm, crypto_symbols: v.split(',').map(s => s.trim()).filter(Boolean) })} />
+              </div>
+
+              <div className="mt-5 space-y-3">
+                <h4 className="text-xs text-cyan-400 font-semibold">BTC RTDS 價差策略</h4>
+                <div className="flex items-center gap-2 text-xs text-gray-200">
+                  <input type="checkbox" checked={configForm.price_edge_distance_gate_enabled_btc !== false} onChange={(e) => setConfigForm({ ...configForm, price_edge_distance_gate_enabled_btc: e.target.checked })} />
+                  <span>啟用 BTC 價差趨勢鎖定</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <ConfigField label="價差觸發門檻 ($)" value={configForm.price_edge_min_distance_usd_btc ?? ''} onChange={(v) => setConfigForm({ ...configForm, price_edge_min_distance_usd_btc: v === '' ? '' : parseFloat(v) })} type="number" step="1" />
+                </div>
               </div>
 
               <div className="mt-5 space-y-3">
@@ -484,6 +492,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   <ConfigField label="最低買入價" value={configForm.bargain_min_price ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_min_price: v === '' ? '' : parseFloat(v) })} type="number" step="0.01" />
                   <ConfigField label="低價觸發閾值" value={configForm.bargain_price_threshold ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_price_threshold: v === '' ? '' : parseFloat(v) })} type="number" step="0.01" />
                   <ConfigField label="配對成本閾值" value={configForm.bargain_pair_threshold ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_pair_threshold: v === '' ? '' : parseFloat(v) })} type="number" step="0.01" />
+                  <ConfigField label="二次出場利潤%" value={configForm.bargain_secondary_exit_profit_pct ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_secondary_exit_profit_pct: v === '' ? '' : parseFloat(v) })} type="number" step="0.1" />
+                  <ConfigField label="急跌護欄跌幅%" value={configForm.bargain_plummet_exit_pct ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_plummet_exit_pct: v === '' ? '' : parseFloat(v) })} type="number" step="0.1" />
+                  <ConfigField label="急跌護欄時間窗 (秒)" value={configForm.bargain_plummet_window_seconds ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_plummet_window_seconds: v === '' ? '' : parseInt(v) })} type="number" />
                   <ConfigField label="止損幅度" value={configForm.bargain_stop_loss_cents ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_cents: v === '' ? '' : parseFloat(v) })} type="number" step="0.01" />
                   <ConfigField label="未來市場最少秒數" value={configForm.bargain_future_min_seconds ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_future_min_seconds: v === '' ? '' : parseInt(v) })} type="number" />
                   <ConfigField label="止損延後 (分鐘)" value={configForm.bargain_stop_loss_defer_minutes ?? ''} onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_defer_minutes: v === '' ? '' : parseInt(v) })} type="number" />

@@ -488,6 +488,367 @@ class ArbitrageEngine:
             f"偏向 {price_info.price_edge_side} edge {price_info.price_edge_score:.4f}{locked_side_summary}"
         )
 
+    def _load_pending_unwinds(self) -> List[Dict[str, Any]]:
+        raw_pending = trade_db.kv_get("backend_pending_unwinds", "[]")
+        try:
+            parsed_pending = json.loads(raw_pending)
+            if isinstance(parsed_pending, list):
+                return parsed_pending
+        except Exception:
+            pass
+        return []
+
+    def _save_pending_unwinds(self, pending_unwinds: List[Dict[str, Any]]):
+        try:
+            trade_db.kv_set("backend_pending_unwinds", json.dumps(pending_unwinds, ensure_ascii=False))
+        except Exception as e:
+            self.status.add_log(f"⚠️ 儲存待成交 GTC 清單失敗: {str(e)[:120]}")
+
+    def _queue_pending_unwind(self, pending_payload: Dict[str, Any]):
+        pending_unwinds = self._load_pending_unwinds()
+        pending_unwinds = [
+            existing_pending
+            for existing_pending in pending_unwinds
+            if str(existing_pending.get("order_id", "") or "") != str(pending_payload.get("order_id", "") or "")
+        ]
+        pending_unwinds.append(pending_payload)
+        self._save_pending_unwinds(pending_unwinds)
+
+    def _remove_pending_unwind(self, order_id: str):
+        pending_unwinds = self._load_pending_unwinds()
+        filtered_pending = [
+            existing_pending for existing_pending in pending_unwinds if str(existing_pending.get("order_id", "") or "") != str(order_id or "")
+        ]
+        if len(filtered_pending) != len(pending_unwinds):
+            self._save_pending_unwinds(filtered_pending)
+
+    def _find_trade_fill_for_asset(self, clob_client, asset_id: str, after_ts_ms: int) -> Optional[Dict[str, Any]]:
+        from py_clob_client.clob_types import TradeParams
+
+        try:
+            recent_trades = clob_client.get_trades(TradeParams(asset_id=asset_id, after=after_ts_ms))
+        except Exception as e:
+            self.status.add_log(f"⚠️ 查詢待成交 GTC 成交失敗: {str(e)[:120]}")
+            return None
+
+        if not recent_trades:
+            return None
+
+        def _trade_timestamp(trade_payload: Dict[str, Any]) -> int:
+            for timestamp_key in ("createdAt", "created_at", "timestamp", "time"):
+                raw_timestamp = trade_payload.get(timestamp_key)
+                if raw_timestamp is None:
+                    continue
+                try:
+                    return int(float(raw_timestamp))
+                except (TypeError, ValueError):
+                    continue
+            return 0
+
+        sorted_trades = sorted(recent_trades, key=_trade_timestamp, reverse=True)
+        return sorted_trades[0] if sorted_trades else None
+
+    def _parse_order_fill_state(self, order_payload: Dict[str, Any]) -> Tuple[float, bool]:
+        if not isinstance(order_payload, dict):
+            return 0.0, False
+
+        original_size = 0.0
+        for size_key in ("original_size", "size", "initial_size"):
+            raw_size = order_payload.get(size_key)
+            if raw_size is None:
+                continue
+            try:
+                original_size = float(raw_size)
+                break
+            except (TypeError, ValueError):
+                continue
+
+        filled_size = 0.0
+        for filled_key in ("filled_size", "matched_size", "filled", "size_matched"):
+            raw_filled = order_payload.get(filled_key)
+            if raw_filled is None:
+                continue
+            try:
+                filled_size = float(raw_filled)
+                break
+            except (TypeError, ValueError):
+                continue
+
+        status_text = str(order_payload.get("status", "")).lower()
+        is_filled = status_text in {"filled", "matched", "executed", "complete", "completed"}
+        if original_size > 0 and filled_size >= original_size - 0.0001:
+            is_filled = True
+        return filled_size, is_filled
+
+    def _find_holding_by_timestamp(self, holding_timestamp: str) -> Optional[BargainHolding]:
+        if not holding_timestamp:
+            return None
+        for bargain_holding in self.status.bargain_holdings:
+            if bargain_holding.timestamp == holding_timestamp:
+                return bargain_holding
+        return None
+
+    def _find_pending_unwind_holding(self, pending_payload: Dict[str, Any]) -> Optional[BargainHolding]:
+        holding_timestamp = str(pending_payload.get("holding_timestamp", "") or "")
+        matched_holding = self._find_holding_by_timestamp(holding_timestamp)
+        if matched_holding:
+            return matched_holding
+
+        pending_token_id = str(pending_payload.get("token_id", "") or "")
+        pending_market_slug = str(pending_payload.get("market_slug", "") or "")
+        pending_side_label = str(pending_payload.get("side_label", "") or "")
+        pending_trade_id = int(pending_payload.get("trade_id", 0) or 0)
+        pending_order_id = str(pending_payload.get("order_id", "") or "")
+
+        for bargain_holding in self.status.bargain_holdings:
+            if pending_token_id and bargain_holding.token_id == pending_token_id:
+                return bargain_holding
+            if pending_trade_id and bargain_holding.pending_exit_trade_id == pending_trade_id:
+                return bargain_holding
+            if pending_order_id and bargain_holding.pending_exit_order_id == pending_order_id:
+                return bargain_holding
+            if (
+                pending_market_slug
+                and pending_side_label
+                and bargain_holding.market_slug == pending_market_slug
+                and bargain_holding.side == pending_side_label
+            ):
+                return bargain_holding
+        return None
+
+    def _remove_bargain_holding(self, holding: Optional[BargainHolding]):
+        if not holding:
+            return
+        self.status.bargain_holdings = [
+            bargain_holding
+            for bargain_holding in self.status.bargain_holdings
+            if bargain_holding.timestamp != holding.timestamp
+        ]
+
+    def _clear_holding_pending_exit(self, holding: Optional[BargainHolding]):
+        if not holding:
+            return
+        holding.pending_exit_order_id = None
+        holding.pending_exit_reason = None
+        holding.pending_exit_trade_id = None
+
+    def _cancel_pending_unwind_order(self, clob_client, order_id: str) -> bool:
+        normalized_order_id = str(order_id or "")
+        if not normalized_order_id:
+            return False
+        try:
+            cancel_response = clob_client.cancel_orders([normalized_order_id])
+            self.status.add_log(f"⚠️ 已取消待成交 GTC 剩餘單: {normalized_order_id[:12]}")
+            return bool(cancel_response is not None)
+        except Exception as e:
+            self.status.add_log(f"⚠️ 取消待成交 GTC {normalized_order_id[:12]} 失敗: {str(e)[:120]}")
+            return False
+
+    def _should_cancel_stale_pending_unwind(self, pending_payload: Dict[str, Any], matched_holding: Optional[BargainHolding]) -> Tuple[bool, str]:
+        pending_created_at_ms = int(pending_payload.get("created_at_ms", 0) or 0)
+        pending_age_seconds = 0.0
+        if pending_created_at_ms > 0:
+            pending_age_seconds = max(0.0, (time.time() * 1000 - pending_created_at_ms) / 1000.0)
+
+        stale_timeout_seconds = 30.0
+        if pending_age_seconds >= stale_timeout_seconds:
+            return True, f"逾時 {pending_age_seconds:.1f}s"
+
+        holding_time_remaining = getattr(getattr(matched_holding, "market", None), "time_remaining_seconds", None)
+        if holding_time_remaining is not None and holding_time_remaining <= 5:
+            return True, f"臨近到期 {holding_time_remaining:.1f}s"
+
+        pending_remaining_shares = float(pending_payload.get("shares", 0) or 0)
+        if pending_remaining_shares <= 0.01:
+            return True, f"剩餘股數過小 {pending_remaining_shares:.4f}"
+
+        return False, ""
+
+    def _register_pending_unwind_trade(
+        self,
+        record: TradeRecord,
+        trade_id: int,
+        market: MarketInfo,
+        token_id: str,
+        side_label: str,
+        shares: float,
+        buy_price: float,
+        unwind_result: Dict[str, Any],
+    ):
+        response_payload = unwind_result.get("response") or {}
+        order_id = str(
+            response_payload.get("orderID")
+            or response_payload.get("orderId")
+            or response_payload.get("id")
+            or response_payload.get("order_id")
+            or ""
+        )
+        if not order_id:
+            self.status.add_log("⚠️ GTC 已掛出但缺少 order_id，無法自動對帳")
+            return
+
+        created_at_ms = int(time.time() * 1000)
+        pending_payload = {
+            "trade_id": int(trade_id),
+            "market_slug": market.slug,
+            "token_id": token_id,
+            "side_label": side_label,
+            "shares": float(getattr(record, "pending_unwind_shares", shares) or shares),
+            "buy_price": float(getattr(record, "pending_unwind_buy_price", buy_price) or buy_price),
+            "sell_price": float(getattr(record, "pending_unwind_sell_price", unwind_result.get("sell_price", buy_price)) or buy_price),
+            "order_id": order_id,
+            "created_at_ms": created_at_ms,
+            "record_timestamp": record.timestamp,
+            "holding_timestamp": str(getattr(record, "pending_unwind_holding_timestamp", "") or ""),
+            "holding_exit_reason": str(getattr(record, "pending_unwind_holding_reason", "") or ""),
+        }
+        self._queue_pending_unwind(pending_payload)
+        self.status.add_log(f"📌 已登記待成交 GTC 對帳 | order_id={order_id[:12]} | {market.slug} {side_label}")
+
+    def _finalize_pending_unwind_fill(self, pending_payload: Dict[str, Any], fill_trade: Optional[Dict[str, Any]], order_payload: Optional[Dict[str, Any]]):
+        trade_id = pending_payload.get("trade_id")
+        if not trade_id:
+            return
+
+        stored_trade = trade_db.get_trade_by_id(int(trade_id))
+        if not stored_trade:
+            self._remove_pending_unwind(str(pending_payload.get("order_id", "")))
+            return
+
+        exit_price = pending_payload.get("sell_price") or stored_trade.get("total_cost", 0)
+        if fill_trade:
+            for price_key in ("price", "match_price"):
+                raw_price = fill_trade.get(price_key)
+                if raw_price is None:
+                    continue
+                try:
+                    exit_price = float(raw_price)
+                    break
+                except (TypeError, ValueError):
+                    continue
+
+        requested_size = float(pending_payload.get("shares") or 0)
+        filled_size, order_marked_filled = self._parse_order_fill_state(order_payload or {})
+        realized_size = filled_size if filled_size > 0 else requested_size
+        if requested_size > 0:
+            realized_size = min(realized_size, requested_size)
+        if realized_size <= 0:
+            return
+
+        remaining_size = max(0.0, requested_size - realized_size)
+        is_partial_fill = remaining_size > 0.0001 and not order_marked_filled
+        buy_price = pending_payload.get("buy_price") or 0
+        try:
+            realized_profit = (float(exit_price) - float(buy_price)) * float(realized_size)
+        except (TypeError, ValueError):
+            realized_profit = 0.0
+
+        details_text = str(stored_trade.get("details", "") or "")
+        status_suffix = (
+            f"⚠️ GTC 部分成交 {float(realized_size):.2f}/{float(requested_size):.2f} 股 @ {float(exit_price):.4f}"
+            if is_partial_fill else f"✅ GTC 已成交 @ {float(exit_price):.4f}"
+        )
+        trade_db.update_trade(
+            int(trade_id),
+            status="pending" if is_partial_fill else "executed",
+            details=f"{details_text} | {status_suffix}" if details_text else status_suffix,
+        )
+        trade_db.rebuild_daily_summary()
+
+        matched_holding = self._find_pending_unwind_holding(pending_payload)
+        if is_partial_fill:
+            if matched_holding:
+                matched_holding.shares = max(0.0, float(matched_holding.shares) - float(realized_size))
+                matched_holding.amount_usd = max(0.0, float(matched_holding.buy_price) * float(matched_holding.shares))
+                pending_payload["shares"] = remaining_size
+                self._queue_pending_unwind(pending_payload)
+            self.status.add_log(
+                f"⚠️ 已確認待成交 GTC 部分成交 | {pending_payload.get('market_slug', '')} {pending_payload.get('side_label', '')} | "
+                f"已成交 {float(realized_size):.2f} / 剩餘 {float(remaining_size):.2f} 股 @ {float(exit_price):.4f}"
+            )
+            return
+
+        pending_holding_reason = str(pending_payload.get("holding_exit_reason", "") or "")
+        if matched_holding:
+            if pending_holding_reason == "tp-sniper":
+                matched_holding.status = "paired"
+                matched_holding.paired_with = "tp-sniper"
+            elif pending_holding_reason in {"plummet", "force_liq", "stop_loss"}:
+                matched_holding.status = "stopped_out"
+            self._clear_holding_pending_exit(matched_holding)
+            self._remove_bargain_holding(matched_holding)
+        self.status.add_log(
+            f"✅ 已確認待成交 GTC 成交 | {pending_payload.get('market_slug', '')} {pending_payload.get('side_label', '')} | "
+            f"{float(realized_size):.2f} 股 @ {float(exit_price):.4f}"
+        )
+        self._remove_pending_unwind(str(pending_payload.get("order_id", "")))
+
+    async def reconcile_pending_unwinds(self):
+        pending_unwinds = self._load_pending_unwinds()
+        if not pending_unwinds or self.config.dry_run:
+            return
+
+        try:
+            clob_client = self._get_clob_client()
+        except Exception as e:
+            self.status.add_log(f"⚠️ 無法建立 CLOB 客戶端以對帳待成交 GTC: {str(e)[:120]}")
+            return
+
+        for pending_payload in list(pending_unwinds):
+            order_id = str(pending_payload.get("order_id", "") or "")
+            if not order_id:
+                self._remove_pending_unwind(order_id)
+                continue
+
+            matched_holding = self._find_pending_unwind_holding(pending_payload)
+            order_payload = None
+            try:
+                order_payload = clob_client.get_order(order_id)
+            except Exception as e:
+                self.status.add_log(f"⚠️ 查詢 GTC 訂單 {order_id[:12]} 失敗: {str(e)[:120]}")
+
+            filled_size, is_filled = self._parse_order_fill_state(order_payload or {})
+            if is_filled or filled_size > 0:
+                fill_trade = self._find_trade_fill_for_asset(
+                    clob_client,
+                    str(pending_payload.get("token_id", "") or ""),
+                    int(pending_payload.get("created_at_ms", 0) or 0),
+                )
+                self._finalize_pending_unwind_fill(pending_payload, fill_trade, order_payload)
+                continue
+
+            order_status_text = str((order_payload or {}).get("status", "")).lower()
+            if order_status_text in {"live", "open", "active", "partially_filled", "partial", "partially-filled"}:
+                should_cancel_stale_order, stale_reason = self._should_cancel_stale_pending_unwind(pending_payload, matched_holding)
+                if should_cancel_stale_order:
+                    self._cancel_pending_unwind_order(clob_client, order_id)
+                    if matched_holding:
+                        self._clear_holding_pending_exit(matched_holding)
+                    stored_trade = trade_db.get_trade_by_id(int(pending_payload.get("trade_id", 0) or 0))
+                    if stored_trade:
+                        details_text = str(stored_trade.get("details", "") or "")
+                        trade_db.update_trade(
+                            int(pending_payload.get("trade_id")),
+                            details=f"{details_text} | ⚠️ GTC 剩餘單已清除 ({stale_reason})" if details_text else f"⚠️ GTC 剩餘單已清除 ({stale_reason})",
+                        )
+                        trade_db.rebuild_daily_summary()
+                    self.status.add_log(f"⚠️ 待成交 GTC 剩餘單已清除: {order_id[:12]} | {stale_reason}")
+                    self._remove_pending_unwind(order_id)
+                continue
+
+            if order_status_text in {"cancelled", "canceled", "expired"}:
+                stored_trade = trade_db.get_trade_by_id(int(pending_payload.get("trade_id", 0) or 0))
+                if stored_trade:
+                    details_text = str(stored_trade.get("details", "") or "")
+                    trade_db.update_trade(
+                        int(pending_payload.get("trade_id")),
+                        details=f"{details_text} | ⚠️ GTC 未成交 ({order_status_text})" if details_text else f"⚠️ GTC 未成交 ({order_status_text})",
+                    )
+                    trade_db.rebuild_daily_summary()
+                self._clear_holding_pending_exit(matched_holding)
+                self.status.add_log(f"⚠️ 待成交 GTC 未完成並已{order_status_text}: {order_id[:12]}")
+                self._remove_pending_unwind(order_id)
+
     def _get_sweep_price(self, asks: List[Dict[str, float]], shares_needed: float) -> tuple:
         """
         計算能填滿指定股數的掃單價格和實際 USD 成本（VWAP）
@@ -1718,10 +2079,16 @@ class ArbitrageEngine:
                         else:
                             try:
                                 clob_client = self._get_clob_client()
-                                unwind_ok = self._try_unwind_position(
+                                unwind_result = self._try_unwind_position(
                                     clob_client, holding.token_id, holding.shares,
                                     current_price, "Plummet guard"
                                 )
+                                unwind_ok = bool(unwind_result)
+                                if isinstance(unwind_result, dict):
+                                    pending_order_id = str((unwind_result.get("response") or {}).get("orderID") or (unwind_result.get("response") or {}).get("orderId") or (unwind_result.get("response") or {}).get("id") or (unwind_result.get("response") or {}).get("order_id") or "")
+                                    if pending_order_id:
+                                        holding.pending_exit_order_id = pending_order_id
+                                        holding.pending_exit_reason = "plummet"
                                 holding.status = "stopped_out"
                             except Exception as e:
                                 unwind_ok = False
@@ -1746,7 +2113,7 @@ class ArbitrageEngine:
                             self.status.increment_trades_for_market(holding.market_slug)
                             self.status.total_profit += record.expected_profit
                             try:
-                                trade_db.record_trade(
+                                recorded_trade_id = trade_db.record_trade(
                                     timestamp=record.timestamp,
                                     market_slug=record.market_slug,
                                     trade_type="bargain_plummet",
@@ -1760,6 +2127,14 @@ class ArbitrageEngine:
                                     status=record.status,
                                     details=record.details,
                                 )
+                                if not self.config.dry_run and 'unwind_result' in locals() and isinstance(unwind_result, dict):
+                                    record.pending_unwind_shares = holding.shares
+                                    record.pending_unwind_buy_price = holding.buy_price
+                                    record.pending_unwind_sell_price = current_price
+                                    record.pending_unwind_holding_timestamp = holding.timestamp
+                                    record.pending_unwind_holding_reason = "plummet"
+                                    holding.pending_exit_trade_id = int(recorded_trade_id or 0) if recorded_trade_id is not None else None
+                                    self._register_pending_unwind_trade(record, int(recorded_trade_id or 0), holding.market, holding.token_id, holding.side, holding.shares, holding.buy_price, unwind_result)
                                 trade_db.rebuild_daily_summary()
                             except Exception:
                                 pass
@@ -1786,11 +2161,17 @@ class ArbitrageEngine:
                         else:
                             try:
                                 clob_client = self._get_clob_client()
-                                unwind_ok = self._try_unwind_position(
+                                unwind_result = self._try_unwind_position(
                                     clob_client, holding.token_id, holding.shares,
                                     current_price, "TP sniper"
                                 )
+                                unwind_ok = bool(unwind_result)
                                 if unwind_ok:
+                                    if isinstance(unwind_result, dict):
+                                        pending_order_id = str((unwind_result.get("response") or {}).get("orderID") or (unwind_result.get("response") or {}).get("orderId") or (unwind_result.get("response") or {}).get("id") or (unwind_result.get("response") or {}).get("order_id") or "")
+                                        if pending_order_id:
+                                            holding.pending_exit_order_id = pending_order_id
+                                            holding.pending_exit_reason = "tp-sniper"
                                     holding.status = "paired"
                                     holding.paired_with = "tp-sniper"
                             except Exception as e:
@@ -1816,7 +2197,7 @@ class ArbitrageEngine:
                             self.status.increment_trades_for_market(holding.market_slug)
                             self.status.total_profit += record.expected_profit
                             try:
-                                trade_db.record_trade(
+                                recorded_trade_id = trade_db.record_trade(
                                     timestamp=record.timestamp,
                                     market_slug=record.market_slug,
                                     trade_type="bargain_tp",
@@ -1830,6 +2211,14 @@ class ArbitrageEngine:
                                     status=record.status,
                                     details=record.details,
                                 )
+                                if not self.config.dry_run and 'unwind_result' in locals() and isinstance(unwind_result, dict):
+                                    record.pending_unwind_shares = holding.shares
+                                    record.pending_unwind_buy_price = holding.buy_price
+                                    record.pending_unwind_sell_price = current_price
+                                    record.pending_unwind_holding_timestamp = holding.timestamp
+                                    record.pending_unwind_holding_reason = "tp-sniper"
+                                    holding.pending_exit_trade_id = int(recorded_trade_id or 0) if recorded_trade_id is not None else None
+                                    self._register_pending_unwind_trade(record, int(recorded_trade_id or 0), holding.market, holding.token_id, holding.side, holding.shares, holding.buy_price, unwind_result)
                                 trade_db.rebuild_daily_summary()
                             except Exception:
                                 pass
@@ -1850,12 +2239,18 @@ class ArbitrageEngine:
                 else:
                     try:
                         clob_client = self._get_clob_client()
-                        unwind_ok = self._try_unwind_position(
+                        unwind_result = self._try_unwind_position(
                             clob_client, holding.token_id, holding.shares,
                             current_price, f"止損R{holding.round}-{holding.side}"
                         )
+                        unwind_ok = bool(unwind_result)
                         holding.status = "stopped_out"
                         if unwind_ok:
+                            if isinstance(unwind_result, dict):
+                                pending_order_id = str((unwind_result.get("response") or {}).get("orderID") or (unwind_result.get("response") or {}).get("orderId") or (unwind_result.get("response") or {}).get("id") or (unwind_result.get("response") or {}).get("order_id") or "")
+                                if pending_order_id:
+                                    holding.pending_exit_order_id = pending_order_id
+                                    holding.pending_exit_reason = "stop_loss"
                             self.status.add_log(f"🛑 [止損成功] {holding.side} 已賣出")
                         else:
                             self.status.add_log(f"🛑 [止損失敗] {holding.side} 需手動處理!")
@@ -1887,7 +2282,7 @@ class ArbitrageEngine:
 
                 # 持久化止損記錄
                 try:
-                    trade_db.record_trade(
+                    recorded_trade_id = trade_db.record_trade(
                         timestamp=record.timestamp,
                         market_slug=record.market_slug,
                         trade_type="bargain_stop",
@@ -1901,6 +2296,14 @@ class ArbitrageEngine:
                         status=record.status,
                         details=record.details,
                     )
+                    if not self.config.dry_run and 'unwind_result' in locals() and isinstance(unwind_result, dict):
+                        record.pending_unwind_shares = holding.shares
+                        record.pending_unwind_buy_price = holding.buy_price
+                        record.pending_unwind_sell_price = current_price
+                        record.pending_unwind_holding_timestamp = holding.timestamp
+                        record.pending_unwind_holding_reason = "stop_loss"
+                        holding.pending_exit_trade_id = int(recorded_trade_id or 0) if recorded_trade_id is not None else None
+                        self._register_pending_unwind_trade(record, int(recorded_trade_id or 0), holding.market, holding.token_id, holding.side, holding.shares, holding.buy_price, unwind_result)
                     trade_db.rebuild_daily_summary()
                 except Exception:
                     pass
