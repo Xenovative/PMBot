@@ -14,7 +14,7 @@ const API = ''
 
 function formatUsdPrice(incomingValue, maximumFractionDigits = 2) {
   const normalizedValue = Number(incomingValue)
-  if (!Number.isFinite(normalizedValue)) return '--'
+  if (!Number.isFinite(normalizedValue) || normalizedValue <= 0) return '--'
   return `$${normalizedValue.toLocaleString('en-US', {
     minimumFractionDigits: 0,
     maximumFractionDigits,

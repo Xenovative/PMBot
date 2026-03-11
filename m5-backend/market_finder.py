@@ -51,8 +51,10 @@ class MarketInfo:
         self.liquidity = raw.get("liquidity", "0")
         self.underlying_symbol = raw.get("underlyingSymbol", "")
         self.underlying_price = raw.get("underlyingPrice")
+        self.underlying_price_source = raw.get("underlyingPriceSource")
         self.reference_price = self._resolve_reference_price(raw)
         self.reference_source = self._resolve_reference_source(raw, self.reference_price)
+        self.reference_price_source = raw.get("referencePriceSource")
 
     def _resolve_reference_price(self, raw: Dict[str, Any]) -> Optional[float]:
         candidate_keys = [
@@ -181,8 +183,10 @@ class MarketInfo:
             "liquidity": self.liquidity,
             "underlying_symbol": self.underlying_symbol,
             "underlying_price": self.underlying_price,
+            "underlying_price_source": self.underlying_price_source,
             "reference_price": self.reference_price,
             "reference_source": self.reference_source,
+            "reference_price_source": self.reference_price_source,
         }
 
 
@@ -191,10 +195,7 @@ class MarketFinder:
         self.config = config
         self.gamma_host = config.GAMMA_HOST
 
-    async def _fetch_underlying_prices(self, symbols: List[str]) -> Dict[str, float]:
-        normalized_symbols = [str(symbol or "").strip().lower() for symbol in symbols if str(symbol or "").strip()]
-        if not normalized_symbols:
-            return {}
+    async def _fetch_underlying_prices_from_coingecko(self, normalized_symbols: List[str]) -> Dict[str, float]:
         coingecko_ids = {
             "btc": "bitcoin",
             "eth": "ethereum",
@@ -211,6 +212,7 @@ class MarketFinder:
                         "ids": ",".join(requested_ids),
                         "vs_currencies": "usd",
                     },
+                    headers={"accept": "application/json"},
                 )
                 if response.status_code != 200:
                     return {}
@@ -226,10 +228,72 @@ class MarketFinder:
             if usd_price is None:
                 continue
             try:
-                prices_by_symbol[symbol] = float(usd_price)
+                parsed_price = float(usd_price)
             except (TypeError, ValueError):
                 continue
+            if parsed_price > 0:
+                prices_by_symbol[symbol] = parsed_price
         return prices_by_symbol
+
+    async def _fetch_underlying_prices_from_binance(self, normalized_symbols: List[str]) -> Dict[str, float]:
+        binance_symbols = {
+            "btc": "BTCUSDT",
+            "eth": "ETHUSDT",
+            "sol": "SOLUSDT",
+        }
+        prices_by_symbol: Dict[str, float] = {}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for symbol in normalized_symbols:
+                binance_symbol = binance_symbols.get(symbol)
+                if not binance_symbol:
+                    continue
+                try:
+                    response = await client.get(
+                        "https://api.binance.com/api/v3/ticker/price",
+                        params={"symbol": binance_symbol},
+                        headers={"accept": "application/json"},
+                    )
+                    if response.status_code != 200:
+                        continue
+                    payload = response.json() or {}
+                    parsed_price = _safe_float(payload.get("price"))
+                    if parsed_price is not None and parsed_price > 0:
+                        prices_by_symbol[symbol] = parsed_price
+                except Exception:
+                    continue
+        return prices_by_symbol
+
+    async def _fetch_underlying_prices(self, symbols: List[str]) -> Dict[str, float]:
+        normalized_symbols = [str(symbol or "").strip().lower() for symbol in symbols if str(symbol or "").strip()]
+        if not normalized_symbols:
+            return {}
+        prices_by_symbol = await self._fetch_underlying_prices_from_coingecko(normalized_symbols)
+        missing_symbols = [symbol for symbol in normalized_symbols if symbol not in prices_by_symbol]
+        if missing_symbols:
+            fallback_prices = await self._fetch_underlying_prices_from_binance(missing_symbols)
+            for symbol, fallback_price in fallback_prices.items():
+                if fallback_price > 0:
+                    prices_by_symbol[symbol] = fallback_price
+        return prices_by_symbol
+
+    def _resolve_underlying_price_source_label(self, symbol: str) -> Optional[str]:
+        normalized_symbol = str(symbol or "").strip().lower()
+        if normalized_symbol == "btc":
+            return "Chainlink BTC/USD CEX Price Stream (transport fallback)"
+        if normalized_symbol == "eth":
+            return "Spot transport fallback"
+        if normalized_symbol == "sol":
+            return "Spot transport fallback"
+        return "Spot transport fallback"
+
+    def _resolve_reference_price_source_label(self, symbol: str, market: MarketInfo) -> Optional[str]:
+        normalized_symbol = str(symbol or "").strip().lower()
+        if normalized_symbol == "btc":
+            return "Chainlink BTC/USD CEX Price Stream"
+        existing_reference_source = getattr(market, "reference_source", None)
+        if existing_reference_source:
+            return str(existing_reference_source)
+        return "derived"
 
     def _filter_by_window(self, markets: List[MarketInfo]) -> List[MarketInfo]:
         """Filter markets to those ending within min/max time window."""
@@ -290,6 +354,8 @@ class MarketFinder:
                 if m.id not in seen_ids:
                     m.underlying_symbol = crypto.upper()
                     m.underlying_price = underlying_prices.get(crypto)
+                    m.underlying_price_source = self._resolve_underlying_price_source_label(crypto)
+                    m.reference_price_source = self._resolve_reference_price_source_label(crypto, m)
                     all_markets.append(m)
                     seen_ids.add(m.id)
 
