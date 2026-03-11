@@ -722,84 +722,96 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
-                    {effectiveStatus.current_opportunities.map((opp, i) => (
-                      <div key={i} className={`rounded-lg p-3 border ${
+                    {effectiveStatus.current_opportunities.slice(0, 5).map((opp, index) => (
+                      <div key={index} className={`p-2.5 rounded-lg border ${
                         opp.is_viable
-                          ? 'bg-neon-green/5 border-neon-green/20 shadow-neon-green'
-                          : 'bg-black/30 border-neon-cyan/10'
+                          ? 'border-neon-green/30 bg-neon-green/5'
+                          : 'border-gray-700 bg-black/30'
                       }`}>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium">
-                            {opp.is_viable ? '💰 可執行' : '⏳ 不可執行'}
-                          </span>
-                          <span className={`text-xs font-mono ${
-                            opp.profit_pct > 0 ? 'text-neon-green' : 'text-gray-400'
-                          }`}>
-                            {opp.profit_pct > 0 ? '+' : ''}{opp.profit_pct.toFixed(2)}%
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-gray-500">{opp.reason}</p>
-                        <div className="grid grid-cols-3 gap-2 mt-1.5 text-[10px]">
-                          <div>
-                            <span className="text-gray-500">利潤</span>
-                            <p className="font-mono text-neon-green">${opp.potential_profit.toFixed(4)}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">成本</span>
-                            <p className="font-mono">{opp.price_info?.total_cost?.toFixed(4)}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">價差</span>
-                            <p className="font-mono">{opp.price_info?.spread?.toFixed(4)}</p>
-                          </div>
-                        </div>
-                        <div className="mt-2 rounded-lg bg-black/25 border border-neon-cyan/10 px-2.5 py-2 text-[10px] space-y-1">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <span className="text-gray-400">
-                              現價
-                              <span className="ml-1 font-mono text-white">
-                                {(opp.price_info?.underlying_symbol || opp.market?.underlying_symbol || 'SPOT')} {formatUsdPrice(opp.price_info?.underlying_price, 2)}
-                              </span>
-                            </span>
-                            <span className="text-gray-400">
-                              參考
-                              <span className="ml-1 font-mono text-white">{formatUsdPrice(opp.price_info?.reference_price, 2)}</span>
-                            </span>
-                            <span className="text-gray-500 max-w-full truncate" title={opp.market?.reference_price_source || opp.price_info?.reference_source || opp.market?.reference_source || ''}>
-                              {opp.market?.reference_price_source || opp.price_info?.reference_source || opp.market?.reference_source || ''}
-                            </span>
-                            <span className="text-gray-400">
-                              偏向
-                              <span className={`ml-1 font-mono ${opp.price_edge_side === 'UP' ? 'text-neon-green' : opp.price_edge_side === 'DOWN' ? 'text-neon-pink' : 'text-gray-400'}`}>
-                                {opp.price_edge_side || '--'}
-                              </span>
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                            <span className="text-gray-500">
-                              距離
-                              <span className="ml-1 font-mono text-gray-300">
-                                {Number.isFinite(Number(opp.price_info?.distance_to_reference_pct))
-                                  ? `${Number(opp.price_info.distance_to_reference_pct) >= 0 ? '+' : ''}${(Number(opp.price_info.distance_to_reference_pct) * 100).toFixed(3)}%`
-                                  : '--'}
-                              </span>
-                            </span>
-                            <span className="text-gray-500">
-                              30s 動能
-                              <span className="ml-1 font-mono text-gray-300">
-                                {Number.isFinite(Number(opp.price_info?.spot_momentum_pct_30s))
-                                  ? `${Number(opp.price_info.spot_momentum_pct_30s) >= 0 ? '+' : ''}${(Number(opp.price_info.spot_momentum_pct_30s) * 100).toFixed(3)}%`
-                                  : '--'}
-                              </span>
-                            </span>
-                            <span className="text-gray-500">
-                              Edge
-                              <span className="ml-1 font-mono text-neon-cyan">
-                                {Number.isFinite(Number(opp.price_edge_score)) ? Number(opp.price_edge_score).toFixed(4) : '--'}
-                              </span>
-                            </span>
-                          </div>
-                        </div>
+                        {(() => {
+                          const opportunityReferencePrice = Number(opp.price_info?.reference_price)
+                          const opportunityUnderlyingPrice = Number(opp.price_info?.underlying_price)
+                          const hasOpportunityDistancePct = Number.isFinite(opportunityReferencePrice) && opportunityReferencePrice > 0 && Number.isFinite(opportunityUnderlyingPrice) && opportunityUnderlyingPrice > 0
+                          const opportunityDistancePct = hasOpportunityDistancePct
+                            ? ((opportunityUnderlyingPrice - opportunityReferencePrice) / opportunityReferencePrice)
+                            : null
+                          return (
+                            <>
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-medium">
+                                  {opp.is_viable ? '💰 可執行' : '⏳ 不可執行'}
+                                </span>
+                                <span className={`text-xs font-mono ${
+                                  opp.profit_pct > 0 ? 'text-neon-green' : 'text-gray-400'
+                                }`}>
+                                  {opp.profit_pct > 0 ? '+' : ''}{opp.profit_pct.toFixed(2)}%
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-gray-500">{opp.reason}</p>
+                              <div className="grid grid-cols-3 gap-2 mt-1.5 text-[10px]">
+                                <div>
+                                  <span className="text-gray-500">利潤</span>
+                                  <p className="font-mono text-neon-green">${opp.potential_profit.toFixed(4)}</p>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">成本</span>
+                                  <p className="font-mono">{opp.price_info?.total_cost?.toFixed(4)}</p>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500">價差</span>
+                                  <p className="font-mono">{opp.price_info?.spread?.toFixed(4)}</p>
+                                </div>
+                              </div>
+                              <div className="mt-2 rounded-lg bg-black/25 border border-neon-cyan/10 px-2.5 py-2 text-[10px] space-y-1">
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                  <span className="text-gray-400">
+                                    現價
+                                    <span className="ml-1 font-mono text-white">
+                                      {(opp.price_info?.underlying_symbol || opp.market?.underlying_symbol || 'SPOT')} {formatUsdPrice(opportunityUnderlyingPrice, 2)}
+                                    </span>
+                                  </span>
+                                  <span className="text-gray-400">
+                                    參考
+                                    <span className="ml-1 font-mono text-white">{formatUsdPrice(opportunityReferencePrice, 2)}</span>
+                                  </span>
+                                  <span className="text-gray-500 max-w-full truncate" title={opp.market?.reference_price_source || opp.price_info?.reference_source || opp.market?.reference_source || ''}>
+                                    {opp.market?.reference_price_source || opp.price_info?.reference_source || opp.market?.reference_source || ''}
+                                  </span>
+                                  <span className="text-gray-400">
+                                    偏向
+                                    <span className={`ml-1 font-mono ${opp.price_edge_side === 'UP' ? 'text-neon-green' : opp.price_edge_side === 'DOWN' ? 'text-neon-pink' : 'text-gray-400'}`}>
+                                      {opp.price_edge_side || '--'}
+                                    </span>
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                  <span className="text-gray-500">
+                                    距離
+                                    <span className="ml-1 font-mono text-gray-300">
+                                      {hasOpportunityDistancePct
+                                        ? `${opportunityDistancePct >= 0 ? '+' : ''}${(opportunityDistancePct * 100).toFixed(3)}%`
+                                        : '--'}
+                                    </span>
+                                  </span>
+                                  <span className="text-gray-500">
+                                    30s 動能
+                                    <span className="ml-1 font-mono text-gray-300">
+                                      {Number.isFinite(Number(opp.price_info?.spot_momentum_pct_30s))
+                                        ? `${Number(opp.price_info.spot_momentum_pct_30s) >= 0 ? '+' : ''}${(Number(opp.price_info.spot_momentum_pct_30s) * 100).toFixed(3)}%`
+                                        : '--'}
+                                    </span>
+                                  </span>
+                                  <span className="text-gray-500">
+                                    Edge
+                                    <span className="ml-1 font-mono text-neon-cyan">
+                                      {Number.isFinite(Number(opp.price_edge_score)) ? Number(opp.price_edge_score).toFixed(4) : '--'}
+                                    </span>
+                                  </span>
+                                </div>
+                              </div>
+                            </>
+                          )
+                        })()}
                       </div>
                     ))}
                   </div>
