@@ -41,6 +41,22 @@ class PriceInfo:
     up_asks: List[Dict[str, float]] = field(default_factory=list)
     down_asks: List[Dict[str, float]] = field(default_factory=list)
     timestamp: str = ""
+    time_remaining_seconds: float = 0.0
+    time_remaining_display: str = ""
+    underlying_symbol: Optional[str] = None
+    underlying_price: Optional[float] = None
+    reference_price: Optional[float] = None
+    reference_source: Optional[str] = None
+    distance_to_reference: Optional[float] = None
+    distance_to_reference_pct: Optional[float] = None
+    spot_momentum_pct_30s: Optional[float] = None
+    implied_up_probability: Optional[float] = None
+    implied_down_probability: Optional[float] = None
+    price_edge_score: Optional[float] = None
+    price_edge_side: Optional[str] = None
+    trend_lock_side: Optional[str] = None
+    trend_lock_active: bool = False
+    price_edge_summary: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -53,6 +69,22 @@ class PriceInfo:
             "up_liquidity": self.up_liquidity,
             "down_liquidity": self.down_liquidity,
             "timestamp": self.timestamp,
+            "time_remaining_seconds": self.time_remaining_seconds,
+            "time_remaining_display": self.time_remaining_display,
+            "underlying_symbol": self.underlying_symbol,
+            "underlying_price": self.underlying_price,
+            "reference_price": self.reference_price,
+            "reference_source": self.reference_source,
+            "distance_to_reference": self.distance_to_reference,
+            "distance_to_reference_pct": self.distance_to_reference_pct,
+            "spot_momentum_pct_30s": self.spot_momentum_pct_30s,
+            "implied_up_probability": self.implied_up_probability,
+            "implied_down_probability": self.implied_down_probability,
+            "price_edge_score": self.price_edge_score,
+            "price_edge_side": self.price_edge_side,
+            "trend_lock_side": self.trend_lock_side,
+            "trend_lock_active": self.trend_lock_active,
+            "price_edge_summary": self.price_edge_summary,
         }
 
 
@@ -119,6 +151,13 @@ class BargainHolding:
     status: str = "holding"  # "holding", "paired", "stopped_out"
     round: int = 1  # 堆疊輪次
     paired_with: Optional[str] = None  # 配對的另一側 holding timestamp (用於追蹤)
+    plummet_last_price: Optional[float] = None
+    plummet_last_ts: Optional[str] = None
+    plummet_high_price: Optional[float] = None
+    plummet_window_start_ts: Optional[str] = None
+    pending_exit_order_id: Optional[str] = None
+    pending_exit_reason: Optional[str] = None
+    pending_exit_trade_id: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -131,6 +170,9 @@ class BargainHolding:
             "timestamp": self.timestamp,
             "status": self.status,
             "round": self.round,
+            "plummet_last_price": self.plummet_last_price,
+            "plummet_high_price": self.plummet_high_price,
+            "pending_exit_reason": self.pending_exit_reason,
         }
 
 
@@ -205,6 +247,7 @@ class ArbitrageEngine:
         self._stop_event = asyncio.Event()
         self._task: Optional[asyncio.Task] = None
         self._stop_loss_cooldown_until: Optional[datetime] = None
+        self._underlying_price_history: Dict[str, deque] = {}
 
     async def get_prices(self, market: MarketInfo) -> Optional[PriceInfo]:
         """從 CLOB API 獲取 UP/DOWN 代幣的當前價格和訂單簿深度"""
@@ -215,6 +258,8 @@ class ArbitrageEngine:
 
         price_info = PriceInfo()
         price_info.timestamp = datetime.now(timezone.utc).isoformat()
+        price_info.time_remaining_seconds = float(getattr(market, "time_remaining_seconds", 0.0) or 0.0)
+        price_info.time_remaining_display = str(getattr(market, "time_remaining_display", "") or "")
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
@@ -275,6 +320,7 @@ class ArbitrageEngine:
                 else:
                     price_info.total_cost = price_info.up_price + price_info.down_price
                 price_info.spread = 1.0 - price_info.total_cost
+                self._populate_price_context(market, price_info)
 
                 return price_info
 
@@ -288,6 +334,7 @@ class ArbitrageEngine:
         order_size = self.config.order_size
         total_cost = price_info.total_cost
         target = self.config.target_pair_cost
+        self._populate_price_context(market, price_info)
 
         # 用最壞情況（含滑價）計算利潤
         worst_cost = total_cost + MAX_SLIPPAGE
@@ -350,6 +397,95 @@ class ArbitrageEngine:
             profit_pct=round(profit_pct, 4),
             is_viable=is_viable,
             reason=reason,
+        )
+
+    def _populate_price_context(self, market: MarketInfo, price_info: PriceInfo):
+        underlying_symbol = str(getattr(market, "underlying_symbol", "") or "").strip().upper()
+        underlying_price_raw = getattr(market, "underlying_price", None)
+        reference_price_raw = getattr(market, "reference_price", None)
+        reference_source = getattr(market, "reference_source", None)
+        try:
+            underlying_price = float(underlying_price_raw) if underlying_price_raw is not None else None
+        except (TypeError, ValueError):
+            underlying_price = None
+        try:
+            reference_price = float(reference_price_raw) if reference_price_raw is not None else None
+        except (TypeError, ValueError):
+            reference_price = None
+        price_info.time_remaining_seconds = float(getattr(market, "time_remaining_seconds", 0.0) or 0.0)
+        price_info.time_remaining_display = str(getattr(market, "time_remaining_display", "") or "")
+        price_info.underlying_symbol = underlying_symbol or None
+        price_info.underlying_price = underlying_price
+        price_info.reference_price = reference_price
+        price_info.reference_source = reference_source
+        price_info.implied_up_probability = price_info.up_price if price_info.up_price > 0 else None
+        price_info.implied_down_probability = price_info.down_price if price_info.down_price > 0 else None
+
+        momentum_pct_30s: Optional[float] = None
+        if underlying_symbol and underlying_price is not None and underlying_price > 0:
+            history_window = self._underlying_price_history.get(underlying_symbol)
+            if history_window is None:
+                history_window = deque(maxlen=120)
+                self._underlying_price_history[underlying_symbol] = history_window
+            now_ts = time.time()
+            history_window.append((now_ts, underlying_price))
+            cutoff_ts = now_ts - 180.0
+            while history_window and history_window[0][0] < cutoff_ts:
+                history_window.popleft()
+            baseline_price: Optional[float] = None
+            baseline_cutoff_ts = now_ts - 30.0
+            for observed_ts, observed_price in history_window:
+                if observed_ts <= baseline_cutoff_ts:
+                    baseline_price = observed_price
+                else:
+                    break
+            if baseline_price is None and history_window:
+                baseline_price = history_window[0][1]
+            if baseline_price and baseline_price > 0:
+                momentum_pct_30s = (underlying_price - baseline_price) / baseline_price
+        price_info.spot_momentum_pct_30s = momentum_pct_30s
+
+        if reference_price is None or reference_price <= 0 or underlying_price is None or underlying_price <= 0:
+            price_info.distance_to_reference = None
+            price_info.distance_to_reference_pct = None
+            price_info.price_edge_score = None
+            price_info.price_edge_side = None
+            price_info.trend_lock_side = None
+            price_info.trend_lock_active = False
+            if underlying_price is None:
+                price_info.price_edge_summary = "缺少現貨價格"
+            elif reference_price is None:
+                price_info.price_edge_summary = "缺少市場參考價"
+            else:
+                price_info.price_edge_summary = None
+            return
+
+        distance_to_reference = underlying_price - reference_price
+        distance_to_reference_pct = distance_to_reference / reference_price
+        price_info.distance_to_reference = distance_to_reference
+        price_info.distance_to_reference_pct = distance_to_reference_pct
+
+        time_scale = min(1.0, max(0.15, price_info.time_remaining_seconds / 300.0))
+        distance_component = distance_to_reference_pct / max(time_scale, 0.15)
+        momentum_component = momentum_pct_30s or 0.0
+        composite_up_signal = distance_component + (momentum_component * 1.5)
+        composite_down_signal = (-distance_component) + ((-momentum_component) * 1.5)
+        implied_up_probability = price_info.implied_up_probability or 0.0
+        implied_down_probability = price_info.implied_down_probability or 0.0
+        edge_up_score = composite_up_signal - implied_up_probability
+        edge_down_score = composite_down_signal - implied_down_probability
+        if edge_up_score >= edge_down_score:
+            price_info.price_edge_score = edge_up_score
+            price_info.price_edge_side = "UP"
+        else:
+            price_info.price_edge_score = edge_down_score
+            price_info.price_edge_side = "DOWN"
+        locked_side_summary = f" | 鎖定 {price_info.trend_lock_side}" if price_info.trend_lock_active and price_info.trend_lock_side else ""
+        price_info.price_edge_summary = (
+            f"現價 {underlying_price:.2f} vs 參考 {reference_price:.2f} | "
+            f"距離 {distance_to_reference_pct * 100:.3f}% | "
+            f"30s 動能 {(momentum_pct_30s or 0.0) * 100:.3f}% | "
+            f"偏向 {price_info.price_edge_side} edge {price_info.price_edge_score:.4f}{locked_side_summary}"
         )
 
     def _get_sweep_price(self, asks: List[Dict[str, float]], shares_needed: float) -> tuple:
@@ -1550,6 +1686,17 @@ class ArbitrageEngine:
             return
 
         for holding in active:
+            market_time_remaining = getattr(holding.market, "time_remaining_seconds", None)
+            if market_time_remaining is not None and market_time_remaining <= 0:
+                holding.pending_exit_order_id = None
+                holding.pending_exit_reason = None
+                holding.pending_exit_trade_id = None
+                holding.status = "stopped_out"
+                self.status.add_log(
+                    f"⌛ [到期清理] {holding.market_slug} {holding.side} 已到期，從持倉列表移除"
+                )
+                continue
+
             # 獲取最新價格
             price_info = await self.get_prices(holding.market)
             if not price_info:
@@ -1560,6 +1707,77 @@ class ArbitrageEngine:
                 current_price = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
             else:
                 current_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
+
+            if holding.buy_price > 0:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                holding.plummet_window_start_ts = now_iso
+                holding.plummet_high_price = max(float(holding.plummet_high_price or 0.0), float(current_price))
+
+                plummet_exit_pct = float(getattr(self.config, "bargain_plummet_exit_pct", 0.0) or 0.0)
+                if plummet_exit_pct > 0:
+                    drop_pct = (holding.buy_price - current_price) / holding.buy_price * 100
+                    if drop_pct >= plummet_exit_pct:
+                        self.status.add_log(
+                            f"⚡ [急跌護欄] {holding.market_slug} {holding.side} 跌 {drop_pct:.1f}% ≥ {plummet_exit_pct:.1f}% → 立刻平倉"
+                        )
+                        if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
+                            pending_exit_label = holding.pending_exit_order_id[:12] if holding.pending_exit_order_id else str(holding.pending_exit_reason or "settlement_pending")
+                            self.status.add_log(f"⚡ [急跌護欄] 已有待成交退出狀態 {pending_exit_label}，略過重複掛單")
+                            continue
+                        unwind_ok = True
+                        if self.config.dry_run:
+                            holding.status = "stopped_out"
+                        else:
+                            try:
+                                clob_client = self._get_clob_client()
+                                unwind_ok = self._try_unwind_position(
+                                    clob_client, holding.token_id, holding.shares,
+                                    current_price, "Plummet guard"
+                                )
+                                holding.status = "stopped_out"
+                            except Exception as e:
+                                unwind_ok = False
+                                self.status.add_log(f"⚡ [急跌護欄異常] {str(e)[:120]}")
+                        if self.config.dry_run or unwind_ok:
+                            pnl = (current_price - holding.buy_price) * holding.shares
+                            record = TradeRecord(
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                                market_slug=holding.market_slug,
+                                up_price=price_info.up_price,
+                                down_price=price_info.down_price,
+                                total_cost=current_price,
+                                order_size=holding.shares,
+                                expected_profit=pnl,
+                                profit_pct=(pnl / (holding.buy_price * holding.shares) * 100) if holding.buy_price > 0 else 0,
+                                status="executed" if (not self.config.dry_run and unwind_ok) else "simulated",
+                                details=f"⚡ 急跌護欄 {holding.side} 跌 {drop_pct:.1f}%",
+                            )
+                            self.status.trade_history.append(record)
+                            self.status.total_trades += 1
+                            self.status.increment_trades_for_market(holding.market_slug)
+                            self.status.total_profit += record.expected_profit
+                            try:
+                                trade_db.record_trade(
+                                    timestamp=record.timestamp,
+                                    market_slug=record.market_slug,
+                                    trade_type="bargain_plummet",
+                                    side=holding.side,
+                                    up_price=record.up_price,
+                                    down_price=record.down_price,
+                                    total_cost=record.total_cost,
+                                    order_size=record.order_size,
+                                    profit=record.expected_profit,
+                                    profit_pct=record.profit_pct,
+                                    status=record.status,
+                                    details=record.details,
+                                )
+                                trade_db.rebuild_daily_summary()
+                            except Exception:
+                                pass
+                        continue
+
+                holding.plummet_last_price = current_price
+                holding.plummet_last_ts = now_iso
 
             # ── 價格回升 → 重置延遲計時器 ──
             if current_price >= holding.buy_price:
@@ -1578,6 +1796,73 @@ class ArbitrageEngine:
                         f"買入: {holding.buy_price:.4f} 現價: {current_price:.4f} | 等待配對"
                     )
                 continue
+
+            if holding.buy_price > 0:
+                secondary_exit_profit_pct = float(getattr(self.config, "bargain_secondary_exit_profit_pct", 0.0) or 0.0)
+                if secondary_exit_profit_pct > 0:
+                    profit_pct_now = (current_price - holding.buy_price) / holding.buy_price * 100
+                    if profit_pct_now >= secondary_exit_profit_pct:
+                        self.status.add_log(
+                            f"🎯 [二次出場] {holding.market_slug} {holding.side} 利潤 {profit_pct_now:.2f}% ≥ {secondary_exit_profit_pct:.2f}% → 嘗試直接賣出"
+                        )
+                        if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
+                            pending_exit_label = holding.pending_exit_order_id[:12] if holding.pending_exit_order_id else str(holding.pending_exit_reason or "settlement_pending")
+                            self.status.add_log(f"🎯 [二次出場] 已有待成交退出狀態 {pending_exit_label}，略過重複掛單")
+                            continue
+                        unwind_ok = True
+                        if self.config.dry_run:
+                            holding.status = "paired"
+                            holding.paired_with = "tp-sniper"
+                        else:
+                            try:
+                                clob_client = self._get_clob_client()
+                                unwind_ok = self._try_unwind_position(
+                                    clob_client, holding.token_id, holding.shares,
+                                    current_price, "TP sniper"
+                                )
+                                if unwind_ok:
+                                    holding.status = "paired"
+                                    holding.paired_with = "tp-sniper"
+                            except Exception as e:
+                                unwind_ok = False
+                                self.status.add_log(f"🎯 [二次出場異常] {str(e)[:120]}")
+                        if self.config.dry_run or unwind_ok:
+                            pnl = (current_price - holding.buy_price) * holding.shares
+                            record = TradeRecord(
+                                timestamp=datetime.now(timezone.utc).isoformat(),
+                                market_slug=holding.market_slug,
+                                up_price=price_info.up_price,
+                                down_price=price_info.down_price,
+                                total_cost=current_price,
+                                order_size=holding.shares,
+                                expected_profit=pnl,
+                                profit_pct=(pnl / (holding.buy_price * holding.shares) * 100) if holding.buy_price > 0 else 0,
+                                status="executed" if (not self.config.dry_run and unwind_ok) else "simulated",
+                                details=f"🎯 二次出場 {holding.side} 利潤 {profit_pct_now:.2f}%",
+                            )
+                            self.status.trade_history.append(record)
+                            self.status.total_trades += 1
+                            self.status.increment_trades_for_market(holding.market_slug)
+                            self.status.total_profit += record.expected_profit
+                            try:
+                                trade_db.record_trade(
+                                    timestamp=record.timestamp,
+                                    market_slug=record.market_slug,
+                                    trade_type="bargain_tp",
+                                    side=holding.side,
+                                    up_price=record.up_price,
+                                    down_price=record.down_price,
+                                    total_cost=record.total_cost,
+                                    order_size=record.order_size,
+                                    profit=record.expected_profit,
+                                    profit_pct=record.profit_pct,
+                                    status=record.status,
+                                    details=record.details,
+                                )
+                                trade_db.rebuild_daily_summary()
+                            except Exception:
+                                pass
+                        continue
 
             # ── 止損檢查: 跌超過閾值 → 延遲後才賣出 ──
             price_drop = holding.buy_price - current_price
