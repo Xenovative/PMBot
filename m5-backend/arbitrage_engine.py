@@ -959,8 +959,8 @@ class ArbitrageEngine:
         elif price_info.reference_price is not None and price_info.underlying_price is not None:
             edge_threshold = float(getattr(self.config, "price_edge_min_score", 0.035) or 0.035)
             reference_distance_threshold = float(getattr(self.config, "price_edge_min_distance_pct", 0.0015) or 0.0015)
+            btc_distance_gate_enabled = bool(getattr(self.config, "price_edge_distance_gate_enabled_btc", True))
             btc_min_distance_usd = float(getattr(self.config, "price_edge_min_distance_usd_btc", 70.0) or 70.0)
-            btc_max_distance_usd = float(getattr(self.config, "price_edge_max_distance_usd_btc", 90.0) or 90.0)
             distance_to_reference = price_info.distance_to_reference
             momentum_pct_30s = price_info.spot_momentum_pct_30s
             expected_distance_sign: Optional[int] = None
@@ -974,16 +974,15 @@ class ArbitrageEngine:
             elif expected_distance_sign is None and price_info.price_edge_side == "DOWN":
                 expected_distance_sign = -1
             if (
+                btc_distance_gate_enabled
+                and
                 str(price_info.underlying_symbol or "").strip().upper() == "BTC"
                 and distance_to_reference is not None
             ):
                 absolute_distance_usd = abs(distance_to_reference)
-                if absolute_distance_usd < btc_min_distance_usd or absolute_distance_usd > btc_max_distance_usd:
+                if absolute_distance_usd < btc_min_distance_usd:
                     is_viable = False
-                    reason = (
-                        f"BTC 現價與參考價距離 ${absolute_distance_usd:.2f} 不在允許區間 "
-                        f"${btc_min_distance_usd:.0f}-${btc_max_distance_usd:.0f}"
-                    )
+                    reason = f"BTC 現價與參考價距離 ${absolute_distance_usd:.2f} 未達門檻 ${btc_min_distance_usd:.0f}"
                 elif expected_distance_sign is not None and distance_to_reference * expected_distance_sign <= 0:
                     trend_label = "上升" if expected_distance_sign > 0 else "下降"
                     is_viable = False
