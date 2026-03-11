@@ -573,8 +573,10 @@ function Dashboard({ token, authHeaders, onLogout }) {
                             const rem = secs % 60;
                             const timeLabel = `${mins}分${rem.toString().padStart(2,'0')}秒`;
                             const underlyingLabel = price.underlying_symbol || slug.split('-')[0]?.toUpperCase() || 'SPOT';
-                            const distancePct = Number(price.distance_to_reference_pct);
-                            const hasDistancePct = Number.isFinite(distancePct);
+                            const referencePrice = Number(price.reference_price);
+                            const underlyingPrice = Number(price.underlying_price);
+                            const hasDistancePct = Number.isFinite(referencePrice) && referencePrice > 0 && Number.isFinite(underlyingPrice) && underlyingPrice > 0;
+                            const distancePct = hasDistancePct ? ((underlyingPrice - referencePrice) / referencePrice) : null;
                             return (
                               <tr key={slug} className={`border-b border-neon-cyan/5 ${profitable ? 'bg-neon-green/5' : ''}`}>
                                 <td className="py-2 pr-3">
