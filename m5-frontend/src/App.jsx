@@ -1256,6 +1256,14 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   onChange={(v) => setConfigForm({ ...configForm, price_edge_min_distance_usd_btc: parseFloat(v) })}
                   hint="當 RTDS 現價與參考價價差達此門檻時，才依趨勢方向鎖定進場"
                 />
+                <ConfigField
+                  label="門檻衰減地板倍率"
+                  type="number"
+                  step="0.05"
+                  value={configForm.price_edge_distance_floor_multiplier_btc ?? 0.4}
+                  onChange={(v) => setConfigForm({ ...configForm, price_edge_distance_floor_multiplier_btc: parseFloat(v) })}
+                  hint="越低代表接近到期時 RTDS 動態門檻可降得更低 (例如 0.4 = $70 最低降至 $28)"
+                />
               </div>
             </div>
 
