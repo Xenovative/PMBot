@@ -324,6 +324,24 @@ class MarketFinder:
             return None
         return closest_price
 
+    @classmethod
+    def _get_latest_chainlink_price(cls, symbol: str) -> Optional[float]:
+        normalized_symbol = str(symbol or "").strip().lower()
+        if normalized_symbol == "btc":
+            normalized_symbol = "btc/usd"
+        if not normalized_symbol:
+            return None
+        symbol_history = cls._chainlink_prices_by_symbol.get(normalized_symbol)
+        if not symbol_history:
+            return None
+        latest_entry = symbol_history[-1] if len(symbol_history) > 0 else None
+        if not latest_entry or len(latest_entry) < 2:
+            return None
+        latest_value = _safe_float(latest_entry[1])
+        if latest_value is None or latest_value <= 0:
+            return None
+        return latest_value
+
     async def _fetch_underlying_prices_from_coingecko(self, normalized_symbols: List[str]) -> Dict[str, float]:
         coingecko_ids = {
             "btc": "bitcoin",
@@ -396,8 +414,24 @@ class MarketFinder:
         normalized_symbols = [str(symbol or "").strip().lower() for symbol in symbols if str(symbol or "").strip()]
         if not normalized_symbols:
             return {}
-        prices_by_symbol = await self._fetch_underlying_prices_from_coingecko(normalized_symbols)
-        missing_symbols = [symbol for symbol in normalized_symbols if symbol not in prices_by_symbol]
+        prices_by_symbol: Dict[str, float] = {}
+        for normalized_symbol in normalized_symbols:
+            latest_chainlink_price = self._get_latest_chainlink_price(normalized_symbol)
+            if latest_chainlink_price is not None and latest_chainlink_price > 0:
+                prices_by_symbol[normalized_symbol] = latest_chainlink_price
+        missing_symbols = [
+            symbol for symbol in normalized_symbols
+            if symbol not in prices_by_symbol and symbol != "btc"
+        ]
+        if missing_symbols:
+            coingecko_prices = await self._fetch_underlying_prices_from_coingecko(missing_symbols)
+            for symbol, coingecko_price in coingecko_prices.items():
+                if coingecko_price > 0:
+                    prices_by_symbol[symbol] = coingecko_price
+        missing_symbols = [
+            symbol for symbol in normalized_symbols
+            if symbol not in prices_by_symbol and symbol != "btc"
+        ]
         if missing_symbols:
             fallback_prices = await self._fetch_underlying_prices_from_binance(missing_symbols)
             for symbol, fallback_price in fallback_prices.items():
@@ -408,7 +442,10 @@ class MarketFinder:
     def _resolve_underlying_price_source_label(self, symbol: str) -> Optional[str]:
         normalized_symbol = str(symbol or "").strip().lower()
         if normalized_symbol == "btc":
-            return "Chainlink BTC/USD CEX Price Stream (transport fallback)"
+            latest_chainlink_price = self._get_latest_chainlink_price(normalized_symbol)
+            if latest_chainlink_price is not None and latest_chainlink_price > 0:
+                return "Chainlink RTDS BTC/USD"
+            return None
         if normalized_symbol == "eth":
             return "Spot transport fallback"
         if normalized_symbol == "sol":
@@ -419,7 +456,7 @@ class MarketFinder:
         normalized_symbol = str(symbol or "").strip().lower()
         if normalized_symbol == "btc":
             if getattr(market, "reference_price", None):
-                return "Chainlink BTC/USD CEX Price Stream"
+                return "Chainlink RTDS BTC/USD bucket open"
             return None
         existing_reference_source = getattr(market, "reference_source", None)
         if existing_reference_source:
