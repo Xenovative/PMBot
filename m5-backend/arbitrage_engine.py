@@ -44,6 +44,18 @@ class PriceInfo:
     timestamp: str = ""
     time_remaining_seconds: float = 0.0
     time_remaining_display: str = ""
+    underlying_symbol: Optional[str] = None
+    underlying_price: Optional[float] = None
+    reference_price: Optional[float] = None
+    reference_source: Optional[str] = None
+    distance_to_reference: Optional[float] = None
+    distance_to_reference_pct: Optional[float] = None
+    spot_momentum_pct_30s: Optional[float] = None
+    implied_up_probability: Optional[float] = None
+    implied_down_probability: Optional[float] = None
+    price_edge_score: Optional[float] = None
+    price_edge_side: Optional[str] = None
+    price_edge_summary: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -58,6 +70,18 @@ class PriceInfo:
             "timestamp": self.timestamp,
             "time_remaining_seconds": self.time_remaining_seconds,
             "time_remaining_display": self.time_remaining_display,
+            "underlying_symbol": self.underlying_symbol,
+            "underlying_price": self.underlying_price,
+            "reference_price": self.reference_price,
+            "reference_source": self.reference_source,
+            "distance_to_reference": self.distance_to_reference,
+            "distance_to_reference_pct": self.distance_to_reference_pct,
+            "spot_momentum_pct_30s": self.spot_momentum_pct_30s,
+            "implied_up_probability": self.implied_up_probability,
+            "implied_down_probability": self.implied_down_probability,
+            "price_edge_score": self.price_edge_score,
+            "price_edge_side": self.price_edge_side,
+            "price_edge_summary": self.price_edge_summary,
         }
 
 
@@ -97,6 +121,8 @@ class ArbitrageOpportunity:
     profit_pct: float
     is_viable: bool
     reason: str = ""
+    price_edge_score: Optional[float] = None
+    price_edge_side: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -106,6 +132,8 @@ class ArbitrageOpportunity:
             "profit_pct": self.profit_pct,
             "is_viable": self.is_viable,
             "reason": self.reason,
+            "price_edge_score": self.price_edge_score,
+            "price_edge_side": self.price_edge_side,
         }
 
 
@@ -273,6 +301,7 @@ class ArbitrageEngine:
         safe_window = max(3, int(getattr(config, "velocity_window_points", 4) or 4))
         self._velocity_window_points = safe_window
         self._price_history: Dict[str, deque[float]] = {}
+        self._underlying_price_history: Dict[str, deque[Tuple[float, float]]] = {}
         self._last_logged_velocity: Optional[float] = None
         self._last_logged_trend: Optional[str] = None
         self._prev_trend: Optional[str] = None
@@ -873,6 +902,7 @@ class ArbitrageEngine:
         order_size = self.config.order_size
         total_cost = price_info.total_cost
         target = self.config.target_pair_cost
+        self._populate_price_context(market, price_info)
 
         # 用最壞情況（含滑價）計算利潤
         worst_cost = total_cost + MAX_SLIPPAGE
@@ -925,8 +955,25 @@ class ArbitrageEngine:
             low_price = min(price_info.up_price, price_info.down_price)
             reason = f"{low_side} 金額不足 $1 ({order_size} × {low_price:.4f} = ${order_size * low_price:.2f})"
 
+        # 檢查 8: 價格邊際必須足夠明確
+        elif price_info.reference_price is not None and price_info.underlying_price is not None:
+            edge_threshold = float(getattr(self.config, "price_edge_min_score", 0.035) or 0.035)
+            reference_distance_threshold = float(getattr(self.config, "price_edge_min_distance_pct", 0.0015) or 0.0015)
+            if price_info.distance_to_reference_pct is not None and abs(price_info.distance_to_reference_pct) < reference_distance_threshold:
+                is_viable = False
+                reason = (
+                    f"現價貼近參考價 ({price_info.distance_to_reference_pct * 100:.3f}%)，方向優勢不足"
+                )
+            elif price_info.price_edge_score is None or abs(price_info.price_edge_score) < edge_threshold:
+                is_viable = False
+                edge_text = price_info.price_edge_score if price_info.price_edge_score is not None else 0.0
+                reason = f"價格優勢不足 (edge {edge_text:.4f})"
+
         else:
-            reason = f"✅ 套利機會! 利潤: ${profit:.4f} ({profit_pct:.2f}%)"
+            if price_info.price_edge_summary:
+                reason = f"✅ 套利機會! 利潤: ${profit:.4f} ({profit_pct:.2f}%) | {price_info.price_edge_summary}"
+            else:
+                reason = f"✅ 套利機會! 利潤: ${profit:.4f} ({profit_pct:.2f}%)"
 
         return ArbitrageOpportunity(
             market=market,
@@ -935,6 +982,92 @@ class ArbitrageEngine:
             profit_pct=round(profit_pct, 4),
             is_viable=is_viable,
             reason=reason,
+            price_edge_score=price_info.price_edge_score,
+            price_edge_side=price_info.price_edge_side,
+        )
+
+    def _populate_price_context(self, market: MarketInfo, price_info: PriceInfo):
+        underlying_symbol = str(getattr(market, "underlying_symbol", "") or "").strip().upper()
+        underlying_price_raw = getattr(market, "underlying_price", None)
+        reference_price_raw = getattr(market, "reference_price", None)
+        reference_source = getattr(market, "reference_source", None)
+        try:
+            underlying_price = float(underlying_price_raw) if underlying_price_raw is not None else None
+        except (TypeError, ValueError):
+            underlying_price = None
+        try:
+            reference_price = float(reference_price_raw) if reference_price_raw is not None else None
+        except (TypeError, ValueError):
+            reference_price = None
+        price_info.underlying_symbol = underlying_symbol or None
+        price_info.underlying_price = underlying_price
+        price_info.reference_price = reference_price
+        price_info.reference_source = reference_source
+        price_info.implied_up_probability = price_info.up_price if price_info.up_price > 0 else None
+        price_info.implied_down_probability = price_info.down_price if price_info.down_price > 0 else None
+
+        momentum_pct_30s: Optional[float] = None
+        if underlying_symbol and underlying_price is not None and underlying_price > 0:
+            history_window = self._underlying_price_history.get(underlying_symbol)
+            if history_window is None:
+                history_window = deque(maxlen=120)
+                self._underlying_price_history[underlying_symbol] = history_window
+            now_ts = time.time()
+            history_window.append((now_ts, underlying_price))
+            cutoff_ts = now_ts - 180.0
+            while history_window and history_window[0][0] < cutoff_ts:
+                history_window.popleft()
+            baseline_price: Optional[float] = None
+            baseline_cutoff_ts = now_ts - 30.0
+            for observed_ts, observed_price in history_window:
+                if observed_ts <= baseline_cutoff_ts:
+                    baseline_price = observed_price
+                else:
+                    break
+            if baseline_price is None and history_window:
+                baseline_price = history_window[0][1]
+            if baseline_price and baseline_price > 0:
+                momentum_pct_30s = (underlying_price - baseline_price) / baseline_price
+        price_info.spot_momentum_pct_30s = momentum_pct_30s
+
+        if reference_price is None or reference_price <= 0 or underlying_price is None or underlying_price <= 0:
+            price_info.distance_to_reference = None
+            price_info.distance_to_reference_pct = None
+            price_info.price_edge_score = None
+            price_info.price_edge_side = None
+            if underlying_price is None:
+                price_info.price_edge_summary = "缺少現貨價格"
+            elif reference_price is None:
+                price_info.price_edge_summary = "缺少市場參考價"
+            else:
+                price_info.price_edge_summary = None
+            return
+
+        distance_to_reference = underlying_price - reference_price
+        distance_to_reference_pct = distance_to_reference / reference_price
+        price_info.distance_to_reference = distance_to_reference
+        price_info.distance_to_reference_pct = distance_to_reference_pct
+
+        time_scale = min(1.0, max(0.15, market.time_remaining_seconds / 300.0))
+        distance_component = distance_to_reference_pct / max(time_scale, 0.15)
+        momentum_component = momentum_pct_30s or 0.0
+        composite_up_signal = distance_component + (momentum_component * 1.5)
+        composite_down_signal = (-distance_component) + ((-momentum_component) * 1.5)
+        implied_up_probability = price_info.implied_up_probability or 0.0
+        implied_down_probability = price_info.implied_down_probability or 0.0
+        edge_up_score = composite_up_signal - implied_up_probability
+        edge_down_score = composite_down_signal - implied_down_probability
+        if edge_up_score >= edge_down_score:
+            price_info.price_edge_score = edge_up_score
+            price_info.price_edge_side = "UP"
+        else:
+            price_info.price_edge_score = edge_down_score
+            price_info.price_edge_side = "DOWN"
+        price_info.price_edge_summary = (
+            f"現價 {underlying_price:.2f} vs 參考 {reference_price:.2f} | "
+            f"距離 {distance_to_reference_pct * 100:.3f}% | "
+            f"30s 動能 {(momentum_pct_30s or 0.0) * 100:.3f}% | "
+            f"偏向 {price_info.price_edge_side} edge {price_info.price_edge_score:.4f}"
         )
 
     def _get_sweep_price(self, asks: List[Dict[str, float]], shares_needed: float) -> tuple:
@@ -2787,10 +2920,11 @@ class ArbitrageEngine:
             )
         else:
             if self.status.scan_count % 5 == 0:
+                price_context_suffix = f" | {price_info.price_edge_summary}" if price_info.price_edge_summary else ""
                 self.status.add_log(
                     f"🔍 掃描 #{self.status.scan_count} | {market.slug} | "
                     f"UP: {price_info.up_price:.4f} DOWN: {price_info.down_price:.4f} | "
-                    f"總成本: {price_info.total_cost:.4f} | {opportunity.reason}"
+                    f"總成本: {price_info.total_cost:.4f} | {opportunity.reason}{price_context_suffix}"
                 )
 
         return opportunity

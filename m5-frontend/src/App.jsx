@@ -12,6 +12,15 @@ import {
 
 const API = ''
 
+function formatUsdPrice(incomingValue, maximumFractionDigits = 2) {
+  const normalizedValue = Number(incomingValue)
+  if (!Number.isFinite(normalizedValue)) return '--'
+  return `$${normalizedValue.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  })}`
+}
+
 function App() {
   const [token, setToken] = useState(() => localStorage.getItem('pmbot_token'))
   const [verified, setVerified] = useState(false)
@@ -542,6 +551,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                       <thead className="sticky top-0 bg-black/80 backdrop-blur">
                         <tr className="text-neon-cyan/50 border-b border-neon-cyan/10">
                           <th className="text-left py-1.5 pr-3 font-medium">市場 / 倒數</th>
+                          <th className="text-left py-1.5 px-2 font-medium">現價 / 參考</th>
                           <th className="text-right py-1.5 px-2 font-medium">UP</th>
                           <th className="text-right py-1.5 px-2 font-medium">DOWN</th>
                           <th className="text-right py-1.5 px-2 font-medium">成本</th>
@@ -562,6 +572,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
                             const mins = Math.floor(secs / 60);
                             const rem = secs % 60;
                             const timeLabel = `${mins}分${rem.toString().padStart(2,'0')}秒`;
+                            const underlyingLabel = price.underlying_symbol || slug.split('-')[0]?.toUpperCase() || 'SPOT';
+                            const distancePct = Number(price.distance_to_reference_pct);
+                            const hasDistancePct = Number.isFinite(distancePct);
                             return (
                               <tr key={slug} className={`border-b border-neon-cyan/5 ${profitable ? 'bg-neon-green/5' : ''}`}>
                                 <td className="py-2 pr-3">
@@ -572,6 +585,17 @@ function Dashboard({ token, authHeaders, onLogout }) {
                                     <span className="text-[10px] text-red-400 inline-flex items-center gap-1 font-medium shrink-0 whitespace-nowrap">
                                       <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
                                       ⏳ {timeLabel}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="py-2 px-2">
+                                  <div className="flex flex-col items-start leading-tight">
+                                    <span className="font-mono text-white whitespace-nowrap">
+                                      {underlyingLabel} {formatUsdPrice(price.underlying_price, 2)}
+                                    </span>
+                                    <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                                      參考 {formatUsdPrice(price.reference_price, 2)}
+                                      {hasDistancePct ? ` · ${distancePct >= 0 ? '+' : ''}${(distancePct * 100).toFixed(3)}%` : ''}
                                     </span>
                                   </div>
                                 </td>
@@ -722,6 +746,50 @@ function Dashboard({ token, authHeaders, onLogout }) {
                           <div>
                             <span className="text-gray-500">價差</span>
                             <p className="font-mono">{opp.price_info?.spread?.toFixed(4)}</p>
+                          </div>
+                        </div>
+                        <div className="mt-2 rounded-lg bg-black/25 border border-neon-cyan/10 px-2.5 py-2 text-[10px] space-y-1">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <span className="text-gray-400">
+                              現價
+                              <span className="ml-1 font-mono text-white">
+                                {(opp.price_info?.underlying_symbol || opp.market?.underlying_symbol || 'SPOT')} {formatUsdPrice(opp.price_info?.underlying_price, 2)}
+                              </span>
+                            </span>
+                            <span className="text-gray-400">
+                              參考
+                              <span className="ml-1 font-mono text-white">{formatUsdPrice(opp.price_info?.reference_price, 2)}</span>
+                            </span>
+                            <span className="text-gray-400">
+                              偏向
+                              <span className={`ml-1 font-mono ${opp.price_edge_side === 'UP' ? 'text-neon-green' : opp.price_edge_side === 'DOWN' ? 'text-neon-pink' : 'text-gray-400'}`}>
+                                {opp.price_edge_side || '--'}
+                              </span>
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <span className="text-gray-500">
+                              距離
+                              <span className="ml-1 font-mono text-gray-300">
+                                {Number.isFinite(Number(opp.price_info?.distance_to_reference_pct))
+                                  ? `${Number(opp.price_info.distance_to_reference_pct) >= 0 ? '+' : ''}${(Number(opp.price_info.distance_to_reference_pct) * 100).toFixed(3)}%`
+                                  : '--'}
+                              </span>
+                            </span>
+                            <span className="text-gray-500">
+                              30s 動能
+                              <span className="ml-1 font-mono text-gray-300">
+                                {Number.isFinite(Number(opp.price_info?.spot_momentum_pct_30s))
+                                  ? `${Number(opp.price_info.spot_momentum_pct_30s) >= 0 ? '+' : ''}${(Number(opp.price_info.spot_momentum_pct_30s) * 100).toFixed(3)}%`
+                                  : '--'}
+                              </span>
+                            </span>
+                            <span className="text-gray-500">
+                              Edge
+                              <span className="ml-1 font-mono text-neon-cyan">
+                                {Number.isFinite(Number(opp.price_edge_score)) ? Number(opp.price_edge_score).toFixed(4) : '--'}
+                              </span>
+                            </span>
                           </div>
                         </div>
                       </div>
