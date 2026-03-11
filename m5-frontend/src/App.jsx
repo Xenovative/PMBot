@@ -21,6 +21,17 @@ function formatUsdPrice(incomingValue, maximumFractionDigits = 2) {
   })}`
 }
 
+function formatSignedUsdDifference(incomingValue, maximumFractionDigits = 2) {
+  const normalizedValue = Number(incomingValue)
+  if (!Number.isFinite(normalizedValue)) return '--'
+  const absoluteValue = Math.abs(normalizedValue)
+  const signPrefix = normalizedValue >= 0 ? '+' : '-'
+  return `${signPrefix}$${absoluteValue.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  })}`
+}
+
 function App() {
   const [token, setToken] = useState(() => localStorage.getItem('pmbot_token'))
   const [verified, setVerified] = useState(false)
@@ -606,7 +617,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                                       參考 {formatUsdPrice(price.reference_price, 2)}
                                       {hasPriceDifference ? (
                                         <span className={`ml-1 ${priceDifferenceClassName}`}>
-                                          · {priceDifference >= 0 ? '+' : ''}{formatUsdPrice(priceDifference, 2)}
+                                          · {formatSignedUsdDifference(priceDifference, 2)}
                                         </span>
                                       ) : ''}
                                     </span>
