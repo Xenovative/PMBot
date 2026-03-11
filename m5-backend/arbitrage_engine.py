@@ -55,6 +55,8 @@ class PriceInfo:
     implied_down_probability: Optional[float] = None
     price_edge_score: Optional[float] = None
     price_edge_side: Optional[str] = None
+    trend_lock_side: Optional[str] = None
+    trend_lock_active: bool = False
     price_edge_summary: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -81,6 +83,8 @@ class PriceInfo:
             "implied_down_probability": self.implied_down_probability,
             "price_edge_score": self.price_edge_score,
             "price_edge_side": self.price_edge_side,
+            "trend_lock_side": self.trend_lock_side,
+            "trend_lock_active": self.trend_lock_active,
             "price_edge_summary": self.price_edge_summary,
         }
 
@@ -123,6 +127,8 @@ class ArbitrageOpportunity:
     reason: str = ""
     price_edge_score: Optional[float] = None
     price_edge_side: Optional[str] = None
+    trend_lock_side: Optional[str] = None
+    trend_lock_active: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -134,6 +140,8 @@ class ArbitrageOpportunity:
             "reason": self.reason,
             "price_edge_score": self.price_edge_score,
             "price_edge_side": self.price_edge_side,
+            "trend_lock_side": self.trend_lock_side,
+            "trend_lock_active": self.trend_lock_active,
         }
 
 
@@ -913,6 +921,8 @@ class ArbitrageEngine:
 
         is_viable = True
         reason = ""
+        locked_trend_side: Optional[str] = None
+        locked_trend_active = False
 
         # 檢查 1: 含滑價的最壞總成本必須 < 1.0 且原始成本 < 目標
         if worst_cost >= 1.0:
@@ -962,17 +972,6 @@ class ArbitrageEngine:
             btc_distance_gate_enabled = bool(getattr(self.config, "price_edge_distance_gate_enabled_btc", True))
             btc_min_distance_usd = float(getattr(self.config, "price_edge_min_distance_usd_btc", 70.0) or 70.0)
             distance_to_reference = price_info.distance_to_reference
-            momentum_pct_30s = price_info.spot_momentum_pct_30s
-            expected_distance_sign: Optional[int] = None
-            if momentum_pct_30s is not None:
-                if momentum_pct_30s > 0:
-                    expected_distance_sign = 1
-                elif momentum_pct_30s < 0:
-                    expected_distance_sign = -1
-            if expected_distance_sign is None and price_info.price_edge_side == "UP":
-                expected_distance_sign = 1
-            elif expected_distance_sign is None and price_info.price_edge_side == "DOWN":
-                expected_distance_sign = -1
             if (
                 btc_distance_gate_enabled
                 and
@@ -983,25 +982,26 @@ class ArbitrageEngine:
                 if absolute_distance_usd < btc_min_distance_usd:
                     is_viable = False
                     reason = f"BTC 現價與參考價距離 ${absolute_distance_usd:.2f} 未達門檻 ${btc_min_distance_usd:.0f}"
-                elif expected_distance_sign is not None and distance_to_reference * expected_distance_sign <= 0:
-                    trend_label = "上升" if expected_distance_sign > 0 else "下降"
-                    is_viable = False
-                    reason = f"BTC 現價偏移方向與趨勢不一致（預期 {trend_label}）"
-            if is_viable and price_info.distance_to_reference_pct is not None and abs(price_info.distance_to_reference_pct) < reference_distance_threshold:
+                else:
+                    locked_trend_side = "UP" if distance_to_reference > 0 else "DOWN"
+                    locked_trend_active = True
+            if is_viable and not locked_trend_active and price_info.distance_to_reference_pct is not None and abs(price_info.distance_to_reference_pct) < reference_distance_threshold:
                 is_viable = False
                 reason = (
                     f"現價貼近參考價 ({price_info.distance_to_reference_pct * 100:.3f}%)，方向優勢不足"
                 )
-            elif is_viable and (price_info.price_edge_score is None or abs(price_info.price_edge_score) < edge_threshold):
+            elif is_viable and not locked_trend_active and (price_info.price_edge_score is None or abs(price_info.price_edge_score) < edge_threshold):
                 is_viable = False
                 edge_text = price_info.price_edge_score if price_info.price_edge_score is not None else 0.0
                 reason = f"價格 edge 不足 ({edge_text:.4f} < {edge_threshold:.4f})"
-
         else:
             if price_info.price_edge_summary:
                 reason = f"✅ 套利機會! 利潤: ${profit:.4f} ({profit_pct:.2f}%) | {price_info.price_edge_summary}"
             else:
                 reason = f"✅ 套利機會! 利潤: ${profit:.4f} ({profit_pct:.2f}%)"
+
+        price_info.trend_lock_side = locked_trend_side
+        price_info.trend_lock_active = locked_trend_active
 
         return ArbitrageOpportunity(
             market=market,
@@ -1011,7 +1011,9 @@ class ArbitrageEngine:
             is_viable=is_viable,
             reason=reason,
             price_edge_score=price_info.price_edge_score,
-            price_edge_side=price_info.price_edge_side,
+            price_edge_side=price_info.trend_lock_side or price_info.price_edge_side,
+            trend_lock_side=price_info.trend_lock_side,
+            trend_lock_active=price_info.trend_lock_active,
         )
 
     def _populate_price_context(self, market: MarketInfo, price_info: PriceInfo):
@@ -1063,6 +1065,8 @@ class ArbitrageEngine:
             price_info.distance_to_reference_pct = None
             price_info.price_edge_score = None
             price_info.price_edge_side = None
+            price_info.trend_lock_side = None
+            price_info.trend_lock_active = False
             if underlying_price is None:
                 price_info.price_edge_summary = "缺少現貨價格"
             elif reference_price is None:
@@ -1091,11 +1095,12 @@ class ArbitrageEngine:
         else:
             price_info.price_edge_score = edge_down_score
             price_info.price_edge_side = "DOWN"
+        locked_side_summary = f" | 鎖定 {price_info.trend_lock_side}" if price_info.trend_lock_active and price_info.trend_lock_side else ""
         price_info.price_edge_summary = (
             f"現價 {underlying_price:.2f} vs 參考 {reference_price:.2f} | "
             f"距離 {distance_to_reference_pct * 100:.3f}% | "
             f"30s 動能 {(momentum_pct_30s or 0.0) * 100:.3f}% | "
-            f"偏向 {price_info.price_edge_side} edge {price_info.price_edge_score:.4f}"
+            f"偏向 {price_info.price_edge_side} edge {price_info.price_edge_score:.4f}{locked_side_summary}"
         )
 
     def _get_sweep_price(self, asks: List[Dict[str, float]], shares_needed: float) -> tuple:
@@ -1560,6 +1565,14 @@ class ArbitrageEngine:
                 f"(UP深度: {price_info.up_liquidity:.0f}, DOWN深度: {price_info.down_liquidity:.0f})"
             )
 
+        trend_lock_side = str(getattr(opportunity, "trend_lock_side", "") or getattr(price_info, "trend_lock_side", "")).strip().upper()
+        trend_lock_active = bool(getattr(opportunity, "trend_lock_active", False) or getattr(price_info, "trend_lock_active", False))
+        single_sided_trend_lock = (
+            trend_lock_active
+            and str(getattr(price_info, "underlying_symbol", "") or "").strip().upper() == "BTC"
+            and trend_lock_side in {"UP", "DOWN"}
+        )
+
         record = TradeRecord(
             timestamp=datetime.now(timezone.utc).isoformat(),
             market_slug=market.slug,
@@ -1574,12 +1587,20 @@ class ArbitrageEngine:
 
         if self.config.dry_run:
             record.status = "simulated"
-            record.details = "🔸 模擬交易 - 未使用真實資金"
-            self.status.add_log(
-                f"🔸 [模擬] 買入 {order_size} 股 UP@{price_info.up_price:.4f} + "
-                f"{order_size} 股 DOWN@{price_info.down_price:.4f} | "
-                f"預期利潤: ${record.expected_profit:.4f}"
-            )
+            if single_sided_trend_lock:
+                selected_price = price_info.up_price if trend_lock_side == "UP" else price_info.down_price
+                record.details = f"🔸 模擬交易 - BTC 趨勢鎖定單邊買入 {trend_lock_side}"
+                self.status.add_log(
+                    f"🔸 [模擬] BTC 趨勢鎖定 | 買入 {order_size} 股 {trend_lock_side}@{selected_price:.4f} | "
+                    f"RTDS 鎖定方向: {trend_lock_side}"
+                )
+            else:
+                record.details = "🔸 模擬交易 - 未使用真實資金"
+                self.status.add_log(
+                    f"🔸 [模擬] 買入 {order_size} 股 UP@{price_info.up_price:.4f} + "
+                    f"{order_size} 股 DOWN@{price_info.down_price:.4f} | "
+                    f"預期利潤: ${record.expected_profit:.4f}"
+                )
         else:
             try:
                 clob_client = self._get_clob_client()
@@ -1619,6 +1640,41 @@ class ArbitrageEngine:
                     f"UP ${up_amount_usd:.2f} DOWN ${down_amount_usd:.2f} | "
                     f"原始asks: UP={price_info.up_best_ask:.4f} DOWN={price_info.down_best_ask:.4f}"
                 )
+
+                if single_sided_trend_lock:
+                    selected_token_id = market.up_token_id if trend_lock_side == "UP" else market.down_token_id
+                    selected_price = up_price if trend_lock_side == "UP" else down_price
+                    selected_amount_usd = round(order_size * selected_price, 2)
+                    self.status.add_log(
+                        f"🧭 BTC 趨勢鎖定單邊進場 | {trend_lock_side} | "
+                        f"{order_size} 股 | ${selected_amount_usd:.2f} @ {selected_price:.4f}"
+                    )
+                    single_side_result = self._try_buy_one_side(
+                        clob_client,
+                        selected_token_id,
+                        selected_amount_usd,
+                        selected_price,
+                        trend_lock_side,
+                    )
+                    if not single_side_result["success"]:
+                        record.status = "failed"
+                        record.details = f"❌ BTC 趨勢鎖定 {trend_lock_side} 買入失敗: {single_side_result.get('error', '')[:100]}"
+                        self.status.add_log(f"❌ BTC 趨勢鎖定交易失敗: {trend_lock_side} 側無法成交")
+                        await self._update_trade_stats(record, opportunity, order_size, market, price_info)
+                        return record
+
+                    executed_price = float(single_side_result.get("price", selected_price) or selected_price)
+                    executed_shares = float(single_side_result.get("shares", order_size) or order_size)
+                    record.status = "executed"
+                    record.details = (
+                        f"🧭 BTC 趨勢鎖定單邊買入 {trend_lock_side} | "
+                        f"{executed_shares:.2f} 股 @ {executed_price:.4f}"
+                    )
+                    self.status.add_log(
+                        f"✅ BTC 趨勢鎖定已執行 | {trend_lock_side} | {executed_shares:.2f} 股 @ {executed_price:.4f}"
+                    )
+                    await self._update_trade_stats(record, opportunity, order_size, market, price_info)
+                    return record
 
                 if actual_cost >= 1.0:
                     self.status.add_log(
