@@ -959,15 +959,44 @@ class ArbitrageEngine:
         elif price_info.reference_price is not None and price_info.underlying_price is not None:
             edge_threshold = float(getattr(self.config, "price_edge_min_score", 0.035) or 0.035)
             reference_distance_threshold = float(getattr(self.config, "price_edge_min_distance_pct", 0.0015) or 0.0015)
-            if price_info.distance_to_reference_pct is not None and abs(price_info.distance_to_reference_pct) < reference_distance_threshold:
+            btc_min_distance_usd = float(getattr(self.config, "price_edge_min_distance_usd_btc", 70.0) or 70.0)
+            btc_max_distance_usd = float(getattr(self.config, "price_edge_max_distance_usd_btc", 90.0) or 90.0)
+            distance_to_reference = price_info.distance_to_reference
+            momentum_pct_30s = price_info.spot_momentum_pct_30s
+            expected_distance_sign: Optional[int] = None
+            if momentum_pct_30s is not None:
+                if momentum_pct_30s > 0:
+                    expected_distance_sign = 1
+                elif momentum_pct_30s < 0:
+                    expected_distance_sign = -1
+            if expected_distance_sign is None and price_info.price_edge_side == "UP":
+                expected_distance_sign = 1
+            elif expected_distance_sign is None and price_info.price_edge_side == "DOWN":
+                expected_distance_sign = -1
+            if (
+                str(price_info.underlying_symbol or "").strip().upper() == "BTC"
+                and distance_to_reference is not None
+            ):
+                absolute_distance_usd = abs(distance_to_reference)
+                if absolute_distance_usd < btc_min_distance_usd or absolute_distance_usd > btc_max_distance_usd:
+                    is_viable = False
+                    reason = (
+                        f"BTC 現價與參考價距離 ${absolute_distance_usd:.2f} 不在允許區間 "
+                        f"${btc_min_distance_usd:.0f}-${btc_max_distance_usd:.0f}"
+                    )
+                elif expected_distance_sign is not None and distance_to_reference * expected_distance_sign <= 0:
+                    trend_label = "上升" if expected_distance_sign > 0 else "下降"
+                    is_viable = False
+                    reason = f"BTC 現價偏移方向與趨勢不一致（預期 {trend_label}）"
+            if is_viable and price_info.distance_to_reference_pct is not None and abs(price_info.distance_to_reference_pct) < reference_distance_threshold:
                 is_viable = False
                 reason = (
                     f"現價貼近參考價 ({price_info.distance_to_reference_pct * 100:.3f}%)，方向優勢不足"
                 )
-            elif price_info.price_edge_score is None or abs(price_info.price_edge_score) < edge_threshold:
+            elif is_viable and (price_info.price_edge_score is None or abs(price_info.price_edge_score) < edge_threshold):
                 is_viable = False
                 edge_text = price_info.price_edge_score if price_info.price_edge_score is not None else 0.0
-                reason = f"價格優勢不足 (edge {edge_text:.4f})"
+                reason = f"價格 edge 不足 ({edge_text:.4f} < {edge_threshold:.4f})"
 
         else:
             if price_info.price_edge_summary:

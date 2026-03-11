@@ -60,6 +60,8 @@ class BotConfig(BaseModel):
     max_position_imbalance: int = _int("MAX_POSITION_IMBALANCE", 3)
     min_liquidity: float = _float("MIN_LIQUIDITY", 20)
     crypto_symbols: List[str] = _str("CRYPTO_SYMBOLS", "btc,eth,sol").split(",")
+    price_edge_min_distance_usd_btc: float = _float("PRICE_EDGE_MIN_DISTANCE_USD_BTC", 70.0)
+    price_edge_max_distance_usd_btc: float = _float("PRICE_EDGE_MAX_DISTANCE_USD_BTC", 90.0)
 
     # Bargain Hunter Settings
     bargain_enabled: bool = _bool("BARGAIN_ENABLED", True)
