@@ -195,6 +195,7 @@ class BotStatus:
     trade_history: List[TradeRecord] = field(default_factory=list)
     current_opportunities: List[ArbitrageOpportunity] = field(default_factory=list)
     bargain_holdings: List[BargainHolding] = field(default_factory=list)
+    plummet_blocked_markets: List[str] = field(default_factory=list)
 
     def get_trades_for_market(self, slug: str) -> int:
         return self.trades_per_market.get(slug, 0)
@@ -237,6 +238,7 @@ class BotStatus:
             "trade_history": [t.to_dict() for t in self.trade_history[-20:]],
             "current_opportunities": [o.to_dict() for o in self.current_opportunities],
             "bargain_holdings": [h.to_dict() for h in self.bargain_holdings if h.status == "holding"],
+            "plummet_blocked_markets": list(self.plummet_blocked_markets),
         }
 
 
@@ -250,6 +252,24 @@ class ArbitrageEngine:
         self._stop_loss_cooldown_until: Optional[datetime] = None
         self._clob_client = None
         self._underlying_price_history: Dict[str, deque] = {}
+        self._plummet_blocked_markets: set[str] = set()
+
+    def _is_market_plummet_blocked(self, market_slug: Optional[str]) -> bool:
+        normalized_market_slug = str(market_slug or "").strip()
+        if not normalized_market_slug:
+            return False
+        return normalized_market_slug in self._plummet_blocked_markets
+
+    def _mark_market_plummet_blocked(self, market_slug: Optional[str], reason: str = "") -> None:
+        normalized_market_slug = str(market_slug or "").strip()
+        if not normalized_market_slug:
+            return
+        if normalized_market_slug in self._plummet_blocked_markets:
+            return
+        self._plummet_blocked_markets.add(normalized_market_slug)
+        self.status.plummet_blocked_markets = sorted(self._plummet_blocked_markets)
+        reason_suffix = f" | {reason}" if reason else ""
+        self.status.add_log(f"⛔ [市場封鎖] {normalized_market_slug} 已因急跌護欄列入忽略名單{reason_suffix}")
 
     async def get_prices(self, market: MarketInfo) -> Optional[PriceInfo]:
         """從 CLOB API 獲取 UP/DOWN 代幣的當前價格和訂單簿深度"""
@@ -1315,6 +1335,11 @@ class ArbitrageEngine:
         平倉失敗時，將孤兒持倉轉入撿便宜策略繼續配對，
         而非要求使用者手動處理。
         """
+        if self._is_market_plummet_blocked(getattr(market, "slug", "")):
+            self.status.add_log(
+                f"⛔ [孤兒轉撿便宜] 略過 {getattr(market, 'slug', '')} {side} | 市場已因急跌護欄封鎖"
+            )
+            return None
         holding = BargainHolding(
             market_slug=market.slug,
             market=market,
@@ -1781,6 +1806,8 @@ class ArbitrageEngine:
             return opportunities
 
         for market in markets:
+            if self._is_market_plummet_blocked(getattr(market, "slug", "")):
+                continue
             if not market.up_token_id or not market.down_token_id:
                 continue
             if self._bargain_trades_remaining(market.slug) <= 0:
@@ -1913,6 +1940,10 @@ class ArbitrageEngine:
         buy_round: int = opp.get("round", 1)
         is_pairing: bool = opp.get("is_pairing", False)
         pair_with: Optional[BargainHolding] = opp.get("pair_with")
+
+        if self._is_market_plummet_blocked(getattr(market, "slug", "")):
+            self.status.add_log(f"⛔ [撿便宜] 略過 {market.slug} {side} | 市場已因急跌護欄封鎖")
+            return None
 
         # 即時檢查: 非配對開倉時，若其他市場有未配對持倉則跳過（防止跨市場重複開倉）
         if not is_pairing:
@@ -2122,6 +2153,10 @@ class ArbitrageEngine:
                 if plummet_exit_pct > 0:
                     drop_pct = (holding.buy_price - current_price) / holding.buy_price * 100
                     if drop_pct >= plummet_exit_pct:
+                        self._mark_market_plummet_blocked(
+                            holding.market_slug,
+                            f"{holding.side} 跌 {drop_pct:.1f}% ≥ {plummet_exit_pct:.1f}%"
+                        )
                         self.status.add_log(
                             f"⚡ [急跌護欄] {holding.market_slug} {holding.side} 跌 {drop_pct:.1f}% ≥ {plummet_exit_pct:.1f}% → 立刻平倉"
                         )
