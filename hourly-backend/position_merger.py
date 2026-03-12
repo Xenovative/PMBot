@@ -180,6 +180,34 @@ class PositionMerger:
             return Path(configured_script).expanduser().resolve()
         return self.DEFAULT_RELAYER_HELPER
 
+    def _initialize_direct_merge_client(self) -> bool:
+        if self.ctf_contract is not None and self.w3 and self.w3.is_connected() and self.account:
+            return True
+        if not self.config.private_key:
+            self.add_log("❌ 無法啟用鏈上直接合併 fallback: 未設定私鑰")
+            return False
+
+        for rpc_url in self.RPC_ENDPOINTS:
+            try:
+                candidate_w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 10}))
+                candidate_w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+                if not candidate_w3.is_connected():
+                    continue
+                self.w3 = candidate_w3
+                self.account = Account.from_key(self.config.private_key)
+                self.ctf_contract = self.w3.eth.contract(
+                    address=Web3.to_checksum_address(CTF_ADDRESS),
+                    abi=CTF_ABI,
+                )
+                self.add_log(f"✅ 鏈上直接合併 fallback 已就緒 | RPC: {rpc_url}")
+                return True
+            except Exception as e:
+                self.add_log(f"⚠️ 準備鏈上直接合併 fallback 失敗 {rpc_url}: {e}")
+                continue
+
+        self.add_log("❌ 無法啟用鏈上直接合併 fallback: 無法建立 Web3/CTF 合約")
+        return False
+
     async def _merge_via_relayer(self, record: "MergeRecord", merge_amount: float) -> bool:
         helper_script_path = self._get_relayer_helper_script()
         if not helper_script_path.exists():
@@ -380,6 +408,13 @@ class PositionMerger:
         if not pos:
             return None
 
+        if self.ctf_contract is None:
+            if self._relayer_ready():
+                self.add_log(f"ℹ️ Relayer 模式未建立鏈上合約查詢，使用本地追蹤持倉 | {pos.market_slug}")
+                return pos
+            self.add_log("❌ 查詢鏈上餘額失敗: 合併器尚未建立 CTF 合約")
+            return None
+
         try:
             owner = self._get_merge_owner_address() or self.account.address
             up_balance = self.ctf_contract.functions.balanceOf(
@@ -417,7 +452,11 @@ class PositionMerger:
         # 同步鏈上餘額，避免本地狀態失真導致 revert
         pos = await self.check_on_chain_balances(condition_id)
         if not pos:
-            self.add_log(f"❌ 未找到持倉: {condition_id[:16]}...")
+            tracked_pos = self.tracked_positions.get(condition_id)
+            if tracked_pos:
+                self.add_log(f"❌ 無法取得可合併持倉餘額: {condition_id[:16]}...")
+            else:
+                self.add_log(f"❌ 未找到持倉: {condition_id[:16]}...")
             return None
 
         merge_amount = amount or pos.mergeable_amount
@@ -485,11 +524,16 @@ class PositionMerger:
                         pass
                     return record
                 else:
-                    return None
+                    self.add_log("⚠️ Relayer merge 失敗，嘗試鏈上直接合併 fallback")
+                    if not self._initialize_direct_merge_client():
+                        return None
 
             owner = self._get_merge_owner_address() or self.account.address
             if owner.lower() != self.account.address.lower():
                 self.add_log("❌ 合併失敗: 簽名者與持幣地址不一致，無法直接或 relayer 燒毀")
+                return None
+            if not self._ensure_merge_approval():
+                self.add_log("❌ 合併失敗: fallback 前 setApprovalForAll 未就緒")
                 return None
             # 金額轉換為 6 位小數
             amount_raw = int(merge_amount * 1e6)
