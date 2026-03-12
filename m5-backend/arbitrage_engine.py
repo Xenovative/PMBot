@@ -317,6 +317,8 @@ class ArbitrageEngine:
         self._prev_trend: Optional[str] = None
         self._trend_streak: int = 0
         self._last_directional_trend: Optional[str] = None
+        self._pending_unwind_kv_key = "pending_gtc_unwinds"
+        self._loss_pause_threshold = max(1, int(getattr(config, "loss_pause_threshold", 2) or 2))
         self._plummet_blocked_markets: set[str] = set()
 
     def _is_market_plummet_blocked(self, market_slug: Optional[str]) -> bool:
