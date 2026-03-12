@@ -1,10 +1,36 @@
 """
 市場搜尋器 - 負責找到 Polymarket 上的每小時加密貨幣 Up or Down 市場
 """
+import re
 import httpx
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 from config import BotConfig
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        normalized_text = str(value).strip().replace(",", "")
+        if not normalized_text:
+            return None
+        return float(normalized_text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_first_price_hint(text: str) -> Optional[float]:
+    normalized_text = str(text or "")
+    if not normalized_text:
+        return None
+    price_match = re.search(r"\$\s*([0-9][0-9,]*(?:\.[0-9]+)?)", normalized_text)
+    if price_match:
+        return _safe_float(price_match.group(1))
+    plain_match = re.search(r"\b([0-9]{3,}(?:,[0-9]{3})*(?:\.[0-9]+)?)\b", normalized_text)
+    if plain_match:
+        return _safe_float(plain_match.group(1))
+    return None
 
 # 幣種符號 → Polymarket slug 名稱映射
 CRYPTO_NAME_MAP = {
@@ -37,6 +63,74 @@ class MarketInfo:
         self.clob_token_ids = raw.get("clobTokenIds", "")
         self.volume = raw.get("volume", "0")
         self.liquidity = raw.get("liquidity", "0")
+        self.underlying_symbol = raw.get("underlyingSymbol", "")
+        self.underlying_price = raw.get("underlyingPrice")
+        self.underlying_price_source = raw.get("underlyingPriceSource")
+        self.reference_price = self._resolve_reference_price(raw)
+        self.reference_source = self._resolve_reference_source(raw, self.reference_price)
+        self.reference_price_source = raw.get("referencePriceSource")
+
+    def _resolve_reference_price(self, raw: Dict[str, Any]) -> Optional[float]:
+        candidate_keys = [
+            "referencePrice",
+            "reference_price",
+            "strikePrice",
+            "strike_price",
+            "threshold",
+            "targetPrice",
+            "target_price",
+            "initialValue",
+            "initial_value",
+            "openPrice",
+            "open_price",
+            "price",
+        ]
+        for candidate_key in candidate_keys:
+            candidate_value = _safe_float(raw.get(candidate_key))
+            if candidate_value is not None and candidate_value > 0:
+                return candidate_value
+        nested_keys = ["metadata", "extraData", "events"]
+        for nested_key in nested_keys:
+            nested_value = raw.get(nested_key)
+            if isinstance(nested_value, dict):
+                for candidate_key in candidate_keys:
+                    candidate_value = _safe_float(nested_value.get(candidate_key))
+                    if candidate_value is not None and candidate_value > 0:
+                        return candidate_value
+        question_price = _extract_first_price_hint(self.question)
+        if question_price is not None and question_price > 0:
+            return question_price
+        description_price = _extract_first_price_hint(str(raw.get("description", "") or ""))
+        if description_price is not None and description_price > 0:
+            return description_price
+        return None
+
+    def _resolve_reference_source(self, raw: Dict[str, Any], reference_price: Optional[float]) -> Optional[str]:
+        if reference_price is None:
+            return None
+        candidate_keys = [
+            "referencePrice",
+            "reference_price",
+            "strikePrice",
+            "strike_price",
+            "threshold",
+            "targetPrice",
+            "target_price",
+            "initialValue",
+            "initial_value",
+            "openPrice",
+            "open_price",
+            "price",
+        ]
+        for candidate_key in candidate_keys:
+            candidate_value = _safe_float(raw.get(candidate_key))
+            if candidate_value is not None and candidate_value == reference_price:
+                return candidate_key
+        if _extract_first_price_hint(self.question) == reference_price:
+            return "question"
+        if _extract_first_price_hint(str(raw.get("description", "") or "")) == reference_price:
+            return "description"
+        return "derived"
 
     @property
     def token_ids(self) -> List[str]:
@@ -101,6 +195,12 @@ class MarketInfo:
             "time_remaining_display": self.time_remaining_display,
             "volume": self.volume,
             "liquidity": self.liquidity,
+            "underlying_symbol": self.underlying_symbol,
+            "underlying_price": self.underlying_price,
+            "underlying_price_source": self.underlying_price_source,
+            "reference_price": self.reference_price,
+            "reference_source": self.reference_source,
+            "reference_price_source": self.reference_price_source,
         }
 
 
