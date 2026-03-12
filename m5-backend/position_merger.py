@@ -411,10 +411,13 @@ class PositionMerger:
 
         if self.ctf_contract is None:
             if self._relayer_ready():
-                self.add_log(f"ℹ️ Relayer 模式未建立鏈上合約查詢，使用本地追蹤持倉 | {pos.market_slug}")
-                return pos
-            self.add_log("❌ 查詢鏈上餘額失敗: 合併器尚未建立 CTF 合約")
-            return None
+                self.add_log(f"ℹ️ Relayer 模式先嘗試建立鏈上餘額查詢 | {pos.market_slug}")
+                if not self._initialize_direct_merge_client():
+                    self.add_log("❌ 查詢鏈上餘額失敗: relayer 模式且無法建立鏈上 CTF 合約")
+                    return None
+            else:
+                self.add_log("❌ 查詢鏈上餘額失敗: 合併器尚未建立 CTF 合約")
+                return None
 
         try:
             owner = self._get_merge_owner_address() or self.account.address
@@ -503,9 +506,6 @@ class PositionMerger:
                 if relayer_ok:
                     cost_basis = (pos.total_cost_basis / max(pos.up_balance, 1)) * merge_amount
                     record.net_profit = merge_amount - cost_basis
-                    pos.up_balance -= merge_amount
-                    pos.down_balance -= merge_amount
-                    pos.mergeable_amount = min(pos.up_balance, pos.down_balance)
                     self.merge_history.append(record)
                     try:
                         trade_db.record_merge(
