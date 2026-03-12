@@ -380,13 +380,15 @@ function Dashboard({ token, authHeaders, onLogout }) {
                             return (
                               <tr key={slug} className={`border-b border-neon-cyan/5 ${profitable ? 'bg-neon-green/5' : ''}`}>
                                 <td className="py-2 pr-3">
-                                  <span className="font-mono text-gray-300 truncate block max-w-[220px]" title={slug}>
-                                    {slug}
-                                    <span className="ml-2 text-[10px] text-red-400 inline-flex items-center gap-1 align-middle font-medium">
+                                  <div className="max-w-[220px]">
+                                    <span className="font-mono text-gray-300 truncate block" title={slug}>
+                                      {slug}
+                                    </span>
+                                    <span className="mt-1 text-[10px] text-red-400 inline-flex items-center gap-1 align-middle font-medium whitespace-nowrap">
                                       <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
                                       ⏳ {timeLabel}
                                     </span>
-                                  </span>
+                                  </div>
                                 </td>
                                 <td className="text-right py-2 px-2 font-mono text-white">
                                   {price.up_best_ask > 0 ? price.up_best_ask.toFixed(4) : price.up_price.toFixed(4)}
