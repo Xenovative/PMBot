@@ -449,12 +449,32 @@ class MarketFinder:
         normalized_symbol = str(symbol or "").strip().lower()
         if normalized_symbol == "btc":
             if getattr(market, "reference_price", None):
+                if getattr(market, "reference_source", None) == "live_underlying_fallback_reference":
+                    return "Live BTC/USD fallback reference"
                 return "Chainlink RTDS BTC/USD bucket open"
             return None
         existing_reference_source = getattr(market, "reference_source", None)
         if existing_reference_source:
             return str(existing_reference_source)
         return None
+
+    def _enrich_market_prices(self, crypto: str, market: MarketInfo, underlying_prices: Dict[str, float]) -> None:
+        if not getattr(market, "reference_price", None):
+            websocket_reference_price = self._get_chainlink_reference_price(crypto, market.reference_anchor_datetime)
+            if websocket_reference_price is not None and websocket_reference_price > 0:
+                market.reference_price = websocket_reference_price
+                market.reference_source = "chainlink_rtds_bucket_open"
+        market.underlying_symbol = crypto.upper()
+        market.underlying_price = underlying_prices.get(crypto)
+        market.underlying_price_source = self._resolve_underlying_price_source_label(crypto)
+        if (
+            not getattr(market, "reference_price", None)
+            and getattr(market, "underlying_price", None) is not None
+            and getattr(market, "underlying_price", 0) > 0
+        ):
+            market.reference_price = market.underlying_price
+            market.reference_source = "live_underlying_fallback_reference"
+        market.reference_price_source = self._resolve_reference_price_source_label(crypto, market)
 
     def _generate_hourly_slugs(self, crypto: str) -> List[str]:
         """
@@ -607,15 +627,7 @@ class MarketFinder:
             slug_markets = await self.find_markets_by_slug(crypto)
             for m in slug_markets:
                 if m.id not in seen_ids:
-                    if not getattr(m, "reference_price", None):
-                        websocket_reference_price = self._get_chainlink_reference_price(crypto, m.reference_anchor_datetime)
-                        if websocket_reference_price is not None and websocket_reference_price > 0:
-                            m.reference_price = websocket_reference_price
-                            m.reference_source = "chainlink_rtds_bucket_open"
-                    m.underlying_symbol = crypto.upper()
-                    m.underlying_price = underlying_prices.get(crypto)
-                    m.underlying_price_source = self._resolve_underlying_price_source_label(crypto)
-                    m.reference_price_source = self._resolve_reference_price_source_label(crypto, m)
+                    self._enrich_market_prices(crypto, m, underlying_prices)
                     seen_ids.add(m.id)
                     all_markets.append(m)
 
@@ -623,15 +635,7 @@ class MarketFinder:
             direct_markets = await self.find_markets_by_direct(crypto)
             for m in direct_markets:
                 if m.id not in seen_ids:
-                    if not getattr(m, "reference_price", None):
-                        websocket_reference_price = self._get_chainlink_reference_price(crypto, m.reference_anchor_datetime)
-                        if websocket_reference_price is not None and websocket_reference_price > 0:
-                            m.reference_price = websocket_reference_price
-                            m.reference_source = "chainlink_rtds_bucket_open"
-                    m.underlying_symbol = crypto.upper()
-                    m.underlying_price = underlying_prices.get(crypto)
-                    m.underlying_price_source = self._resolve_underlying_price_source_label(crypto)
-                    m.reference_price_source = self._resolve_reference_price_source_label(crypto, m)
+                    self._enrich_market_prices(crypto, m, underlying_prices)
                     seen_ids.add(m.id)
                     all_markets.append(m)
 
@@ -640,15 +644,7 @@ class MarketFinder:
                 kw_markets = await self._search_gamma_keyword(crypto)
                 for m in kw_markets:
                     if m.id not in seen_ids:
-                        if not getattr(m, "reference_price", None):
-                            websocket_reference_price = self._get_chainlink_reference_price(crypto, m.reference_anchor_datetime)
-                            if websocket_reference_price is not None and websocket_reference_price > 0:
-                                m.reference_price = websocket_reference_price
-                                m.reference_source = "chainlink_rtds_bucket_open"
-                        m.underlying_symbol = crypto.upper()
-                        m.underlying_price = underlying_prices.get(crypto)
-                        m.underlying_price_source = self._resolve_underlying_price_source_label(crypto)
-                        m.reference_price_source = self._resolve_reference_price_source_label(crypto, m)
+                        self._enrich_market_prices(crypto, m, underlying_prices)
                         seen_ids.add(m.id)
                         all_markets.append(m)
 
