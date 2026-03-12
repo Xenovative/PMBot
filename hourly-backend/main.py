@@ -252,12 +252,9 @@ async def auth_verify_token(_user=Depends(auth.require_auth)):
 # ─── 機器人主循環 ───
 async def bot_loop():
     engine.status.running = True
-    engine.status.start_time = datetime.now(timezone.utc).isoformat()
-    engine.status.mode = "模擬" if config.dry_run else "🔴 真實交易"
-    engine.status.add_log(f"🚀 每小時套利機器人啟動 | 模式: {engine.status.mode}")
-    engine.status.add_log(f"⚙️ 目標成本: {config.target_pair_cost} | 每筆數量: {config.order_size}")
-    engine.status.add_log(f"🔍 監控幣種: {', '.join(config.crypto_symbols)}")
-    engine.ensure_clob_connected()
+    engine.status.add_log("🚀 每小時套利機器人啟動")
+    configured_scan_interval_seconds = max(1, int(getattr(config, "scan_interval_seconds", 1) or 1))
+    engine.status.add_log(f"⏱️ 掃描間隔 {configured_scan_interval_seconds}s")
     _connection_tested = False
 
     await broadcast({"type": "status", "data": engine.status.to_dict()})
@@ -287,7 +284,7 @@ async def bot_loop():
                 engine.status.add_log("⏳ 無符合條件的每小時市場，5 秒後重試...")
                 engine.status.active_markets = []
                 await broadcast({"type": "status", "data": engine.status.to_dict()})
-                for _ in range(5):
+                for _ in range(configured_scan_interval_seconds):
                     if not engine.status.running:
                         break
                     await asyncio.sleep(1)
@@ -352,7 +349,8 @@ async def bot_loop():
             await broadcast({"type": "status", "data": engine.status.to_dict()})
             await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
 
-            for _ in range(5):
+            configured_scan_interval_seconds = max(1, int(getattr(config, "scan_interval_seconds", 1) or 1))
+            for _ in range(configured_scan_interval_seconds):
                 if not engine.status.running:
                     break
                 await asyncio.sleep(1)
@@ -390,7 +388,7 @@ async def get_current_config(_user=Depends(auth.require_auth)):
             "signature_type": config.signature_type,
             "max_trades_per_market": config.max_trades_per_market,
             "trade_cooldown_seconds": config.trade_cooldown_seconds,
-            "scan_interval_seconds": getattr(config, "scan_interval_seconds", 2),
+            "scan_interval_seconds": getattr(config, "scan_interval_seconds", 1),
             "min_liquidity": config.min_liquidity,
             "crypto_symbols": config.crypto_symbols,
             "price_edge_distance_gate_enabled_btc": getattr(config, "price_edge_distance_gate_enabled_btc", True),
