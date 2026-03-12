@@ -1337,11 +1337,11 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   hint="連續監控的秒數，用高點作為基準判斷跌幅"
                 />
                 <ConfigField
-                  label="急跌護欄觸發延遲 (秒)"
+                  label="急跌護欄觸發剩餘秒數"
                   type="number"
                   value={configForm.bargain_plummet_trigger_seconds ?? 0}
                   onChange={(v) => setConfigForm({ ...configForm, bargain_plummet_trigger_seconds: parseInt(v) })}
-                  hint="持倉建立後至少經過這麼多秒，急跌護欄才會開始生效；0 表示立即生效"
+                  hint="僅在市場剩餘時間小於等於這個秒數時，急跌護欄才會開始生效；0 表示全程生效"
                 />
                 <ConfigField
                   label="止損幅度"
