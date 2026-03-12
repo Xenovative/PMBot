@@ -9,7 +9,7 @@ const { BuilderConfig } = require('@polymarket/builder-signing-sdk');
 const CTF_ADDRESS = '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045';
 const USDC_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
 const HASH_ZERO = `0x${'00'.repeat(32)}`;
-const MERGE_ABI = [
+const CTF_ABI = [
   {
     name: 'mergePositions',
     type: 'function',
@@ -23,7 +23,46 @@ const MERGE_ABI = [
     ],
     outputs: [],
   },
+  {
+    name: 'redeemPositions',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'collateralToken', type: 'address' },
+      { name: 'parentCollectionId', type: 'bytes32' },
+      { name: 'conditionId', type: 'bytes32' },
+      { name: 'indexSets', type: 'uint256[]' },
+    ],
+    outputs: [],
+  },
 ];
+
+function normalizeAction(rawAction) {
+  const normalizedAction = String(rawAction || 'merge').trim().toLowerCase();
+  if (normalizedAction !== 'merge' && normalizedAction !== 'redeem') {
+    fail('action must be either "merge" or "redeem"');
+  }
+  return normalizedAction;
+}
+
+function parseIndexSets(rawIndexSets) {
+  if (!Array.isArray(rawIndexSets) || rawIndexSets.length === 0) {
+    fail('indexSets must be a non-empty array for redeem action');
+  }
+
+  return rawIndexSets.map((rawIndexSet, indexPosition) => {
+    let parsedIndexSet;
+    try {
+      parsedIndexSet = BigInt(String(rawIndexSet));
+    } catch (error) {
+      fail(`indexSets[${indexPosition}] must be integer-compatible`, String(error));
+    }
+    if (parsedIndexSet <= 0n) {
+      fail(`indexSets[${indexPosition}] must be greater than zero`);
+    }
+    return parsedIndexSet;
+  });
+}
 
 function fail(message, extra) {
   const payload = { ok: false, error: message };
@@ -53,9 +92,14 @@ async function main() {
   const builderApiKey = (parsedPayload.builderApiKey || process.env.POLY_BUILDER_API_KEY || '').trim();
   const builderSecret = (parsedPayload.builderSecret || process.env.POLY_BUILDER_SECRET || '').trim();
   const builderPassphrase = (parsedPayload.builderPassphrase || process.env.POLY_BUILDER_PASSPHRASE || '').trim();
-  const description = (parsedPayload.description || 'Merge tokens to USDCe').trim();
+  const action = normalizeAction(parsedPayload.action || process.env.POLY_RELAYER_ACTION || 'merge');
+  const description = (
+    parsedPayload.description ||
+    (action === 'redeem' ? 'Redeem winning tokens to USDCe' : 'Merge tokens to USDCe')
+  ).trim();
   const rawConditionId = (parsedPayload.conditionId || '').trim();
   const rawAmount = parsedPayload.amountRaw;
+  const rawIndexSets = parsedPayload.indexSets;
 
   if (!privateKey) {
     fail('missing private key');
@@ -66,19 +110,24 @@ async function main() {
   if (!/^0x[0-9a-fA-F]{64}$/.test(rawConditionId)) {
     fail('conditionId must be a 0x-prefixed 32-byte hex string');
   }
-  if (rawAmount === undefined || rawAmount === null) {
-    fail('missing amountRaw');
-  }
+  let amountRawAsBigInt = null;
+  let parsedIndexSets = null;
+  if (action === 'merge') {
+    if (rawAmount === undefined || rawAmount === null) {
+      fail('missing amountRaw');
+    }
 
-  let amountRawAsBigInt;
-  try {
-    amountRawAsBigInt = BigInt(String(rawAmount));
-  } catch (error) {
-    fail('amountRaw must be an integer-compatible value', String(error));
-  }
+    try {
+      amountRawAsBigInt = BigInt(String(rawAmount));
+    } catch (error) {
+      fail('amountRaw must be an integer-compatible value', String(error));
+    }
 
-  if (amountRawAsBigInt <= 0n) {
-    fail('amountRaw must be greater than zero');
+    if (amountRawAsBigInt <= 0n) {
+      fail('amountRaw must be greater than zero');
+    }
+  } else {
+    parsedIndexSets = parseIndexSets(rawIndexSets);
   }
 
   try {
@@ -99,20 +148,24 @@ async function main() {
     });
 
     const client = new RelayClient(relayerUrl, 137, wallet, builderConfig);
-    const mergeTx = {
+    const relayTransaction = {
       to: CTF_ADDRESS,
       data: encodeFunctionData({
-        abi: MERGE_ABI,
-        functionName: 'mergePositions',
-        args: [USDC_ADDRESS, HASH_ZERO, rawConditionId, [1, 2], amountRawAsBigInt],
+        abi: CTF_ABI,
+        functionName: action === 'redeem' ? 'redeemPositions' : 'mergePositions',
+        args:
+          action === 'redeem'
+            ? [USDC_ADDRESS, HASH_ZERO, rawConditionId, parsedIndexSets]
+            : [USDC_ADDRESS, HASH_ZERO, rawConditionId, [1, 2], amountRawAsBigInt],
       }),
       value: '0',
     };
 
-    const response = await client.execute([mergeTx], description);
+    const response = await client.execute([relayTransaction], description);
     const waitedResult = response && typeof response.wait === 'function' ? await response.wait() : null;
     const output = {
       ok: true,
+      action,
       response: response || null,
       result: waitedResult || null,
       transactionHash:
