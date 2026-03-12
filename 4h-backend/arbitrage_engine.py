@@ -250,6 +250,7 @@ class ArbitrageEngine:
         self._task: Optional[asyncio.Task] = None
         self._stop_loss_cooldown_until: Optional[datetime] = None
         self._underlying_price_history: Dict[str, deque] = {}
+        self._pending_unwind_kv_key = "pending_gtc_unwinds"
         self._plummet_blocked_markets: set[str] = set()
 
     def _is_market_plummet_blocked(self, market_slug: Optional[str]) -> bool:
