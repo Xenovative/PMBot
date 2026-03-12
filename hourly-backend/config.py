@@ -85,6 +85,7 @@ class BotConfig(BaseModel):
     bargain_first_buy_bias: str = _str("BARGAIN_FIRST_BUY_BIAS", "AUTO")  # "UP", "DOWN", or "AUTO"
     bargain_plummet_exit_pct: float = _float("BARGAIN_PLUMMET_EXIT_PCT", 20.0)
     bargain_plummet_window_seconds: int = _int("BARGAIN_PLUMMET_WINDOW_SECONDS", 15)
+    bargain_plummet_trigger_seconds: int = _int("BARGAIN_PLUMMET_TRIGGER_SECONDS", 0)
     # Escalation window now in minutes (was hours)
     bargain_pair_escalation_minutes: int = _int("BARGAIN_PAIR_ESCALATION_MINUTES", 15)
     # Late liquidation threshold (seconds before expiry to force sell holdings)

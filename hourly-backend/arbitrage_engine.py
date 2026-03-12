@@ -2152,6 +2152,17 @@ class ArbitrageEngine:
 
                 plummet_exit_pct = float(getattr(self.config, "bargain_plummet_exit_pct", 0.0) or 0.0)
                 if plummet_exit_pct > 0:
+                    plummet_trigger_seconds = max(0, int(getattr(self.config, "bargain_plummet_trigger_seconds", 0) or 0))
+                    if plummet_trigger_seconds > 0:
+                        try:
+                            holding_created_at = datetime.fromisoformat(holding.timestamp)
+                            if holding_created_at.tzinfo is None:
+                                holding_created_at = holding_created_at.replace(tzinfo=timezone.utc)
+                            holding_age_seconds = (datetime.now(timezone.utc) - holding_created_at).total_seconds()
+                        except Exception:
+                            holding_age_seconds = float("inf")
+                        if holding_age_seconds < plummet_trigger_seconds:
+                            continue
                     drop_pct = (holding.buy_price - current_price) / holding.buy_price * 100
                     if drop_pct >= plummet_exit_pct:
                         self._mark_market_plummet_blocked(
