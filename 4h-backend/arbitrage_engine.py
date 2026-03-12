@@ -6,7 +6,7 @@ import math
 import time
 import httpx
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
 from pathlib import Path
 from collections import deque
