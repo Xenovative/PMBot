@@ -332,7 +332,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
               <StatCard
                 icon={<RefreshCw className="w-5 h-5" />}
                 label="掃描"
-                value={status?.scan_count ?? 0}
+                value={effectiveStatus?.scan_count ?? 0}
                 color="amber"
               />
               <StatCard
@@ -349,9 +349,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
               <div className="cyber-panel p-3 sm:p-5">
                 <h3 className="text-sm font-medium neon-text-cyan mb-3 flex items-center gap-2">
                   <TrendingUp className="w-4 h-4" />
-                  即時價格 — {Object.keys(status?.market_prices || {}).length} 個市場
+                  即時價格 — {Object.keys(effectiveStatus?.market_prices || {}).length} 個市場
                 </h3>
-                {status?.market_prices && Object.keys(status.market_prices).length > 0 ? (
+                {effectiveStatus?.market_prices && Object.keys(effectiveStatus.market_prices).length > 0 ? (
                   <div className="overflow-x-auto max-h-72 overflow-y-auto">
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-black/80 backdrop-blur">
@@ -364,7 +364,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {Object.entries(status.market_prices)
+                        {Object.entries(effectiveStatus.market_prices)
                           .sort(([, a], [, b]) => {
                             const ta = a.time_remaining_seconds ?? 0
                             const tb = b.time_remaining_seconds ?? 0
@@ -414,9 +414,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
               {/* Bargain Holdings */}
               <div className="cyber-panel-amber p-3 sm:p-5">
                 <h3 className="text-sm font-medium neon-text-amber mb-3 flex items-center gap-2">
-                  🏷️ 撿便宜持倉 ({(status?.bargain_holdings || []).length} 筆)
+                  🏷️ 撿便宜持倉 ({(effectiveStatus?.bargain_holdings || []).length} 筆)
                 </h3>
-                {(status?.bargain_holdings || []).length > 0 ? (
+                {(effectiveStatus?.bargain_holdings || []).length > 0 ? (
                   <div className="overflow-x-auto max-h-72 overflow-y-auto">
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-black/80 backdrop-blur">
@@ -431,7 +431,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {status.bargain_holdings.map((h, i) => (
+                        {effectiveStatus.bargain_holdings.map((h, i) => (
                           <tr key={i} className="border-b border-neon-amber/5 hover:bg-neon-amber/5">
                             <td className="py-1.5 px-2 font-mono text-neon-amber">R{h.round}</td>
                             <td className="py-1.5 px-2 truncate max-w-[120px]" title={h.market_slug}>{h.market_slug}</td>
