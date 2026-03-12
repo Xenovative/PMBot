@@ -1191,8 +1191,17 @@ class ArbitrageEngine:
         # 去重
         sell_prices = list(dict.fromkeys(sell_prices))
 
+        immediate_order_attempts = [
+            OrderType.FOK,
+            OrderType.FOK,
+            OrderType.FOK,
+            OrderType.FAK,
+            OrderType.FAK,
+            OrderType.FAK,
+        ]
+
         for sell_price in sell_prices:
-            for otype in [OrderType.FOK, OrderType.FAK, OrderType.GTC]:
+            for otype in immediate_order_attempts:
                 try:
                     order = OrderArgs(
                         token_id=token_id,
@@ -1211,6 +1220,24 @@ class ArbitrageEngine:
                         f"  ⚠️ {side_label} 平倉 {otype} @ {sell_price:.2f} 失敗: {str(e)[:150]}"
                     )
                     continue
+
+            try:
+                order = OrderArgs(
+                    token_id=token_id,
+                    price=sell_price,
+                    size=shares,
+                    side=SELL,
+                )
+                signed = clob_client.create_order(order)
+                resp = clob_client.post_order(signed, OrderType.GTC)
+                self.status.add_log(
+                    f"  ✅ {side_label} 平倉成功 ({OrderType.GTC}) @ {sell_price:.2f}: {resp}"
+                )
+                return True
+            except Exception as e:
+                self.status.add_log(
+                    f"  ⚠️ {side_label} 平倉 {OrderType.GTC} @ {sell_price:.2f} 失敗: {str(e)[:150]}"
+                )
 
         self.status.add_log(f"  ❌ {side_label} 所有平倉方式均失敗!")
         return False
