@@ -12,6 +12,26 @@ import {
 
 const API = ''
 
+function formatUsdPrice(incomingValue, maximumFractionDigits = 2) {
+  const normalizedValue = Number(incomingValue)
+  if (!Number.isFinite(normalizedValue) || normalizedValue <= 0) return '--'
+  return `$${normalizedValue.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  })}`
+}
+
+function formatSignedUsdDifference(incomingValue, maximumFractionDigits = 2) {
+  const normalizedValue = Number(incomingValue)
+  if (!Number.isFinite(normalizedValue)) return '--'
+  const absoluteValue = Math.abs(normalizedValue)
+  const signPrefix = normalizedValue >= 0 ? '+' : '-'
+  return `${signPrefix}$${absoluteValue.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  })}`
+}
+
 function App() {
   const [token, setToken] = useState(() => localStorage.getItem('pmbot_hourly_token'))
   const [verified, setVerified] = useState(false)
@@ -357,6 +377,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                       <thead className="sticky top-0 bg-black/80 backdrop-blur">
                         <tr className="text-neon-cyan/50 border-b border-neon-cyan/10">
                           <th className="text-left py-1.5 pr-3 font-medium">市場 / 倒數</th>
+                          <th className="text-left py-1.5 px-2 font-medium">現價 / 參考</th>
                           <th className="text-right py-1.5 px-2 font-medium">UP</th>
                           <th className="text-right py-1.5 px-2 font-medium">DOWN</th>
                           <th className="text-right py-1.5 px-2 font-medium">成本</th>
@@ -377,16 +398,46 @@ function Dashboard({ token, authHeaders, onLogout }) {
                             const mins = Math.floor(secs / 60)
                             const rem = secs % 60
                             const timeLabel = price.time_remaining_display || `${mins}分${rem.toString().padStart(2, '0')}秒`
+                            const underlyingLabel = price.underlying_symbol || slug.split('-')[0]?.toUpperCase() || 'SPOT'
+                            const referencePrice = Number(price.reference_price)
+                            const underlyingPrice = Number(price.underlying_price)
+                            const hasPriceDifference = Number.isFinite(referencePrice) && referencePrice > 0 && Number.isFinite(underlyingPrice) && underlyingPrice > 0
+                            const priceDifference = hasPriceDifference ? (underlyingPrice - referencePrice) : null
+                            const priceDifferenceClassName = !hasPriceDifference
+                              ? 'text-gray-500'
+                              : Math.abs(priceDifference) < 0.005
+                                ? 'text-gray-400'
+                                : priceDifference > 0
+                                  ? 'text-neon-green'
+                                  : 'text-neon-pink'
                             return (
                               <tr key={slug} className={`border-b border-neon-cyan/5 ${profitable ? 'bg-neon-green/5' : ''}`}>
                                 <td className="py-2 pr-3">
-                                  <div className="max-w-[220px]">
-                                    <span className="font-mono text-gray-300 truncate block" title={slug}>
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="font-mono text-gray-300 truncate block max-w-[150px]" title={slug}>
                                       {slug}
                                     </span>
-                                    <span className="mt-1 text-[10px] text-red-400 inline-flex items-center gap-1 align-middle font-medium whitespace-nowrap">
+                                    <span className="text-[10px] text-red-400 inline-flex items-center gap-1 font-medium shrink-0 whitespace-nowrap">
                                       <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
                                       ⏳ {timeLabel}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="py-2 px-2">
+                                  <div className="flex flex-col items-start leading-tight">
+                                    <span className="font-mono text-white whitespace-nowrap">
+                                      {underlyingLabel} {formatUsdPrice(price.underlying_price, 2)}
+                                    </span>
+                                    <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                                      參考 {formatUsdPrice(price.reference_price, 2)}
+                                      {hasPriceDifference ? (
+                                        <span className={`ml-1 ${priceDifferenceClassName}`}>
+                                          · {formatSignedUsdDifference(priceDifference, 2)}
+                                        </span>
+                                      ) : ''}
+                                    </span>
+                                    <span className="text-[9px] text-gray-600 max-w-[240px] truncate" title={price.reference_price_source || price.reference_source || ''}>
+                                      {price.reference_price_source || price.reference_source || ''}
                                     </span>
                                   </div>
                                 </td>
