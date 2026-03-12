@@ -3,9 +3,12 @@
 透過 Polymarket CTF 合約的 mergePositions 函數實現即時利潤鎖定
 """
 import asyncio
+import json
+import subprocess
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
@@ -136,6 +139,7 @@ class PositionMerger:
         "https://rpc-mainnet.matic.quiknode.pro",
         "https://polygon.llamarpc.com",
     ]
+    DEFAULT_RELAYER_HELPER = Path(__file__).resolve().parents[1] / "scripts" / "polymarket_relayer_merge.js"
 
     def __init__(self, config: BotConfig):
         self.config = config
@@ -149,6 +153,107 @@ class PositionMerger:
         self.logs: List[str] = []
         self._initialized = False
 
+    def _relayer_enabled(self) -> bool:
+        return bool(getattr(self.config, "poly_relayer_enabled", False))
+
+    def _relayer_ready(self) -> bool:
+        return bool(
+            self._relayer_enabled()
+            and self.config.private_key
+            and getattr(self.config, "poly_builder_api_key", "")
+            and getattr(self.config, "poly_builder_secret", "")
+            and getattr(self.config, "poly_builder_passphrase", "")
+        )
+
+    def _get_merge_owner_address(self) -> Optional[str]:
+        sig_type = getattr(self.config, "signature_type", 0)
+        funder = (getattr(self.config, "funder_address", "") or "").strip()
+        if sig_type == 2 and funder:
+            return funder
+        if self.account:
+            return self.account.address
+        return None
+
+    def _get_relayer_helper_script(self) -> Path:
+        configured_script = (getattr(self.config, "relayer_helper_script", "") or "").strip()
+        if configured_script:
+            return Path(configured_script).expanduser().resolve()
+        return self.DEFAULT_RELAYER_HELPER
+
+    async def _merge_via_relayer(self, record: "MergeRecord", merge_amount: float) -> bool:
+        helper_script_path = self._get_relayer_helper_script()
+        if not helper_script_path.exists():
+            self.add_log(f"❌ Relayer helper 不存在: {helper_script_path}")
+            record.status = "failed"
+            record.details = f"❌ Relayer helper 不存在: {helper_script_path}"
+            return False
+
+        helper_command = (getattr(self.config, "relayer_helper_command", "node") or "node").strip() or "node"
+        amount_raw = int(merge_amount * 1e6)
+        payload = {
+            "privateKey": self.config.private_key,
+            "rpcUrl": self.config.POLYGON_RPC_URL,
+            "relayerUrl": getattr(self.config, "poly_relayer_url", "https://relayer-v2.polymarket.com/"),
+            "builderApiKey": getattr(self.config, "poly_builder_api_key", ""),
+            "builderSecret": getattr(self.config, "poly_builder_secret", ""),
+            "builderPassphrase": getattr(self.config, "poly_builder_passphrase", ""),
+            "conditionId": record.condition_id,
+            "amountRaw": str(amount_raw),
+            "description": f"Merge {record.market_slug} positions to USDCe",
+        }
+
+        self.add_log(f"🛰️ 使用 Relayer 送出 gasless merge | {record.market_slug} | {merge_amount:.2f}")
+
+        try:
+            process_result = await asyncio.to_thread(
+                subprocess.run,
+                [helper_command, str(helper_script_path), json.dumps(payload)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=120,
+            )
+        except Exception as e:
+            record.status = "failed"
+            record.details = f"❌ Relayer helper 執行失敗: {e}"
+            self.add_log(record.details)
+            return False
+
+        stdout_text = (process_result.stdout or "").strip()
+        stderr_text = (process_result.stderr or "").strip()
+        if process_result.returncode != 0:
+            error_text = stdout_text or stderr_text or f"exit code {process_result.returncode}"
+            record.status = "failed"
+            record.details = f"❌ Relayer merge 失敗: {error_text[:300]}"
+            self.add_log(record.details)
+            return False
+
+        try:
+            helper_response = json.loads(stdout_text)
+        except Exception as e:
+            record.status = "failed"
+            record.details = f"❌ Relayer 回應不是有效 JSON: {e}"
+            self.add_log(record.details)
+            return False
+
+        if not helper_response.get("ok"):
+            record.status = "failed"
+            record.details = f"❌ Relayer merge 失敗: {helper_response.get('error', 'unknown error')}"
+            self.add_log(record.details)
+            return False
+
+        tx_hash = helper_response.get("transactionHash") or ""
+        record.status = "success"
+        record.tx_hash = tx_hash
+        record.usdc_received = merge_amount
+        record.gas_cost = 0
+        record.details = (
+            f"✅ Gasless merge 成功 | {merge_amount:.0f} 對 → {merge_amount:.2f} USDC | "
+            f"TX: {tx_hash[:16] + '...' if tx_hash else 'relayed'}"
+        )
+        self.add_log(record.details)
+        return True
+
     def add_log(self, msg: str):
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         entry = f"[{ts}] {msg}"
@@ -160,6 +265,20 @@ class PositionMerger:
         """初始化 Web3 連接和合約"""
         if self._initialized:
             return True
+
+        if self._relayer_ready():
+            try:
+                self.account = Account.from_key(self.config.private_key)
+                owner = self._get_merge_owner_address() or self.account.address
+                warn = ""
+                if owner.lower() != self.account.address.lower():
+                    warn = " (⚠️ owner != signer)"
+                self.add_log(f"✅ Relayer 合併器初始化完成 | 簽名: {self.account.address[:10]}... | 持幣: {owner[:10]}...{warn}")
+                self._initialized = True
+                return True
+            except Exception as e:
+                self.add_log(f"❌ Relayer 初始化失敗: {e}")
+                return False
 
         if not self.config.private_key:
             self.add_log("⚠️ 未設定私鑰，合併功能不可用")
@@ -191,7 +310,11 @@ class PositionMerger:
                 self.add_log("❌ setApprovalForAll 失敗，無法合併")
                 return False
             self._initialized = True
-            self.add_log(f"✅ 合併器初始化完成 | 錢包: {self.account.address[:10]}...")
+            owner = self._get_merge_owner_address() or self.account.address
+            warn = ""
+            if owner.lower() != self.account.address.lower():
+                warn = " (⚠️ owner != signer，鏈上合併可能失敗)"
+            self.add_log(f"✅ 合併器初始化完成 | 簽名: {self.account.address[:10]}... | 持幣: {owner[:10]}...{warn}")
             return True
         except Exception as e:
             self.add_log(f"❌ 初始化失敗: {e}")
@@ -200,7 +323,7 @@ class PositionMerger:
     def _ensure_merge_approval(self) -> bool:
         """確保 CTF 合約已被授權為 operator (ERC1155 setApprovalForAll)。"""
         try:
-            owner = self.account.address
+            owner = self._get_merge_owner_address() or self.account.address
             operator = Web3.to_checksum_address(CTF_ADDRESS)
             approved = self.ctf_contract.functions.isApprovedForAll(owner, operator).call()
             if approved:
@@ -258,12 +381,12 @@ class PositionMerger:
             return None
 
         try:
-            wallet = self.account.address
+            owner = self._get_merge_owner_address() or self.account.address
             up_balance = self.ctf_contract.functions.balanceOf(
-                wallet, int(pos.up_token_id)
+                owner, int(pos.up_token_id)
             ).call()
             down_balance = self.ctf_contract.functions.balanceOf(
-                wallet, int(pos.down_token_id)
+                owner, int(pos.down_token_id)
             ).call()
 
             # CTF 代幣使用 6 位小數 (與 USDC 一致)
@@ -335,7 +458,39 @@ class PositionMerger:
 
         # 真實合併
         try:
-            wallet = self.account.address
+            if self._relayer_ready():
+                relayer_ok = await self._merge_via_relayer(record, merge_amount)
+                if relayer_ok:
+                    cost_basis = (pos.total_cost_basis / max(pos.up_balance, 1)) * merge_amount
+                    record.net_profit = merge_amount - cost_basis
+                    pos.up_balance -= merge_amount
+                    pos.down_balance -= merge_amount
+                    pos.mergeable_amount = min(pos.up_balance, pos.down_balance)
+                    self.merge_history.append(record)
+                    try:
+                        trade_db.record_merge(
+                            timestamp=record.timestamp,
+                            market_slug=record.market_slug,
+                            condition_id=record.condition_id,
+                            amount=record.amount,
+                            usdc_received=record.usdc_received,
+                            tx_hash=record.tx_hash,
+                            gas_cost=record.gas_cost,
+                            net_profit=record.net_profit,
+                            status=record.status,
+                            details=record.details,
+                        )
+                        trade_db.rebuild_daily_summary()
+                    except Exception:
+                        pass
+                    return record
+                else:
+                    return None
+
+            owner = self._get_merge_owner_address() or self.account.address
+            if owner.lower() != self.account.address.lower():
+                self.add_log("❌ 合併失敗: 簽名者與持幣地址不一致，無法直接或 relayer 燒毀")
+                return None
             # 金額轉換為 6 位小數
             amount_raw = int(merge_amount * 1e6)
             condition_id_bytes = bytes.fromhex(condition_id.replace("0x", ""))
@@ -350,8 +505,8 @@ class PositionMerger:
             )
 
             tx_params = {
-                "from": wallet,
-                "nonce": self.w3.eth.get_transaction_count(wallet),
+                "from": owner,
+                "nonce": self.w3.eth.get_transaction_count(owner),
                 "gasPrice": self.w3.eth.gas_price,
                 "chainId": 137,
             }
@@ -359,7 +514,7 @@ class PositionMerger:
             # 估算 gas，若失敗提早報錯
             try:
                 gas_est = self.w3.eth.estimate_gas({
-                    "from": wallet,
+                    "from": owner,
                     "to": CTF_ADDRESS,
                     "data": tx_func._encode_transaction_data(),
                 })
