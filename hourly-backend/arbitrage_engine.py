@@ -1004,8 +1004,9 @@ class ArbitrageEngine:
 
     def _try_unwind_position_sync(self, clob_client, token_id: str, shares: float,
                                   buy_price: float, side_label: str):
-        from py_clob_client.clob_types import OrderArgs, OrderType
+        from py_clob_client.clob_types import OrderArgs, OrderType, MarketOrderArgs, TradeParams
         from py_clob_client.order_builder.constants import SELL
+        import time as _time
 
         shares = math.floor(shares * 100) / 100
         if shares <= 0:
@@ -1070,6 +1071,53 @@ class ArbitrageEngine:
                     log_messages.append(
                         f"  ⚠️ {side_label} 平倉 {order_type} @ {sell_price:.2f} 失敗: {str(e)[:150]}"
                     )
+
+            try:
+                market_reference_price = max(sell_price, 0.01)
+                before_ts = int(_time.time())
+                market_order = MarketOrderArgs(
+                    token_id=token_id,
+                    amount=shares,
+                    side=SELL,
+                    price=market_reference_price,
+                    order_type=OrderType.FOK,
+                )
+                signed_market_order = clob_client.create_market_order(market_order)
+                market_response_payload = clob_client.post_order(signed_market_order, OrderType.FOK)
+                market_order_id = market_response_payload.get("orderId") or market_response_payload.get("order_id") or market_response_payload.get("id")
+                market_trades = []
+                for _ in range(3):
+                    _time.sleep(0.4)
+                    market_trade_params = TradeParams(order_id=market_order_id) if market_order_id else TradeParams(asset_id=token_id, after=before_ts)
+                    market_trades = clob_client.get_trades(market_trade_params)
+                    if market_trades:
+                        break
+
+                realized_shares = 0.0
+                realized_notional = 0.0
+                for market_trade_payload in market_trades:
+                    realized_trade_size = float(market_trade_payload.get("size", 0) or 0)
+                    realized_trade_price = float(market_trade_payload.get("price", 0) or 0)
+                    realized_shares += realized_trade_size
+                    realized_notional += realized_trade_size * realized_trade_price
+                realized_sell_price = (realized_notional / realized_shares) if realized_shares > 0 else market_reference_price
+
+                log_messages.append(
+                    f"  ✅ {side_label} 市價平倉成功 ({OrderType.FOK}) @ {realized_sell_price:.4f}: {market_response_payload}"
+                )
+                return {
+                    "success": True,
+                    "pending": False,
+                    "order_type": "MARKET_SELL",
+                    "response": market_response_payload,
+                    "shares": realized_shares if realized_shares > 0 else shares,
+                    "sell_price": realized_sell_price,
+                    "log_messages": log_messages,
+                }
+            except Exception as e:
+                log_messages.append(
+                    f"  ⚠️ {side_label} 市價平倉失敗 @ {sell_price:.2f}: {str(e)[:150]}"
+                )
 
             try:
                 order = OrderArgs(
