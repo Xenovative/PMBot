@@ -2082,6 +2082,25 @@ class ArbitrageEngine:
             "holdings": holdings,
         }
 
+    def _find_blocking_unpaired_bargain_holding(self, target_market_slug: str) -> Optional[BargainHolding]:
+        for holding in self.status.bargain_holdings:
+            if holding.status != "holding":
+                continue
+            if holding.market_slug == target_market_slug:
+                continue
+            if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
+                self._clear_stale_blocking_pending_exit(holding, "撿便宜跨市場阻塞檢查")
+            if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
+                continue
+
+            holding_market = getattr(holding, "market", None)
+            holding_time_remaining = getattr(holding_market, "time_remaining_seconds", None)
+            if holding_time_remaining is not None and holding_time_remaining <= 0:
+                continue
+
+            return holding
+        return None
+
     async def check_bargain_opportunities(self, markets: List[MarketInfo]) -> List[Dict[str, Any]]:
         """
         掃描所有市場，找出堆疊撿便宜機會。
@@ -2230,11 +2249,30 @@ class ArbitrageEngine:
                     base_max=price_ceiling,
                 )
 
+                near_entry_margin = 0.02
+                nearest_entry_ask = min(up_ask, down_ask)
+                should_log_near_entry = nearest_entry_ask <= (dyn_max + near_entry_margin)
+                if should_log_near_entry and self.status.scan_count % 3 == 0:
+                    self.status.add_log(
+                        f"🔎 [撿便宜檢查] {market.slug} | bounds {dyn_min:.4f}-{dyn_max:.4f} | asks UP={up_ask:.4f} DOWN={down_ask:.4f} | round={next_round} ceiling={price_ceiling:.4f}"
+                    )
+
                 candidates = []
                 if (up_ask >= dyn_min and up_ask < dyn_max):
                     candidates.append(("UP", up_ask, market.up_token_id, market.down_token_id))
                 if (down_ask >= dyn_min and down_ask < dyn_max):
                     candidates.append(("DOWN", down_ask, market.down_token_id, market.up_token_id))
+
+                if should_log_near_entry and self.status.scan_count % 3 == 0:
+                    if candidates:
+                        candidate_summary = ", ".join(f"{candidate_side}@{candidate_price:.4f}" for candidate_side, candidate_price, _, _ in candidates)
+                        self.status.add_log(
+                            f"✅ [撿便宜候選] {market.slug} | {candidate_summary}"
+                        )
+                    else:
+                        self.status.add_log(
+                            f"🚫 [撿便宜候選] {market.slug} | 無 side 落在有效區間 {dyn_min:.4f}-{dyn_max:.4f}"
+                        )
 
                 if candidates:
                     # R1 開倉: 套用偏好方向（或依速度趨勢動態偏好），仍須滿足閾值與天花板
@@ -2247,12 +2285,21 @@ class ArbitrageEngine:
                         biased = [c for c in candidates if c[0] == bias]
                         if biased:
                             candidates = biased
+                            if should_log_near_entry and self.status.scan_count % 3 == 0:
+                                self.status.add_log(
+                                    f"🎯 [撿便宜偏好] {market.slug} | 採用偏好側 {bias}"
+                                )
                         else:
-                            # 偏好側未達條件 → 不開倉，等待價格進入區間
-                            continue
+                            self.status.add_log(
+                                f"🏷️ [撿便宜R1] {market.slug} 偏好側 {bias} 未達條件，改買另一側 {candidates[0][0]}"
+                            )
                     # 買最便宜的那側（或偏好側）
                     candidates.sort(key=lambda c: c[1])
                     side, ask, token_id, comp_id = candidates[0]
+                    if should_log_near_entry and self.status.scan_count % 3 == 0:
+                        self.status.add_log(
+                            f"🛒 [撿便宜準備下單] {market.slug} | 選擇 {side} @ {ask:.4f}"
+                        )
                     opportunities.append({
                         "market": market,
                         "side": side,
@@ -2287,13 +2334,10 @@ class ArbitrageEngine:
 
         # 即時檢查: 非配對開倉時，若其他市場有未配對持倉則跳過（防止跨市場重複開倉）
         if not is_pairing:
-            other_unpaired = any(
-                h.status == "holding" and h.market_slug != market.slug
-                for h in self.status.bargain_holdings
-            )
-            if other_unpaired:
+            blocking_holding = self._find_blocking_unpaired_bargain_holding(market.slug)
+            if blocking_holding:
                 self.status.add_log(
-                    f"🏷️ [撿便宜] 跳過 {market.slug} {side} — 其他市場有未配對持倉"
+                    f"🏷️ [撿便宜] 跳過 {market.slug} {side} — 其他市場仍有未配對持倉 {blocking_holding.market_slug} {blocking_holding.side} @ {blocking_holding.buy_price:.4f}"
                 )
                 return None
 
