@@ -41,6 +41,8 @@ class PriceInfo:
     down_best_ask: float = 0.0
     up_liquidity: float = 0.0
     down_liquidity: float = 0.0
+    up_bids: List[Dict[str, float]] = field(default_factory=list)
+    down_bids: List[Dict[str, float]] = field(default_factory=list)
     up_asks: List[Dict[str, float]] = field(default_factory=list)
     down_asks: List[Dict[str, float]] = field(default_factory=list)
     timestamp: str = ""
@@ -73,6 +75,8 @@ class PriceInfo:
             "down_best_ask": self.down_best_ask,
             "up_liquidity": self.up_liquidity,
             "down_liquidity": self.down_liquidity,
+            "up_bids": self.up_bids,
+            "down_bids": self.down_bids,
             "timestamp": self.timestamp,
             "time_remaining_seconds": self.time_remaining_seconds,
             "time_remaining_display": self.time_remaining_display,
@@ -328,6 +332,10 @@ class ArbitrageEngine:
                     bids = book.get("bids", [])
                     if bids:
                         price_info.up_best_bid = max(float(b.get("price", 0)) for b in bids)
+                        price_info.up_bids = [
+                            {"price": float(b.get("price", 0)), "size": float(b.get("size", 0))}
+                            for b in bids[:10]
+                        ]
                     asks = book.get("asks", [])
                     if asks:
                         price_info.up_best_ask = min(float(a.get("price", 0)) for a in asks)
@@ -345,6 +353,10 @@ class ArbitrageEngine:
                     bids = book.get("bids", [])
                     if bids:
                         price_info.down_best_bid = max(float(b.get("price", 0)) for b in bids)
+                        price_info.down_bids = [
+                            {"price": float(b.get("price", 0)), "size": float(b.get("size", 0))}
+                            for b in bids[:10]
+                        ]
                     asks = book.get("asks", [])
                     if asks:
                         price_info.down_best_ask = min(float(a.get("price", 0)) for a in asks)
@@ -726,6 +738,46 @@ class ArbitrageEngine:
 
         return False, ""
 
+    def _clear_stale_blocking_pending_exit(self, holding: Optional[BargainHolding], urgent_reason: str) -> bool:
+        if not holding:
+            return False
+        pending_order_id = str(getattr(holding, "pending_exit_order_id", "") or "")
+        pending_reason = str(getattr(holding, "pending_exit_reason", "") or "")
+        pending_trade_id = int(getattr(holding, "pending_exit_trade_id", 0) or 0)
+        if not pending_order_id and not pending_reason and not pending_trade_id:
+            return False
+
+        matched_pending_payload = None
+        for pending_payload in self._load_pending_unwinds():
+            payload_order_id = str(pending_payload.get("order_id", "") or "")
+            payload_trade_id = int(pending_payload.get("trade_id", 0) or 0)
+            payload_holding_timestamp = str(pending_payload.get("holding_timestamp", "") or "")
+            if pending_order_id and payload_order_id == pending_order_id:
+                matched_pending_payload = pending_payload
+                break
+            if pending_trade_id and payload_trade_id == pending_trade_id:
+                matched_pending_payload = pending_payload
+                break
+            if payload_holding_timestamp and payload_holding_timestamp == str(getattr(holding, "timestamp", "") or ""):
+                matched_pending_payload = pending_payload
+                break
+
+        should_clear = matched_pending_payload is None
+        stale_reason = "未找到對應 pending unwind"
+        if matched_pending_payload is not None:
+            should_clear, stale_reason = self._should_cancel_stale_pending_unwind(matched_pending_payload, holding)
+
+        if not should_clear:
+            return False
+
+        self.status.add_log(
+            f"⚠️ [{urgent_reason}] 清除阻塞中的待成交退出狀態 | {holding.market_slug} {holding.side} | {stale_reason}"
+        )
+        if matched_pending_payload is not None:
+            self._remove_pending_unwind(str(matched_pending_payload.get("order_id", "") or ""))
+        self._clear_holding_pending_exit(holding)
+        return True
+
     def _register_pending_unwind_trade(
         self,
         record: TradeRecord,
@@ -940,6 +992,30 @@ class ArbitrageEngine:
     def _get_clob_client(self):
         return self._ensure_clob_client()
 
+    def _estimate_executable_sell_price_from_bids(self, bid_levels: List[Dict[str, float]], shares: float) -> float:
+        normalized_shares = max(0.0, float(shares or 0.0))
+        if normalized_shares <= 0:
+            return 0.0
+
+        remaining_shares = normalized_shares
+        last_consumed_bid_price = 0.0
+        for bid_level in bid_levels:
+            try:
+                bid_price = float(bid_level.get("price", 0) or 0)
+                bid_size = float(bid_level.get("size", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if bid_price <= 0 or bid_size <= 0:
+                continue
+            last_consumed_bid_price = bid_price
+            remaining_shares -= bid_size
+            if remaining_shares <= 0:
+                return bid_price
+
+        if last_consumed_bid_price > 0:
+            return last_consumed_bid_price
+        return 0.0
+
     def _execute_buy_one_side_sync(self, clob_client, token_id: str, amount_usd: float,
                                    price: float, side_label: str) -> dict:
         from py_clob_client.clob_types import MarketOrderArgs, OrderType, TradeParams
@@ -1003,7 +1079,7 @@ class ArbitrageEngine:
         }
 
     def _try_unwind_position_sync(self, clob_client, token_id: str, shares: float,
-                                  buy_price: float, side_label: str):
+                                  buy_price: float, side_label: str, bid_levels: Optional[List[Dict[str, float]]] = None):
         from py_clob_client.clob_types import OrderArgs, OrderType, MarketOrderArgs, TradeParams
         from py_clob_client.order_builder.constants import SELL
         import time as _time
@@ -1024,8 +1100,13 @@ class ArbitrageEngine:
                 )
                 shares = available_shares
 
-        immediate_reference_price = max(0.01, round(float(buy_price or 0.0), 2))
+        executable_bid_price = self._estimate_executable_sell_price_from_bids(bid_levels or [], shares)
+        immediate_reference_price = max(0.01, round(float(executable_bid_price or buy_price or 0.0), 2))
         log_messages.append(f"  🔥 緊急平倉 {side_label} | 賣出 {shares:.2f} 股 @ ~{immediate_reference_price:.4f}")
+        if executable_bid_price > 0:
+            log_messages.append(
+                f"  📘 {side_label} 依 bid 深度估算可成交價 {executable_bid_price:.4f} | 原始參考 {float(buy_price or 0.0):.4f}"
+            )
 
         sell_prices = [
             immediate_reference_price,
@@ -1034,6 +1115,9 @@ class ArbitrageEngine:
             0.01,
         ]
         sell_prices = list(dict.fromkeys(sell_prices))
+        log_messages.append(
+            f"  📉 {side_label} 即時平倉階梯: {', '.join(f'{candidate_price:.2f}' for candidate_price in sell_prices)} | 股數 {shares:.2f}"
+        )
 
         immediate_order_attempts = [
             OrderType.FOK,
@@ -1072,52 +1156,72 @@ class ArbitrageEngine:
                         f"  ⚠️ {side_label} 平倉 {order_type} @ {sell_price:.2f} 失敗: {str(e)[:150]}"
                     )
 
-            try:
-                market_reference_price = max(sell_price, 0.01)
-                before_ts = int(_time.time())
-                market_order = MarketOrderArgs(
-                    token_id=token_id,
-                    amount=shares,
-                    side=SELL,
-                    price=market_reference_price,
-                    order_type=OrderType.FOK,
-                )
-                signed_market_order = clob_client.create_market_order(market_order)
-                market_response_payload = clob_client.post_order(signed_market_order, OrderType.FOK)
-                market_order_id = market_response_payload.get("orderId") or market_response_payload.get("order_id") or market_response_payload.get("id")
-                market_trades = []
-                for _ in range(3):
-                    _time.sleep(0.4)
-                    market_trade_params = TradeParams(order_id=market_order_id) if market_order_id else TradeParams(asset_id=token_id, after=before_ts)
-                    market_trades = clob_client.get_trades(market_trade_params)
-                    if market_trades:
-                        break
+            market_reference_price = max(sell_price, 0.01)
+            market_sell_attempts = [
+                ("shares", shares),
+                ("quote_notional", round(shares * market_reference_price, 4)),
+            ]
+            for market_amount_mode, market_amount_value in market_sell_attempts:
+                try:
+                    if market_amount_value <= 0:
+                        continue
+                    before_ts = int(_time.time())
+                    market_order = MarketOrderArgs(
+                        token_id=token_id,
+                        amount=market_amount_value,
+                        side=SELL,
+                        price=market_reference_price,
+                        order_type=OrderType.FOK,
+                    )
+                    signed_market_order = clob_client.create_market_order(market_order)
+                    market_response_payload = clob_client.post_order(signed_market_order, OrderType.FOK)
+                    market_order_id = market_response_payload.get("orderId") or market_response_payload.get("order_id") or market_response_payload.get("id")
+                    market_trades = []
+                    for _ in range(4):
+                        _time.sleep(0.4)
+                        market_trade_params = TradeParams(order_id=market_order_id) if market_order_id else TradeParams(asset_id=token_id, after=before_ts)
+                        market_trades = clob_client.get_trades(market_trade_params)
+                        if market_trades:
+                            break
 
-                realized_shares = 0.0
-                realized_notional = 0.0
-                for market_trade_payload in market_trades:
-                    realized_trade_size = float(market_trade_payload.get("size", 0) or 0)
-                    realized_trade_price = float(market_trade_payload.get("price", 0) or 0)
-                    realized_shares += realized_trade_size
-                    realized_notional += realized_trade_size * realized_trade_price
-                realized_sell_price = (realized_notional / realized_shares) if realized_shares > 0 else market_reference_price
+                    realized_shares = 0.0
+                    realized_notional = 0.0
+                    for market_trade_payload in market_trades:
+                        realized_trade_size = float(market_trade_payload.get("size", 0) or 0)
+                        realized_trade_price = float(market_trade_payload.get("price", 0) or 0)
+                        realized_shares += realized_trade_size
+                        realized_notional += realized_trade_size * realized_trade_price
+                    realized_sell_price = (realized_notional / realized_shares) if realized_shares > 0 else market_reference_price
 
-                log_messages.append(
-                    f"  ✅ {side_label} 市價平倉成功 ({OrderType.FOK}) @ {realized_sell_price:.4f}: {market_response_payload}"
-                )
-                return {
-                    "success": True,
-                    "pending": False,
-                    "order_type": "MARKET_SELL",
-                    "response": market_response_payload,
-                    "shares": realized_shares if realized_shares > 0 else shares,
-                    "sell_price": realized_sell_price,
-                    "log_messages": log_messages,
-                }
-            except Exception as e:
-                log_messages.append(
-                    f"  ⚠️ {side_label} 市價平倉失敗 @ {sell_price:.2f}: {str(e)[:150]}"
-                )
+                    response_status_text = str(
+                        market_response_payload.get("status")
+                        or market_response_payload.get("state")
+                        or market_response_payload.get("orderStatus")
+                        or ""
+                    ).strip().lower()
+                    response_indicates_success = response_status_text in {"filled", "matched", "executed", "success", "completed"}
+                    shares_filled_enough = realized_shares > 0 and realized_shares >= max(0.01, shares * 0.95)
+                    if not shares_filled_enough and not response_indicates_success:
+                        raise RuntimeError(
+                            f"market sell 未確認完整成交 | mode={market_amount_mode} | filled={realized_shares:.2f}/{shares:.2f} | status={response_status_text or 'unknown'}"
+                        )
+
+                    log_messages.append(
+                        f"  ✅ {side_label} 市價平倉成功 mode={market_amount_mode} @ {realized_sell_price:.4f} | filled {max(realized_shares, shares):.2f}: {market_response_payload}"
+                    )
+                    return {
+                        "success": True,
+                        "pending": False,
+                        "order_type": f"MARKET_SELL_{market_amount_mode.upper()}",
+                        "response": market_response_payload,
+                        "shares": realized_shares if realized_shares > 0 else shares,
+                        "sell_price": realized_sell_price,
+                        "log_messages": log_messages,
+                    }
+                except Exception as e:
+                    log_messages.append(
+                        f"  ⚠️ {side_label} 市價平倉失敗 mode={market_amount_mode} @ {sell_price:.2f}: {str(e)[:180]}"
+                    )
 
             try:
                 order = OrderArgs(
@@ -1392,7 +1496,7 @@ class ArbitrageEngine:
         return {"success": True, "response": response_payload, "shares": fill_shares, "price": fill_price}
 
     async def _try_unwind_position(self, clob_client, token_id: str, shares: float,
-                                   buy_price: float, side_label: str):
+                                   buy_price: float, side_label: str, bid_levels: Optional[List[Dict[str, float]]] = None):
         """
         緊急平倉：賣出已買入的一側代幣以避免單邊風險
         注意: MarketOrderArgs + create_market_order 對 SELL 有 bug（price 驗證失敗）
@@ -1406,6 +1510,7 @@ class ArbitrageEngine:
             shares,
             buy_price,
             side_label,
+            bid_levels,
         )
         for log_message in unwind_result.get("log_messages", []):
             self.status.add_log(log_message)
@@ -2430,6 +2535,8 @@ class ArbitrageEngine:
                             f"⚡ [急跌護欄] {holding.market_slug} {holding.side} 自高點 {reference_high_price:.4f} 跌 {drop_pct:.1f}% ≥ {plummet_exit_pct:.1f}% → 立刻平倉"
                         )
                         if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
+                            self._clear_stale_blocking_pending_exit(holding, "急跌護欄")
+                        if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
                             pending_exit_label = holding.pending_exit_order_id[:12] if holding.pending_exit_order_id else str(holding.pending_exit_reason or "settlement_pending")
                             self.status.add_log(f"⚡ [急跌護欄] 已有待成交退出狀態 {pending_exit_label}，略過重複掛單")
                             continue
@@ -2439,9 +2546,10 @@ class ArbitrageEngine:
                         else:
                             try:
                                 clob_client = self._get_clob_client()
+                                holding_bid_levels = price_info.up_bids if holding.side == "UP" else price_info.down_bids
                                 unwind_result = await self._try_unwind_position(
                                     clob_client, holding.token_id, holding.shares,
-                                    current_price, "Plummet guard"
+                                    current_price, "Plummet guard", holding_bid_levels
                                 )
                                 if unwind_result.get("success"):
                                     holding.status = "stopped_out"
@@ -2506,6 +2614,8 @@ class ArbitrageEngine:
                                     self.status.add_log("⚡ [急跌護欄] 已掛出 GTC，待成交後才算完成")
                                 else:
                                     self._clear_holding_pending_exit(holding)
+                                    if any("等待結算中" in log_message for log_message in unwind_result.get("log_messages", [])):
+                                        self.status.add_log("⚡ [急跌護欄] 尚無可賣餘額，等待結算後重試")
                                     self.status.add_log("⚡ [急跌護欄失敗] 賣單未成交")
                             except Exception as e:
                                 unwind_result = {"success": False, "pending": False, "order_type": None, "response": None}
@@ -2560,6 +2670,8 @@ class ArbitrageEngine:
                             f"🎯 [二次出場] {holding.market_slug} {holding.side} 利潤 {profit_pct_now:.2f}% ≥ {secondary_exit_profit_pct:.2f}% → 嘗試直接賣出"
                         )
                         if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
+                            self._clear_stale_blocking_pending_exit(holding, "二次出場")
+                        if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
                             pending_exit_label = holding.pending_exit_order_id[:12] if holding.pending_exit_order_id else str(holding.pending_exit_reason or "settlement_pending")
                             self.status.add_log(f"🎯 [二次出場] 已有待成交退出狀態 {pending_exit_label}，略過重複掛單")
                             continue
@@ -2570,9 +2682,10 @@ class ArbitrageEngine:
                         else:
                             try:
                                 clob_client = self._get_clob_client()
+                                holding_bid_levels = price_info.up_bids if holding.side == "UP" else price_info.down_bids
                                 unwind_result = await self._try_unwind_position(
                                     clob_client, holding.token_id, holding.shares,
-                                    current_price, "TP sniper"
+                                    current_price, "TP sniper", holding_bid_levels
                                 )
                                 if unwind_result.get("success"):
                                     holding.status = "paired"
@@ -2712,11 +2825,6 @@ class ArbitrageEngine:
                     )
                     continue
 
-                self.status.add_log(
-                    f"🛑 [R{holding.round}止損] {holding.market_slug} {holding.side} | "
-                    f"買入: {holding.buy_price:.4f} → 現價: {current_price:.4f} "
-                    f"(跌 {price_drop:.4f} >= {self.BARGAIN_STOP_LOSS_CENTS})"
-                )
                 if self.config.dry_run:
                     self.status.add_log(
                         f"🛑 [模擬止損] 賣出 {holding.shares:.1f} 股 {holding.side} @ ~{current_price:.4f}"
@@ -2724,10 +2832,13 @@ class ArbitrageEngine:
                     holding.status = "stopped_out"
                 else:
                     try:
+                        if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
+                            self._clear_stale_blocking_pending_exit(holding, "止損")
                         clob_client = self._get_clob_client()
+                        holding_bid_levels = price_info.up_bids if holding.side == "UP" else price_info.down_bids
                         unwind_result = await self._try_unwind_position(
                             clob_client, holding.token_id, holding.shares,
-                            current_price, f"止損R{holding.round}-{holding.side}"
+                            current_price, f"止損R{holding.round}-{holding.side}", holding_bid_levels
                         )
                         unwind_success = bool(isinstance(unwind_result, dict) and unwind_result.get("success"))
                         unwind_pending = bool(isinstance(unwind_result, dict) and unwind_result.get("pending"))
@@ -2744,6 +2855,8 @@ class ArbitrageEngine:
                             self.status.add_log(f"🛑 [止損成功] {holding.side} 已賣出")
                         else:
                             self._clear_holding_pending_exit(holding)
+                            if any("等待結算中" in log_message for log_message in unwind_result.get("log_messages", [])):
+                                self.status.add_log(f"🛑 [止損] {holding.side} 尚無可賣餘額，等待結算後重試")
                             self.status.add_log(f"🛑 [止損失敗] {holding.side} 需手動處理!")
                     except Exception as e:
                         self.status.add_log(f"🛑 [止損異常] {str(e)[:120]}")
