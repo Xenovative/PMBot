@@ -4,6 +4,7 @@
 import asyncio
 import math
 import time
+import json
 import httpx
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List, Tuple
@@ -27,6 +28,24 @@ def _read_log_tail(limit: int = 200) -> List[str]:
         for line in f:
             lines.append(line.rstrip("\n"))
     return list(lines)
+
+
+def _safe_parse_json_response(response: httpx.Response, response_label: str) -> Dict[str, Any]:
+    response_text = response.text or ""
+    try:
+        parsed_payload = response.json()
+    except json.JSONDecodeError as decode_error:
+        response_preview = response_text.strip().replace("\r", " ").replace("\n", " ")[:160]
+        raise ValueError(
+            f"{response_label} JSON 解析失敗 | status={response.status_code} | body={response_preview or '<empty>'} | error={decode_error}"
+        ) from decode_error
+
+    if not isinstance(parsed_payload, dict):
+        raise ValueError(
+            f"{response_label} 回傳格式異常 | status={response.status_code} | type={type(parsed_payload).__name__}"
+        )
+
+    return parsed_payload
 
 
 @dataclass
@@ -315,7 +334,12 @@ class ArbitrageEngine:
                     params={"token_id": up_id, "side": "buy"}
                 )
                 if up_resp.status_code == 200:
-                    price_info.up_price = float(up_resp.json().get("price", 0))
+                    up_price_payload = _safe_parse_json_response(up_resp, f"價格查詢 UP {market.slug}")
+                    price_info.up_price = float(up_price_payload.get("price", 0))
+                else:
+                    self.status.add_log(
+                        f"⚠️ 價格查詢失敗 | {market.slug} UP | status={up_resp.status_code}"
+                    )
 
                 # 獲取 DOWN 代幣價格
                 down_resp = await client.get(
@@ -323,12 +347,17 @@ class ArbitrageEngine:
                     params={"token_id": down_id, "side": "buy"}
                 )
                 if down_resp.status_code == 200:
-                    price_info.down_price = float(down_resp.json().get("price", 0))
+                    down_price_payload = _safe_parse_json_response(down_resp, f"價格查詢 DOWN {market.slug}")
+                    price_info.down_price = float(down_price_payload.get("price", 0))
+                else:
+                    self.status.add_log(
+                        f"⚠️ 價格查詢失敗 | {market.slug} DOWN | status={down_resp.status_code}"
+                    )
 
                 # 獲取訂單簿深度
                 if up_id:
                     up_book_resp = await client.get(f"{self.config.CLOB_HOST}/book?token_id={up_id}")
-                    book = up_book_resp.json()
+                    book = _safe_parse_json_response(up_book_resp, f"訂單簿查詢 UP {market.slug}")
                     bids = book.get("bids", [])
                     if bids:
                         price_info.up_best_bid = max(float(b.get("price", 0)) for b in bids)
@@ -349,7 +378,7 @@ class ArbitrageEngine:
 
                 if down_id:
                     down_book_resp = await client.get(f"{self.config.CLOB_HOST}/book?token_id={down_id}")
-                    book = down_book_resp.json()
+                    book = _safe_parse_json_response(down_book_resp, f"訂單簿查詢 DOWN {market.slug}")
                     bids = book.get("bids", [])
                     if bids:
                         price_info.down_best_bid = max(float(b.get("price", 0)) for b in bids)
@@ -379,7 +408,7 @@ class ArbitrageEngine:
                 return price_info
 
             except Exception as e:
-                self.status.add_log(f"❌ 獲取價格失敗: {e}")
+                self.status.add_log(f"❌ 獲取價格失敗 | {market.slug}: {e}")
                 return None
 
     def check_arbitrage(self, market: MarketInfo, price_info: PriceInfo) -> ArbitrageOpportunity:
