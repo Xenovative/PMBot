@@ -91,6 +91,10 @@ class BotConfig(BaseModel):
     bargain_pair_escalation_minutes: int = _int("BARGAIN_PAIR_ESCALATION_MINUTES", 15)
     # Late liquidation threshold (seconds before expiry to force sell holdings)
     late_liquidation_seconds: int = _int("LATE_LIQUIDATION_SECONDS", 90)
+    price_edge_distance_gate_enabled_btc: bool = _bool("PRICE_EDGE_DISTANCE_GATE_ENABLED_BTC", True)
+    price_edge_min_distance_usd_btc: float = _float("PRICE_EDGE_MIN_DISTANCE_USD_BTC", 70.0)
+    price_edge_distance_decay_start_seconds_btc: int = _int("PRICE_EDGE_DISTANCE_DECAY_START_SECONDS_BTC", 300)
+    price_edge_distance_floor_multiplier_btc: float = _float("PRICE_EDGE_DISTANCE_FLOOR_MULTIPLIER_BTC", 0.5)
 
     CLOB_HOST: str = "https://clob.polymarket.com"
     GAMMA_HOST: str = "https://gamma-api.polymarket.com"

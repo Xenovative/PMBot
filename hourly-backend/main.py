@@ -325,29 +325,57 @@ async def bot_loop():
             engine.status.current_opportunities = all_opportunities
 
             # 強制到期平倉（撿便宜未配對持倉）
-            await engine.enforce_late_liquidation(valid_markets)
+            try:
+                await engine.enforce_late_liquidation(valid_markets)
+            except Exception as e:
+                engine.status.add_log(f"⚠️ 到期平倉流程失敗: {str(e)[:160]}")
 
             # ─── 撿便宜策略 ───
             if engine.status.running and config.bargain_enabled:
-                bargain_opps = await engine.check_bargain_opportunities(all_markets)
+                try:
+                    bargain_opps = await engine.check_bargain_opportunities(all_markets)
+                except Exception as e:
+                    engine.status.add_log(f"⚠️ 撿便宜掃描失敗: {str(e)[:160]}")
+                    bargain_opps = []
                 for opp in bargain_opps:
                     if not engine.status.running:
                         break
-                    holding = await engine.execute_bargain_buy(opp)
+                    try:
+                        holding = await engine.execute_bargain_buy(opp)
+                    except Exception as e:
+                        market_slug = getattr(opp.get("market"), "slug", "unknown-market") if isinstance(opp, dict) else "unknown-market"
+                        side_label = str(opp.get("side", "?")) if isinstance(opp, dict) else "?"
+                        engine.status.add_log(f"⚠️ 撿便宜下單失敗 {market_slug} {side_label}: {str(e)[:160]}")
+                        continue
                     if holding:
-                        await broadcast({
-                            "type": "bargain",
-                            "data": holding.to_dict()
-                        })
+                        try:
+                            await broadcast({
+                                "type": "bargain",
+                                "data": holding.to_dict()
+                            })
+                        except Exception as e:
+                            engine.status.add_log(f"⚠️ bargain 廣播失敗: {str(e)[:160]}")
 
             if engine.status.running:
-                await engine.scan_bargain_holdings()
+                try:
+                    await engine.scan_bargain_holdings()
+                except Exception as e:
+                    engine.status.add_log(f"⚠️ 撿便宜持倉掃描失敗: {str(e)[:160]}")
 
             if engine.status.running:
-                await engine.reconcile_pending_unwinds()
+                try:
+                    await engine.reconcile_pending_unwinds()
+                except Exception as e:
+                    engine.status.add_log(f"⚠️ 待成交退出對帳失敗: {str(e)[:160]}")
 
-            await broadcast({"type": "status", "data": engine.status.to_dict()})
-            await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
+            try:
+                await broadcast({"type": "status", "data": engine.status.to_dict()})
+            except Exception as e:
+                engine.status.add_log(f"⚠️ status 廣播失敗: {str(e)[:160]}")
+            try:
+                await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
+            except Exception as e:
+                engine.status.add_log(f"⚠️ merge_status 廣播失敗: {str(e)[:160]}")
 
             configured_scan_interval_seconds = max(1, int(getattr(config, "scan_interval_seconds", 1) or 1))
             for _ in range(configured_scan_interval_seconds):
