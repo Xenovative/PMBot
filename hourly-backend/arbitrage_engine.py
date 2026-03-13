@@ -2181,12 +2181,19 @@ class ArbitrageEngine:
                     btc_effective_multiplier = btc_floor_multiplier + ((1.0 - btc_floor_multiplier) * (btc_time_progress_ratio ** 2))
                     btc_effective_distance_usd = btc_min_distance_usd * btc_effective_multiplier
                 if btc_distance_to_reference is None or abs(btc_distance_to_reference) < btc_effective_distance_usd:
-                    if self.status.scan_count % 5 == 0:
-                        btc_distance_text = "--" if btc_distance_to_reference is None else f"${abs(btc_distance_to_reference):.2f}"
-                        self.status.add_log(
-                            f"🚫 BTC 撿便宜封鎖 | {market.slug} | 現貨差 {btc_distance_text} < RTDS 門檻 ${btc_effective_distance_usd:.2f}"
-                        )
-                    continue
+                    if self.config.dry_run:
+                        if self.status.scan_count % 5 == 0:
+                            btc_distance_text = "--" if btc_distance_to_reference is None else f"${abs(btc_distance_to_reference):.2f}"
+                            self.status.add_log(
+                                f"🧪 BTC 撿便宜放行(dry_run) | {market.slug} | 現貨差 {btc_distance_text} < RTDS 門檻 ${btc_effective_distance_usd:.2f}"
+                            )
+                    else:
+                        if self.status.scan_count % 5 == 0:
+                            btc_distance_text = "--" if btc_distance_to_reference is None else f"${abs(btc_distance_to_reference):.2f}"
+                            self.status.add_log(
+                                f"🚫 BTC 撿便宜封鎖 | {market.slug} | 現貨差 {btc_distance_text} < RTDS 門檻 ${btc_effective_distance_usd:.2f}"
+                            )
+                        continue
 
             up_ask = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
             down_ask = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price

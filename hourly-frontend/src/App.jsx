@@ -97,6 +97,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
   const [configForm, setConfigForm] = useState({})
   const [configErrors, setConfigErrors] = useState({})
   const [showKey, setShowKey] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [manualMarkets, setManualMarkets] = useState([])
   const [loading, setLoading] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
@@ -920,6 +921,18 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 onChange={(v) => setConfigForm({ ...configForm, scan_interval_seconds: parseInt(v) })}
                 hint="越低更新越快，但 API 請求會更多"
               />
+              <div className="md:col-span-2 lg:col-span-3 flex items-center justify-between bg-black/30 border border-neon-cyan/20 rounded-lg p-3">
+                <div>
+                  <p className="text-sm text-neon-cyan font-medium">進階設定（RTDS / 止損 / 到期出場）</p>
+                  <p className="text-xs text-gray-500">展開後可調整 BTC RTDS 細節、止損冷卻/免疫輪數，以及到期前強制平倉秒數。</p>
+                </div>
+                <button
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  className="px-3 py-1 text-xs rounded-lg border border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10 transition"
+                >
+                  {showAdvanced ? '收起' : '展開'}
+                </button>
+              </div>
               <ConfigField
                 label="最低流動性"
                 type="number"
@@ -948,6 +961,50 @@ function Dashboard({ token, authHeaders, onLogout }) {
                 </span>
               </div>
             </div>
+
+            {showAdvanced && (
+              <div className="border-t border-neon-cyan/15 pt-4 mt-2">
+                <h3 className="text-sm font-medium neon-text-cyan mb-3">進階設定</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <ConfigField
+                    label="RTDS 門檻衰減起點 (秒)"
+                    type="number"
+                    value={configForm.price_edge_distance_decay_start_seconds_btc ?? 300}
+                    onChange={(v) => setConfigForm({ ...configForm, price_edge_distance_decay_start_seconds_btc: parseInt(v) })}
+                    hint="剩餘時間低於此值後，BTC RTDS 門檻開始向下衰減"
+                  />
+                  <ConfigField
+                    label="RTDS 門檻地板倍率"
+                    type="number"
+                    step="0.05"
+                    value={configForm.price_edge_distance_floor_multiplier_btc ?? 0.5}
+                    onChange={(v) => setConfigForm({ ...configForm, price_edge_distance_floor_multiplier_btc: parseFloat(v) })}
+                    hint="接近到期時 BTC RTDS 最低可衰減到原門檻的多少倍"
+                  />
+                  <ConfigField
+                    label="止損冷卻 (分鐘)"
+                    type="number"
+                    value={configForm.bargain_stop_loss_cooldown_minutes ?? 10}
+                    onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_cooldown_minutes: parseInt(v) })}
+                    hint="止損後暫停新的撿便宜進場"
+                  />
+                  <ConfigField
+                    label="止損免疫輪數"
+                    type="number"
+                    value={configForm.bargain_stop_loss_immune_rounds ?? 3}
+                    onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_immune_rounds: parseInt(v) })}
+                    hint="前幾輪暫不套用止損，避免剛開倉就被洗掉"
+                  />
+                  <ConfigField
+                    label="到期前強制平倉 (秒)"
+                    type="number"
+                    value={configForm.late_liquidation_seconds ?? 90}
+                    onChange={(v) => setConfigForm({ ...configForm, late_liquidation_seconds: parseInt(v) })}
+                    hint="市場接近到期時，未配對持倉提前強制出場"
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="border-t border-neon-cyan/15 pt-4 mt-2">
               <h3 className="text-sm font-medium neon-text-cyan mb-3 flex items-center gap-2">
@@ -1071,6 +1128,13 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   value={configForm.bargain_stop_loss_defer_minutes ?? 30}
                   onChange={(v) => setConfigForm({ ...configForm, bargain_stop_loss_defer_minutes: parseInt(v) })}
                   hint="止損觸發後延遲多久才執行"
+                />
+                <ConfigField
+                  label="開倉時間窗 (秒)"
+                  type="number"
+                  value={configForm.bargain_open_time_window_seconds ?? 1800}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_open_time_window_seconds: parseInt(v) })}
+                  hint="僅在市場剩餘時間小於等於此秒數時，才允許新開撿便宜倉位"
                 />
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">首次買入偏好</label>
