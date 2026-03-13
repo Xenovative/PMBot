@@ -431,6 +431,7 @@ async def get_current_config(_user=Depends(auth.require_auth)):
         "bargain_min_price": config.bargain_min_price,
         "bargain_max_rounds": config.bargain_max_rounds,
         "bargain_stop_loss_defer_minutes": config.bargain_stop_loss_defer_minutes,
+        "bargain_open_time_window_seconds": getattr(config, "bargain_open_time_window_seconds", 43200),
         "bargain_first_buy_bias": config.bargain_first_buy_bias,
         "bargain_plummet_exit_pct": getattr(config, "bargain_plummet_exit_pct", 20.0),
         "bargain_plummet_window_seconds": getattr(config, "bargain_plummet_window_seconds", 15),
@@ -461,6 +462,7 @@ class ConfigUpdate(BaseModel):
     bargain_min_price: Optional[float] = None
     bargain_max_rounds: Optional[int] = None
     bargain_stop_loss_defer_minutes: Optional[int] = None
+    bargain_open_time_window_seconds: Optional[int] = None
     bargain_first_buy_bias: Optional[str] = None
     bargain_plummet_exit_pct: Optional[float] = None
     bargain_plummet_window_seconds: Optional[int] = None

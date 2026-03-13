@@ -915,6 +915,13 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   hint="兩側合計低於此才配對"
                 />
                 <ConfigField
+                  label="開倉時間窗 (秒)"
+                  type="number"
+                  value={configForm.bargain_open_time_window_seconds ?? 43200}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_open_time_window_seconds: parseInt(v) })}
+                  hint="僅在市場剩餘時間小於等於此秒數時，才允許新開撿便宜倉位"
+                />
+                <ConfigField
                   label="二次出場利潤%"
                   type="number"
                   step="0.1"

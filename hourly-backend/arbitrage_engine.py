@@ -5,6 +5,7 @@ import asyncio
 import math
 import time
 import json
+import re
 import httpx
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List, Tuple
@@ -18,6 +19,23 @@ import trade_db
 
 LOG_FILE = Path(__file__).resolve().parent / "bot.log"
 LOG_TIMEZONE = timezone(timedelta(hours=8))
+
+SENSITIVE_LOG_PATTERNS = [
+    re.compile(r"(?i)(token=)([^\s&]+)"),
+    re.compile(r"(?i)(authorization[:=]\s*bearer\s+)([^\s]+)"),
+    re.compile(r"(?i)(jwt[:=]\s*)([^\s]+)"),
+    re.compile(r"(?i)(password|private[_-]?key|api[_-]?key|secret|passphrase|funder[_-]?address)(\s*[:=]\s*)([^,\s]+)"),
+]
+
+
+def _redact_log_message(message: str) -> str:
+    sanitized_message = str(message or "")
+    for compiled_pattern in SENSITIVE_LOG_PATTERNS:
+        if compiled_pattern.groups == 2:
+            sanitized_message = compiled_pattern.sub(r"\1<redacted>", sanitized_message)
+        else:
+            sanitized_message = compiled_pattern.sub(r"\1\2<redacted>", sanitized_message)
+    return sanitized_message
 
 
 def _read_log_tail(limit: int = 200) -> List[str]:
@@ -250,6 +268,10 @@ class BotStatus:
                 f.write(entry + "\n")
         except Exception:
             # Fail silently to avoid crashing the bot if disk is unavailable
+            pass
+        try:
+            print(_redact_log_message(entry), flush=True)
+        except Exception:
             pass
 
     def to_dict(self) -> Dict[str, Any]:
