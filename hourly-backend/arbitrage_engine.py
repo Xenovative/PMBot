@@ -1817,6 +1817,55 @@ class ArbitrageEngine:
     def BARGAIN_MIN_PRICE(self) -> float:
         return self.config.bargain_min_price
 
+    def _compute_dynamic_price_bounds(self, market: MarketInfo,
+                                      base_min: float,
+                                      base_max: float) -> tuple[float, float]:
+        """
+        計算撿便宜動態價格區間。
+        若尚未啟用/計算動態邊界，則退回靜態設定值。
+        """
+        safe_base_min = max(0.0, float(base_min or 0.0))
+        safe_base_max = max(safe_base_min, float(base_max or safe_base_min))
+
+        status_dynamic_min_bound = getattr(self.status, "dynamic_bargain_min_bound", None)
+        status_dynamic_max_bound = getattr(self.status, "dynamic_bargain_max_bound", None)
+        status_dynamic_min_price = getattr(self.status, "dynamic_bargain_min_price", None)
+        status_dynamic_max_price = getattr(self.status, "dynamic_bargain_max_price", None)
+
+        computed_min_bound = safe_base_min
+        computed_max_bound = safe_base_max
+
+        if status_dynamic_min_bound is not None:
+            try:
+                computed_min_bound = max(safe_base_min, float(status_dynamic_min_bound))
+            except (TypeError, ValueError):
+                computed_min_bound = safe_base_min
+        elif status_dynamic_min_price is not None:
+            try:
+                computed_min_bound = max(safe_base_min, float(status_dynamic_min_price))
+            except (TypeError, ValueError):
+                computed_min_bound = safe_base_min
+
+        if status_dynamic_max_bound is not None:
+            try:
+                computed_max_bound = min(safe_base_max, float(status_dynamic_max_bound))
+            except (TypeError, ValueError):
+                computed_max_bound = safe_base_max
+        elif status_dynamic_max_price is not None:
+            try:
+                computed_max_bound = min(safe_base_max, float(status_dynamic_max_price))
+            except (TypeError, ValueError):
+                computed_max_bound = safe_base_max
+
+        market_time_remaining_seconds = getattr(market, "time_remaining_seconds", None)
+        if market_time_remaining_seconds is not None and market_time_remaining_seconds <= 0:
+            return computed_min_bound, computed_max_bound
+
+        if computed_max_bound < computed_min_bound:
+            computed_max_bound = computed_min_bound
+
+        return computed_min_bound, computed_max_bound
+
     def _bargain_trades_remaining(self, slug: str) -> int:
         """撿便宜策略剩餘可用交易次數（與套利共享 max_trades_per_market）"""
         used = self.status.get_trades_for_market(slug)
