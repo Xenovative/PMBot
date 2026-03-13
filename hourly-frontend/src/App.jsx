@@ -101,6 +101,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
   const [loading, setLoading] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
   const [activeView, setActiveView] = useState('live')
+  const [isStartingBot, setIsStartingBot] = useState(false)
   const logsEndRef = useRef(null)
 
   useEffect(() => {
@@ -180,10 +181,16 @@ function Dashboard({ token, authHeaders, onLogout }) {
   }
 
   async function startBot() {
+    if (isStartingBot) return
+    setIsStartingBot(true)
     try {
-      await fetch(`${API}/api/bot/start`, { method: 'POST', headers: authHeaders })
+      const response = await fetch(`${API}/api/bot/start`, { method: 'POST', headers: authHeaders })
+      if (!response.ok) {
+        throw new Error(`Failed to start bot (${response.status})`)
+      }
     } catch (e) {
       console.error('Failed to start bot:', e)
+      setIsStartingBot(false)
     }
   }
 
@@ -238,8 +245,29 @@ function Dashboard({ token, authHeaders, onLogout }) {
   const effectiveStatus = status ?? polledStatus
   const isRunning = effectiveStatus?.running || false
 
+  useEffect(() => {
+    if (isRunning) {
+      setIsStartingBot(false)
+    }
+  }, [isRunning])
+
   return (
     <div className="min-h-screen text-gray-100 scanlines relative">
+      {isStartingBot && !isRunning && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-2xl border border-neon-cyan/40 bg-black/85 p-6 shadow-neon-cyan">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full border border-neon-cyan/40 bg-neon-cyan/10">
+                <RefreshCw className="h-6 w-6 animate-spin text-neon-cyan" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold tracking-wide text-neon-cyan font-cyber">機器人啟動中</h2>
+                <p className="mt-1 text-sm text-gray-300">正在連線並初始化交易流程，請勿重複點擊啟動按鈕。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Background */}
       <div className="fixed inset-0 z-0">
         <img src="/background.jpeg" alt="" className="w-full h-full object-cover" />
@@ -291,10 +319,15 @@ function Dashboard({ token, authHeaders, onLogout }) {
               ) : (
                 <button
                   onClick={startBot}
-                  className="flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 bg-neon-green/20 hover:bg-neon-green/30 border border-neon-green/50 text-neon-green rounded-lg text-xs sm:text-sm font-medium transition-all shadow-neon-green"
+                  disabled={isStartingBot}
+                  className={`flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 border rounded-lg text-xs sm:text-sm font-medium transition-all ${isStartingBot ? 'bg-neon-cyan/10 border-neon-cyan/30 text-neon-cyan/70 shadow-neon-cyan cursor-not-allowed' : 'bg-neon-green/20 hover:bg-neon-green/30 border-neon-green/50 text-neon-green shadow-neon-green'}`}
                 >
-                  <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  <span className="hidden sm:inline">啟動</span>
+                  {isStartingBot ? (
+                    <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  )}
+                  <span className="hidden sm:inline">{isStartingBot ? '啟動中' : '啟動'}</span>
                 </button>
               )}
             </div>
