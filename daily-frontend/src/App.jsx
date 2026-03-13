@@ -973,11 +973,11 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   <p className="text-xs text-gray-500 mt-1">R1 開倉時優先買哪一側</p>
                 </div>
                 <ConfigField
-                  label="配對加價時限 (小時)"
+                  label="配對加價時限 (分鐘)"
                   type="number"
-                  value={configForm.bargain_pair_escalation_hours ?? 3}
-                  onChange={(v) => setConfigForm({ ...configForm, bargain_pair_escalation_hours: parseInt(v) })}
-                  hint="未配對超過此時間，配對價格上限 +5¢"
+                  value={configForm.bargain_pair_escalation_minutes ?? 180}
+                  onChange={(v) => setConfigForm({ ...configForm, bargain_pair_escalation_minutes: parseInt(v) })}
+                  hint="未配對超過此分鐘數，配對價格上限 +5¢"
                 />
                 <ConfigField
                   label="堆疊上限"
