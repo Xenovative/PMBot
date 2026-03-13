@@ -6,6 +6,7 @@ import asyncio
 import json
 import subprocess
 import time
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -152,6 +153,7 @@ class PositionMerger:
         self.auto_merge_enabled: bool = True
         self.min_merge_amount: float = 1.0  # 最小合併數量
         self.logs: List[str] = []
+        self.pending_fallback_orders: List[Dict[str, Any]] = []
         self._initialized = False
 
     def _relayer_enabled(self) -> bool:
@@ -289,6 +291,151 @@ class PositionMerger:
         self.logs.append(entry)
         if len(self.logs) > 100:
             self.logs = self.logs[-100:]
+
+    def _place_gtc_exit_order(self, clob_client, token_id: str, shares: float, price: float) -> Dict[str, Any]:
+        from py_clob_client.clob_types import OrderArgs, OrderType
+        from py_clob_client.order_builder.constants import SELL
+
+        normalized_token_id = str(token_id or "")
+        normalized_shares = math.floor(max(float(shares or 0.0), 0.0) * 100) / 100
+        normalized_price = max(0.001, round(float(price or 0.0), 4))
+        if not normalized_token_id or normalized_shares <= 0:
+            return {"success": False, "response": None, "error": "invalid token or shares"}
+
+        order = OrderArgs(
+            token_id=normalized_token_id,
+            price=normalized_price,
+            size=normalized_shares,
+            side=SELL,
+        )
+        signed_order = clob_client.create_order(order)
+        response_payload = clob_client.post_order(signed_order, OrderType.GTC)
+        return {"success": True, "response": response_payload, "shares": normalized_shares, "price": normalized_price}
+
+    def _record_pending_fallback_order(
+        self,
+        market_slug: str,
+        condition_id: str,
+        side_label: str,
+        token_id: str,
+        shares: float,
+        price: float,
+        response_payload: Optional[Dict[str, Any]],
+    ) -> None:
+        normalized_order_id = ""
+        if isinstance(response_payload, dict):
+            normalized_order_id = str(
+                response_payload.get("orderID")
+                or response_payload.get("orderId")
+                or response_payload.get("id")
+                or response_payload.get("order_id")
+                or ""
+            )
+        pending_payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "market_slug": market_slug,
+            "condition_id": condition_id,
+            "side": side_label,
+            "token_id": token_id,
+            "shares": float(shares or 0.0),
+            "price": float(price or 0.0),
+            "order_id": normalized_order_id,
+            "status": "pending_gtc_fallback",
+        }
+        self.pending_fallback_orders = [
+            existing_pending
+            for existing_pending in self.pending_fallback_orders
+            if not (
+                str(existing_pending.get("condition_id", "") or "") == condition_id
+                and str(existing_pending.get("side", "") or "") == side_label
+            )
+        ]
+        self.pending_fallback_orders.append(pending_payload)
+        self.pending_fallback_orders = self.pending_fallback_orders[-20:]
+
+    async def _fallback_exit_paired_position(self, pos: PairedPosition, fallback_price: float = 0.999) -> bool:
+        if self.config.dry_run:
+            self.add_log(
+                f"🧪 merge 失敗 fallback | 模擬掛出雙邊 GTC @ {fallback_price:.3f} | {pos.market_slug}"
+            )
+            return True
+
+        if not self.config.private_key:
+            self.add_log("❌ merge 失敗 fallback 無法執行: 未設定私鑰")
+            return False
+
+        try:
+            from py_clob_client.client import ClobClient
+
+            clob_client = ClobClient(
+                self.config.CLOB_HOST,
+                key=self.config.private_key,
+                chain_id=self.config.CHAIN_ID,
+                signature_type=self.config.signature_type,
+                funder=self.config.funder_address,
+            )
+            clob_client.set_api_creds(clob_client.create_or_derive_api_creds())
+        except Exception as e:
+            self.add_log(f"❌ merge 失敗 fallback 無法建立 CLOB client: {str(e)[:180]}")
+            return False
+
+        paired_shares = math.floor(max(float(pos.mergeable_amount or 0.0), 0.0) * 100) / 100
+        if paired_shares <= 0:
+            self.add_log(f"⚠️ merge 失敗 fallback 略過: {pos.market_slug} 無可掛出雙邊股數")
+            return False
+
+        fallback_results = []
+        side_specs = [
+            ("UP", str(pos.up_token_id or ""), paired_shares),
+            ("DOWN", str(pos.down_token_id or ""), paired_shares),
+        ]
+        for side_label, token_id, side_shares in side_specs:
+            if not token_id or side_shares <= 0:
+                fallback_results.append((side_label, False, "missing token or shares", None))
+                continue
+            try:
+                side_result = await asyncio.to_thread(
+                    self._place_gtc_exit_order,
+                    clob_client,
+                    token_id,
+                    side_shares,
+                    fallback_price,
+                )
+                fallback_results.append((side_label, bool(side_result.get("success")), "", side_result.get("response")))
+            except Exception as e:
+                fallback_results.append((side_label, False, str(e)[:180], None))
+
+        all_successful = True
+        for side_label, was_successful, error_text, response_payload in fallback_results:
+            if was_successful:
+                order_id = ""
+                if isinstance(response_payload, dict):
+                    order_id = str(
+                        response_payload.get("orderID")
+                        or response_payload.get("orderId")
+                        or response_payload.get("id")
+                        or response_payload.get("order_id")
+                        or ""
+                    )
+                self._record_pending_fallback_order(
+                    pos.market_slug,
+                    pos.condition_id,
+                    side_label,
+                    pos.up_token_id if side_label == "UP" else pos.down_token_id,
+                    paired_shares,
+                    fallback_price,
+                    response_payload,
+                )
+                self.add_log(
+                    f"🆘 merge 失敗 fallback | {pos.market_slug} {side_label} 已掛出 GTC @ {fallback_price:.3f} | order_id={order_id[:12] or 'n/a'}"
+                )
+            else:
+                all_successful = False
+                self.add_log(
+                    f"❌ merge 失敗 fallback | {pos.market_slug} {side_label} 掛單失敗: {error_text or 'unknown error'}"
+                )
+
+        return all_successful
 
     def initialize(self) -> bool:
         """初始化 Web3 連接和合約"""
@@ -613,6 +760,13 @@ class PositionMerger:
 
         self.merge_history.append(record)
 
+        if record.status == "failed":
+            fallback_ok = await self._fallback_exit_paired_position(pos)
+            if fallback_ok:
+                self.add_log(f"🆘 merge 失敗後已啟動雙邊 0.999 GTC fallback | {pos.market_slug}")
+            else:
+                self.add_log(f"❌ merge 失敗後雙邊 0.999 GTC fallback 未完全成功 | {pos.market_slug}")
+
         # 持久化到 SQLite
         try:
             trade_db.record_merge(
@@ -672,5 +826,6 @@ class PositionMerger:
             "total_gas_cost": total_gas,
             "merge_count": len([r for r in self.merge_history if r.status in ("success", "simulated")]),
             "merge_history": [r.to_dict() for r in self.merge_history[-20:]],
+            "pending_fallback_orders": list(self.pending_fallback_orders[-20:]),
             "logs": self.logs[-30:],
         }
