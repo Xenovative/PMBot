@@ -35,6 +35,8 @@ class PriceInfo:
     down_price: float = 0.0
     total_cost: float = 0.0
     spread: float = 0.0
+    up_best_bid: float = 0.0
+    down_best_bid: float = 0.0
     up_best_ask: float = 0.0
     down_best_ask: float = 0.0
     up_liquidity: float = 0.0
@@ -65,6 +67,8 @@ class PriceInfo:
             "down_price": self.down_price,
             "total_cost": self.total_cost,
             "spread": self.spread,
+            "up_best_bid": self.up_best_bid,
+            "down_best_bid": self.down_best_bid,
             "up_best_ask": self.up_best_ask,
             "down_best_ask": self.down_best_ask,
             "up_liquidity": self.up_liquidity,
@@ -318,12 +322,12 @@ class ArbitrageEngine:
                     price_info.down_price = float(down_resp.json().get("price", 0))
 
                 # 獲取訂單簿深度
-                up_book_resp = await client.get(
-                    f"{self.config.CLOB_HOST}/book",
-                    params={"token_id": up_id}
-                )
-                if up_book_resp.status_code == 200:
+                if up_id:
+                    up_book_resp = await client.get(f"{self.config.CLOB_HOST}/book?token_id={up_id}")
                     book = up_book_resp.json()
+                    bids = book.get("bids", [])
+                    if bids:
+                        price_info.up_best_bid = max(float(b.get("price", 0)) for b in bids)
                     asks = book.get("asks", [])
                     if asks:
                         price_info.up_best_ask = min(float(a.get("price", 0)) for a in asks)
@@ -335,12 +339,12 @@ class ArbitrageEngine:
                             for a in asks[:10]
                         ]
 
-                down_book_resp = await client.get(
-                    f"{self.config.CLOB_HOST}/book",
-                    params={"token_id": down_id}
-                )
-                if down_book_resp.status_code == 200:
+                if down_id:
+                    down_book_resp = await client.get(f"{self.config.CLOB_HOST}/book?token_id={down_id}")
                     book = down_book_resp.json()
+                    bids = book.get("bids", [])
+                    if bids:
+                        price_info.down_best_bid = max(float(b.get("price", 0)) for b in bids)
                     asks = book.get("asks", [])
                     if asks:
                         price_info.down_best_ask = min(float(a.get("price", 0)) for a in asks)
@@ -1019,11 +1023,13 @@ class ArbitrageEngine:
                 )
                 shares = available_shares
 
-        log_messages.append(f"  🔥 緊急平倉 {side_label} | 賣出 {shares:.2f} 股 @ ~{buy_price:.4f}")
+        immediate_reference_price = max(0.01, round(float(buy_price or 0.0), 2))
+        log_messages.append(f"  🔥 緊急平倉 {side_label} | 賣出 {shares:.2f} 股 @ ~{immediate_reference_price:.4f}")
 
         sell_prices = [
-            round(buy_price, 2),
-            round(max(buy_price - 0.05, 0.01), 2),
+            immediate_reference_price,
+            round(max(immediate_reference_price - 0.01, 0.01), 2),
+            round(max(immediate_reference_price - 0.03, 0.01), 2),
             0.01,
         ]
         sell_prices = list(dict.fromkeys(sell_prices))
@@ -2321,9 +2327,9 @@ class ArbitrageEngine:
                 continue
 
             if holding.side == "UP":
-                current_price = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
+                current_price = price_info.up_best_bid if price_info.up_best_bid > 0 else (price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price)
             else:
-                current_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
+                current_price = price_info.down_best_bid if price_info.down_best_bid > 0 else (price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price)
 
             if holding.buy_price > 0:
                 now_datetime = datetime.now(timezone.utc)
