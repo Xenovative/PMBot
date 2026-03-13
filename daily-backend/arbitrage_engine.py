@@ -2019,6 +2019,10 @@ class ArbitrageEngine:
                 if next_round > self.config.bargain_max_rounds:
                     continue  # 已達堆疊上限
 
+                window_limit = getattr(self.config, "bargain_open_time_window_seconds", 43200)
+                if market.time_remaining_seconds is not None and market.time_remaining_seconds > window_limit:
+                    continue
+
                 price_ceiling = stack["last_buy_price"]
 
                 # 第一輪用 price_threshold 作為天花板

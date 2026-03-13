@@ -71,6 +71,7 @@ class BotConfig(BaseModel):
     bargain_stop_loss_cooldown_minutes: int = _int("BARGAIN_STOP_LOSS_COOLDOWN_MINUTES", 30)
     bargain_stop_loss_immune_rounds: int = _int("BARGAIN_STOP_LOSS_IMMUNE_ROUNDS", 3)
     bargain_first_buy_bias: str = _str("BARGAIN_FIRST_BUY_BIAS", "AUTO")  # "UP", "DOWN", or "AUTO"
+    bargain_open_time_window_seconds: int = _int("BARGAIN_OPEN_TIME_WINDOW_SECONDS", 43200)
     # Escalation window now in minutes (was hours)
     bargain_pair_escalation_minutes: int = _int("BARGAIN_PAIR_ESCALATION_MINUTES", 180)
 
