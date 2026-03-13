@@ -1806,20 +1806,49 @@ class ArbitrageEngine:
         if self._is_on_cooldown():
             return opportunities
 
-        for market in markets:
+        market_pool: Dict[str, MarketInfo] = {m.slug: m for m in markets}
+        active_slugs = set(market_pool.keys())
+        for holding in self.status.bargain_holdings:
+            if holding.status == "holding" and holding.market and holding.market.slug not in market_pool:
+                market_pool[holding.market.slug] = holding.market
+
+        for market in market_pool.values():
             if self._is_market_plummet_blocked(getattr(market, "slug", "")):
                 continue
             if not market.up_token_id or not market.down_token_id:
                 continue
-            if self._bargain_trades_remaining(market.slug) <= 0:
-                continue
 
-            price_info = self.status.market_prices.get(market.slug)
+            force_refresh = market.slug not in active_slugs
+            price_info = None if force_refresh else self.status.market_prices.get(market.slug)
             if not price_info:
                 price_info = await self.get_prices(market)
                 if not price_info:
                     continue
                 self.status.market_prices[market.slug] = price_info
+
+            self._populate_price_context(market, price_info)
+
+            underlying_symbol = str(price_info.underlying_symbol or "").strip().upper()
+            if underlying_symbol == "BTC" and bool(getattr(self.config, "price_edge_distance_gate_enabled_btc", True)):
+                btc_min_distance_usd = float(getattr(self.config, "price_edge_min_distance_usd_btc", 70.0) or 70.0)
+                btc_decay_start_seconds = max(1, int(getattr(self.config, "price_edge_distance_decay_start_seconds_btc", 300) or 300))
+                btc_floor_multiplier = float(getattr(self.config, "price_edge_distance_floor_multiplier_btc", 0.5) or 0.5)
+                btc_floor_multiplier = min(1.0, max(0.05, btc_floor_multiplier))
+                btc_distance_to_reference = price_info.distance_to_reference
+                market_time_remaining_seconds = max(0.0, float(getattr(market, "time_remaining_seconds", 0.0) or 0.0))
+                if market_time_remaining_seconds >= btc_decay_start_seconds:
+                    btc_effective_distance_usd = btc_min_distance_usd
+                else:
+                    btc_time_progress_ratio = market_time_remaining_seconds / float(btc_decay_start_seconds)
+                    btc_effective_multiplier = btc_floor_multiplier + ((1.0 - btc_floor_multiplier) * (btc_time_progress_ratio ** 2))
+                    btc_effective_distance_usd = btc_min_distance_usd * btc_effective_multiplier
+                if btc_distance_to_reference is None or abs(btc_distance_to_reference) < btc_effective_distance_usd:
+                    if self.status.scan_count % 5 == 0:
+                        btc_distance_text = "--" if btc_distance_to_reference is None else f"${abs(btc_distance_to_reference):.2f}"
+                        self.status.add_log(
+                            f"🚫 BTC 撿便宜封鎖 | {market.slug} | 現貨差 {btc_distance_text} < RTDS 門檻 ${btc_effective_distance_usd:.2f}"
+                        )
+                    continue
 
             up_ask = price_info.up_best_ask if price_info.up_best_ask > 0 else price_info.up_price
             down_ask = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
@@ -1845,9 +1874,18 @@ class ArbitrageEngine:
                 except Exception:
                     pass
 
+                dyn_min, dyn_max = self._compute_dynamic_price_bounds(
+                    market,
+                    base_min=self.BARGAIN_MIN_PRICE,
+                    base_max=self.BARGAIN_PAIR_THRESHOLD
+                )
+
                 if unpaired.side == "UP":
-                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price + escalation
-                    if down_ask < target_price:
+                    held_price = unpaired.buy_price
+                    if held_price <= 0:
+                        continue
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - held_price + escalation
+                    if down_ask >= dyn_min and down_ask <= min(target_price + 1e-4, dyn_max):
                         opportunities.append({
                             "market": market,
                             "side": "DOWN",
@@ -1861,8 +1899,11 @@ class ArbitrageEngine:
                             "pair_with": unpaired,
                         })
                 else:  # unpaired.side == "DOWN"
-                    target_price = self.BARGAIN_PAIR_THRESHOLD - unpaired.buy_price + escalation
-                    if up_ask < target_price:
+                    held_price = unpaired.buy_price
+                    if held_price <= 0:
+                        continue
+                    target_price = self.BARGAIN_PAIR_THRESHOLD - held_price + escalation
+                    if up_ask >= dyn_min and up_ask <= min(target_price + 1e-4, dyn_max):
                         opportunities.append({
                             "market": market,
                             "side": "UP",
@@ -1877,16 +1918,15 @@ class ArbitrageEngine:
                         })
             else:
                 # ── 無未配對持倉: 開始新一輪 ──
-                # 如果其他市場有未配對持倉，不開新倉（避免跨市場重複開倉）
-                other_unpaired = any(
-                    h.status == "holding" and h.market_slug != market.slug
-                    for h in self.status.bargain_holdings
-                )
-                if other_unpaired:
+                if self._bargain_trades_remaining(market.slug) <= 0:
                     continue
                 next_round = stack["round"] + 1
                 if next_round > self.config.bargain_max_rounds:
                     continue  # 已達堆疊上限
+
+                window_limit = self.status.dynamic_bargain_window_seconds or self.config.bargain_open_time_window_seconds
+                if market.time_remaining_seconds is not None and market.time_remaining_seconds > window_limit:
+                    continue
 
                 price_ceiling = stack["last_buy_price"]
 
@@ -1894,16 +1934,25 @@ class ArbitrageEngine:
                 if stack["round"] == 0:
                     price_ceiling = self.BARGAIN_PRICE_THRESHOLD
 
-                # 找最便宜的一側開始新一輪
+                dyn_min, dyn_max = self._compute_dynamic_price_bounds(
+                    market,
+                    base_min=self.BARGAIN_MIN_PRICE,
+                    base_max=price_ceiling,
+                )
+
                 candidates = []
-                if (up_ask >= self.BARGAIN_MIN_PRICE and up_ask < price_ceiling):
+                if (up_ask >= dyn_min and up_ask < dyn_max):
                     candidates.append(("UP", up_ask, market.up_token_id, market.down_token_id))
-                if (down_ask >= self.BARGAIN_MIN_PRICE and down_ask < price_ceiling):
+                if (down_ask >= dyn_min and down_ask < dyn_max):
                     candidates.append(("DOWN", down_ask, market.down_token_id, market.up_token_id))
 
                 if candidates:
-                    # R1 開倉: 套用偏好方向（但仍須滿足閾值與天花板）
+                    # R1 開倉: 套用偏好方向（或依速度趨勢動態偏好），仍須滿足閾值與天花板
                     bias = self.config.bargain_first_buy_bias.upper()
+                    if bias == "AUTO":
+                        trend_bias = self.status.velocity_trend
+                        if trend_bias in ("up", "down"):
+                            bias = trend_bias.upper()
                     if next_round == 1 and bias in ("UP", "DOWN"):
                         biased = [c for c in candidates if c[0] == bias]
                         if biased:
