@@ -2325,9 +2325,29 @@ class ArbitrageEngine:
                 current_price = price_info.down_best_ask if price_info.down_best_ask > 0 else price_info.down_price
 
             if holding.buy_price > 0:
-                now_iso = datetime.now(timezone.utc).isoformat()
-                holding.plummet_window_start_ts = now_iso
-                holding.plummet_high_price = max(float(holding.plummet_high_price or 0.0), float(current_price))
+                now_datetime = datetime.now(timezone.utc)
+                now_iso = now_datetime.isoformat()
+                plummet_window_seconds = max(1, int(getattr(self.config, "bargain_plummet_window_seconds", 15) or 15))
+
+                window_start_datetime = None
+                raw_window_start_timestamp = getattr(holding, "plummet_window_start_ts", None)
+                if raw_window_start_timestamp:
+                    try:
+                        parsed_window_start_datetime = datetime.fromisoformat(str(raw_window_start_timestamp))
+                        if parsed_window_start_datetime.tzinfo is None:
+                            parsed_window_start_datetime = parsed_window_start_datetime.replace(tzinfo=timezone.utc)
+                        window_start_datetime = parsed_window_start_datetime
+                    except Exception:
+                        window_start_datetime = None
+
+                if (
+                    window_start_datetime is None
+                    or (now_datetime - window_start_datetime).total_seconds() >= plummet_window_seconds
+                ):
+                    holding.plummet_window_start_ts = now_iso
+                    holding.plummet_high_price = float(current_price)
+                else:
+                    holding.plummet_high_price = max(float(holding.plummet_high_price or 0.0), float(current_price))
 
                 plummet_exit_pct = float(getattr(self.config, "bargain_plummet_exit_pct", 0.0) or 0.0)
                 if plummet_exit_pct > 0:
@@ -2335,15 +2355,24 @@ class ArbitrageEngine:
                     if plummet_trigger_seconds > 0:
                         market_time_remaining = getattr(holding.market, "time_remaining_seconds", None)
                         if market_time_remaining is None or float(market_time_remaining) > plummet_trigger_seconds:
+                            holding.plummet_last_price = current_price
+                            holding.plummet_last_ts = now_iso
                             continue
-                    drop_pct = (holding.buy_price - current_price) / holding.buy_price * 100
+
+                    reference_high_price = max(float(holding.plummet_high_price or 0.0), float(holding.buy_price or 0.0))
+                    if reference_high_price <= 0:
+                        holding.plummet_last_price = current_price
+                        holding.plummet_last_ts = now_iso
+                        continue
+
+                    drop_pct = (reference_high_price - current_price) / reference_high_price * 100
                     if drop_pct >= plummet_exit_pct:
                         self._mark_market_plummet_blocked(
                             holding.market_slug,
-                            f"{holding.side} 跌 {drop_pct:.1f}% ≥ {plummet_exit_pct:.1f}%"
+                            f"{holding.side} 自高點 {reference_high_price:.4f} 跌 {drop_pct:.1f}% ≥ {plummet_exit_pct:.1f}%"
                         )
                         self.status.add_log(
-                            f"⚡ [急跌護欄] {holding.market_slug} {holding.side} 跌 {drop_pct:.1f}% ≥ {plummet_exit_pct:.1f}% → 立刻平倉"
+                            f"⚡ [急跌護欄] {holding.market_slug} {holding.side} 自高點 {reference_high_price:.4f} 跌 {drop_pct:.1f}% ≥ {plummet_exit_pct:.1f}% → 立刻平倉"
                         )
                         if holding.pending_exit_order_id or holding.pending_exit_reason or holding.pending_exit_trade_id:
                             pending_exit_label = holding.pending_exit_order_id[:12] if holding.pending_exit_order_id else str(holding.pending_exit_reason or "settlement_pending")
@@ -2439,7 +2468,7 @@ class ArbitrageEngine:
                                 expected_profit=pnl,
                                 profit_pct=(pnl / (holding.buy_price * holding.shares) * 100) if holding.buy_price > 0 else 0,
                                 status="executed" if (unwind_result.get("success") and not self.config.dry_run) else "simulated",
-                                details=f"⚡ 急跌護欄 {holding.side} 跌 {drop_pct:.1f}%",
+                                details=f"⚡ 急跌護欄 {holding.side} 自高點 {reference_high_price:.4f} 跌 {drop_pct:.1f}%",
                             )
                             self.status.trade_history.append(record)
                             self.status.total_trades += 1
@@ -2645,9 +2674,13 @@ class ArbitrageEngine:
                             clob_client, holding.token_id, holding.shares,
                             current_price, f"止損R{holding.round}-{holding.side}"
                         )
-                        unwind_ok = bool(unwind_result)
-                        holding.status = "stopped_out"
-                        if unwind_ok:
+                        unwind_success = bool(isinstance(unwind_result, dict) and unwind_result.get("success"))
+                        unwind_pending = bool(isinstance(unwind_result, dict) and unwind_result.get("pending"))
+                        if unwind_success:
+                            holding.status = "stopped_out"
+                            self._clear_holding_pending_exit(holding)
+                        elif unwind_pending:
+                            holding.status = "stopped_out"
                             if isinstance(unwind_result, dict):
                                 pending_order_id = str((unwind_result.get("response") or {}).get("orderID") or (unwind_result.get("response") or {}).get("orderId") or (unwind_result.get("response") or {}).get("id") or (unwind_result.get("response") or {}).get("order_id") or "")
                                 if pending_order_id:
@@ -2655,6 +2688,7 @@ class ArbitrageEngine:
                                     holding.pending_exit_reason = "stop_loss"
                             self.status.add_log(f"🛑 [止損成功] {holding.side} 已賣出")
                         else:
+                            self._clear_holding_pending_exit(holding)
                             self.status.add_log(f"🛑 [止損失敗] {holding.side} 需手動處理!")
                     except Exception as e:
                         self.status.add_log(f"🛑 [止損異常] {str(e)[:120]}")
@@ -2696,7 +2730,7 @@ class ArbitrageEngine:
                         status=record.status,
                         details=record.details,
                     )
-                    if not self.config.dry_run and 'unwind_result' in locals() and isinstance(unwind_result, dict):
+                    if not self.config.dry_run and 'unwind_result' in locals() and isinstance(unwind_result, dict) and (unwind_result.get("success") or unwind_result.get("pending")):
                         record.pending_unwind_shares = holding.shares
                         record.pending_unwind_buy_price = holding.buy_price
                         record.pending_unwind_sell_price = current_price

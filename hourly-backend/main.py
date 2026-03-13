@@ -369,6 +369,11 @@ async def bot_loop():
                     engine.status.add_log(f"⚠️ 待成交退出對帳失敗: {str(e)[:160]}")
 
             try:
+                engine._flush_merger_logs()
+            except Exception as e:
+                engine.status.add_log(f"⚠️ merge log flush 失敗: {str(e)[:160]}")
+
+            try:
                 await broadcast({"type": "status", "data": engine.status.to_dict()})
             except Exception as e:
                 engine.status.add_log(f"⚠️ status 廣播失敗: {str(e)[:160]}")
@@ -609,17 +614,25 @@ class MergeRequest(BaseModel):
 @app.post("/api/merge/execute")
 async def execute_merge(req: MergeRequest, _user=Depends(auth.require_auth)):
     record = await engine.merger.merge_positions(req.condition_id, req.amount)
+    engine._flush_merger_logs()
     if record:
         await broadcast({"type": "merge", "data": record.to_dict()})
+        await broadcast({"type": "status", "data": engine.status.to_dict()})
+        await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
         return record.to_dict()
+    await broadcast({"type": "status", "data": engine.status.to_dict()})
+    await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
     return {"error": "合併失敗"}
 
 
 @app.post("/api/merge/all")
 async def merge_all_positions(_user=Depends(auth.require_auth)):
     results = await engine.merger.auto_merge_all()
+    engine._flush_merger_logs()
     for r in results:
         await broadcast({"type": "merge", "data": r.to_dict()})
+    await broadcast({"type": "status", "data": engine.status.to_dict()})
+    await broadcast({"type": "merge_status", "data": engine.merger.get_status()})
     return [r.to_dict() for r in results]
 
 
