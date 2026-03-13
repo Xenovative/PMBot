@@ -760,7 +760,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   <Shield className="w-4 h-4" />
                   最近交易
                 </h3>
-                {(status?.trade_history || []).length === 0 && trades.length === 0 ? (
+                {(effectiveStatus?.trade_history || []).length === 0 && trades.length === 0 ? (
                   <p className="text-xs text-gray-600 text-center py-6">尚無交易記錄</p>
                 ) : (
                   <div className="overflow-x-auto max-h-64 overflow-y-auto">
@@ -775,7 +775,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {[...(status?.trade_history || []), ...trades].slice(0, 20).map((t, i) => (
+                        {[...(effectiveStatus?.trade_history || []), ...trades].slice(0, 20).map((t, i) => (
                           <tr key={i} className="border-b border-neon-cyan/5 hover:bg-neon-cyan/5">
                             <td className="py-1.5 pr-2 text-gray-400 font-mono whitespace-nowrap">
                               {new Date(t.timestamp).toLocaleTimeString('zh-TW')}
@@ -813,15 +813,15 @@ function Dashboard({ token, authHeaders, onLogout }) {
                   運行日誌
                 </h3>
                 <div className="bg-black/50 border border-neon-cyan/10 rounded-lg p-3 max-h-64 overflow-y-scroll font-mono text-[11px] space-y-0.5">
-                  {(status?.logs || []).length === 0 ? (
+                  {(effectiveStatus?.logs || []).length === 0 ? (
                     <p className="text-gray-600">等待機器人啟動...</p>
                   ) : (
-                    status.logs.map((log, i) => (
+                    effectiveStatus.logs.map((log, i) => (
                       <p key={i} className={`${
                         log.includes('❌') ? 'text-red-400' :
                         log.includes('💰') ? 'text-emerald-400' :
-                        log.includes('🔸') ? 'text-amber-400' :
-                        log.includes('🔴') ? 'text-red-400' :
+                        log.includes('⚠️') ? 'text-amber-400' :
+                        log.includes('🔴') ? 'text-neon-pink' :
                         log.includes('⚙️') ? 'text-orange-400' :
                         log.includes('🚀') ? 'text-blue-400' :
                         log.includes('🏷️') ? 'text-amber-300' :

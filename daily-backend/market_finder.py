@@ -112,26 +112,77 @@ class MarketFinder:
     def _generate_daily_slugs(self, crypto: str) -> List[str]:
         """
         生成每日 Up or Down 市場的 slug。
-        格式: {crypto_name}-up-or-down-on-{month}-{day}
+        由於 Polymarket slug 樣式可能調整，這裡同時產生多個常見變體。
         嘗試今天、明天、後天的市場。
         """
         crypto_name = CRYPTO_NAME_MAP.get(crypto.lower(), crypto.lower())
         now = datetime.now(timezone.utc)
         slugs = []
+        seen_slugs = set()
 
         for day_offset in range(0, 3):
             target_date = now + timedelta(days=day_offset)
             month_name = MONTH_NAMES[target_date.month]
             day = target_date.day
-            slug = f"{crypto_name}-up-or-down-on-{month_name}-{day}"
-            slugs.append(slug)
+            year = target_date.year
+
+            slug_candidates = [
+                f"{crypto_name}-up-or-down-on-{month_name}-{day}-{year}",
+                f"{crypto_name}-up-or-down-on-{month_name}-{day}",
+                f"{crypto_name}-up-or-down-on-{month_name}-{day:02d}-{year}",
+                f"{crypto_name}-up-or-down-{month_name}-{day}",
+                f"{crypto_name}-up-or-down-{month_name}-{day}-{year}",
+                f"{crypto_name}-up-or-down-on-{month_name}-{day:02d}",
+                f"{crypto_name}-up-or-down-{month_name}-{day:02d}",
+                f"{crypto_name}-up-or-down-{month_name}-{day:02d}-{year}",
+            ]
+            for slug_candidate in slug_candidates:
+                if slug_candidate not in seen_slugs:
+                    seen_slugs.add(slug_candidate)
+                    slugs.append(slug_candidate)
 
         return slugs
+
+    async def _search_gamma_keyword(self, crypto: str) -> List[MarketInfo]:
+        """使用關鍵字搜尋每日市場（備用方案）"""
+        crypto_name = CRYPTO_NAME_MAP.get(crypto.lower(), crypto.lower())
+        markets = []
+        seen_ids = set()
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(
+                    f"{self.gamma_host}/markets",
+                    params={
+                        "active": "true",
+                        "closed": "false",
+                        "limit": 100,
+                        "keyword": f"{crypto_name} up or down",
+                    }
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    items = data if isinstance(data, list) else data.get("data", [])
+                    for raw_market in items:
+                        market = MarketInfo(raw_market)
+                        normalized_slug = str(market.slug or "").lower()
+                        normalized_question = str(market.question or "").lower()
+                        if crypto_name not in normalized_slug and crypto_name not in normalized_question:
+                            continue
+                        if "up or down" not in normalized_question and "up-or-down" not in normalized_slug:
+                            continue
+                        if not market.active or market.closed or market.id in seen_ids:
+                            continue
+                        seen_ids.add(market.id)
+                        markets.append(market)
+        except Exception as e:
+            print(f"[搜尋] keyword search 錯誤: {e}")
+        return markets
 
     async def find_markets_by_slug(self, crypto: str = "btc") -> List[MarketInfo]:
         """透過 slug 精確匹配搜尋每日 Up or Down 市場"""
         markets = []
         slugs = self._generate_daily_slugs(crypto)
+        seen_ids = set()
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             for slug in slugs:
@@ -151,7 +202,8 @@ class MarketFinder:
                                     if isinstance(event_markets, list):
                                         for m in event_markets:
                                             market = MarketInfo(m)
-                                            if market.active and not market.closed:
+                                            if market.active and not market.closed and market.id not in seen_ids:
+                                                seen_ids.add(market.id)
                                                 markets.append(market)
                     else:
                         print(f"[搜尋] slug={slug} HTTP {resp.status_code}: {resp.text[:200]}")
@@ -164,6 +216,7 @@ class MarketFinder:
         """透過 markets API 直接搜尋"""
         markets = []
         slugs = self._generate_daily_slugs(crypto)
+        seen_ids = set()
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             for slug in slugs:
@@ -177,11 +230,13 @@ class MarketFinder:
                         if isinstance(data, list):
                             for m in data:
                                 market = MarketInfo(m)
-                                if market.active and not market.closed:
+                                if market.active and not market.closed and market.id not in seen_ids:
+                                    seen_ids.add(market.id)
                                     markets.append(market)
                         elif isinstance(data, dict) and data.get("id"):
                             market = MarketInfo(data)
-                            if market.active and not market.closed:
+                            if market.active and not market.closed and market.id not in seen_ids:
+                                seen_ids.add(market.id)
                                 markets.append(market)
                     else:
                         print(f"[搜尋] direct slug={slug} HTTP {resp.status_code}: {resp.text[:200]}")
@@ -214,6 +269,14 @@ class MarketFinder:
                     seen_ids.add(m.id)
                     all_markets.append(m)
 
+            # 方法 3: 關鍵字搜尋（備用）
+            if not any(existing_market for existing_market in all_markets if crypto in str(existing_market.slug or "").lower() or CRYPTO_NAME_MAP.get(crypto, crypto) in str(existing_market.slug or "").lower()):
+                keyword_markets = await self._search_gamma_keyword(crypto)
+                for m in keyword_markets:
+                    if m.id not in seen_ids:
+                        seen_ids.add(m.id)
+                        all_markets.append(m)
+
         # 按剩餘時間排序，最近結束的排前面（過濾掉已結束的）
         all_markets = [m for m in all_markets if m.time_remaining_seconds > 0]
         all_markets.sort(key=lambda m: m.time_remaining_seconds)
@@ -225,6 +288,8 @@ class MarketFinder:
         markets = await self.find_markets_by_slug(crypto)
         if not markets:
             markets = await self.find_markets_by_direct(crypto)
+        if not markets:
+            markets = await self._search_gamma_keyword(crypto)
 
         for market in markets:
             remaining = market.time_remaining_seconds

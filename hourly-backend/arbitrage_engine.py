@@ -481,9 +481,13 @@ class ArbitrageEngine:
             reason = f"冷卻期中 (剩餘 {int(cooldown_remaining)} 秒)"
 
         # 檢查 6: 流動性
-        elif price_info.up_liquidity < self.config.min_liquidity or price_info.down_liquidity < self.config.min_liquidity:
+        elif price_info.up_liquidity < self._required_liquidity_for_order_size(order_size) or price_info.down_liquidity < self._required_liquidity_for_order_size(order_size):
             is_viable = False
-            reason = f"流動性不足 (UP: {price_info.up_liquidity:.0f}, DOWN: {price_info.down_liquidity:.0f})"
+            required_liquidity = self._required_liquidity_for_order_size(order_size)
+            reason = (
+                f"流動性不足 (需求: {required_liquidity:.0f} 股 | "
+                f"UP: {price_info.up_liquidity:.0f}, DOWN: {price_info.down_liquidity:.0f})"
+            )
 
         # 檢查 7: 兩側 USD 金額都必須 >= $1（Polymarket 最低限制）
         elif order_size * min(price_info.up_price, price_info.down_price) < 1.0:
@@ -503,6 +507,11 @@ class ArbitrageEngine:
             is_viable=is_viable,
             reason=reason,
         )
+
+    def _required_liquidity_for_order_size(self, desired_size: float) -> float:
+        configured_min_liquidity = max(0.0, float(getattr(self.config, "min_liquidity", 0.0) or 0.0))
+        normalized_desired_size = max(0.0, float(desired_size or 0.0))
+        return max(configured_min_liquidity, normalized_desired_size)
 
     def _populate_price_context(self, market: MarketInfo, price_info: PriceInfo):
         underlying_symbol = str(getattr(market, "underlying_symbol", "") or "").strip().upper()
