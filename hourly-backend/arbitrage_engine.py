@@ -196,6 +196,13 @@ class BotStatus:
     current_opportunities: List[ArbitrageOpportunity] = field(default_factory=list)
     bargain_holdings: List[BargainHolding] = field(default_factory=list)
     plummet_blocked_markets: List[str] = field(default_factory=list)
+    dynamic_scan_interval_seconds: int = 0
+    dynamic_bargain_window_seconds: Optional[int] = None
+    velocity_trend: Optional[str] = None
+    dynamic_bargain_min_price: Optional[float] = None
+    dynamic_bargain_max_price: Optional[float] = None
+    dynamic_bargain_min_bound: Optional[float] = None
+    dynamic_bargain_max_bound: Optional[float] = None
 
     def get_trades_for_market(self, slug: str) -> int:
         return self.trades_per_market.get(slug, 0)
@@ -239,6 +246,13 @@ class BotStatus:
             "current_opportunities": [o.to_dict() for o in self.current_opportunities],
             "bargain_holdings": [h.to_dict() for h in self.bargain_holdings if h.status == "holding"],
             "plummet_blocked_markets": list(self.plummet_blocked_markets),
+            "dynamic_scan_interval_seconds": self.dynamic_scan_interval_seconds,
+            "dynamic_bargain_window_seconds": self.dynamic_bargain_window_seconds,
+            "velocity_trend": self.velocity_trend,
+            "dynamic_bargain_min_price": self.dynamic_bargain_min_price,
+            "dynamic_bargain_max_price": self.dynamic_bargain_max_price,
+            "dynamic_bargain_min_bound": self.dynamic_bargain_min_bound,
+            "dynamic_bargain_max_bound": self.dynamic_bargain_max_bound,
         }
 
 
