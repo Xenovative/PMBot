@@ -11,6 +11,64 @@ import {
 
 const API = ''
 
+const GMT8_TIME_ZONE = 'Asia/Singapore'
+
+function formatGmt8DateForFilename() {
+  const currentDate = new Date()
+  const gmt8Formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: GMT8_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return gmt8Formatter.format(currentDate)
+}
+
+function parseIncomingDate(incomingValue) {
+  if (!incomingValue) return null
+  const parsedDate = new Date(incomingValue)
+  if (!Number.isNaN(parsedDate.getTime())) return parsedDate
+  const fallbackDate = new Date(`${incomingValue}T00:00:00Z`)
+  if (!Number.isNaN(fallbackDate.getTime())) return fallbackDate
+  return null
+}
+
+function formatGmt8HourLabel(incomingValue) {
+  const parsedDate = parseIncomingDate(incomingValue)
+  if (!parsedDate) return ''
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: GMT8_TIME_ZONE,
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(parsedDate).replace(',', '')
+}
+
+function formatGmt8DateLabel(incomingValue) {
+  const parsedDate = parseIncomingDate(incomingValue)
+  if (!parsedDate) return ''
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: GMT8_TIME_ZONE,
+    month: '2-digit',
+    day: '2-digit',
+  }).format(parsedDate)
+}
+
+function formatGmt8TableTimestamp(incomingValue) {
+  const parsedDate = parseIncomingDate(incomingValue)
+  if (!parsedDate) return '--'
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: GMT8_TIME_ZONE,
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(parsedDate).replace(',', '')
+}
+
 function AnalyticsDashboard({ token }) {
   const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {}
   const [overview, setOverview] = useState(null)
@@ -77,7 +135,7 @@ function AnalyticsDashboard({ token }) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `trades_${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = `trades_${formatGmt8DateForFilename()}_GMT+8.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -88,16 +146,6 @@ function AnalyticsDashboard({ token }) {
     { id: 'trades', label: '交易' },
     { id: 'markets', label: '市場' },
   ]
-
-  const formatHour = (h) => {
-    if (!h) return ''
-    return h.slice(5, 13)
-  }
-
-  const formatDate = (d) => {
-    if (!d) return ''
-    return d.slice(5, 10)
-  }
 
   return (
     <div className="cyber-panel p-3 sm:p-6 space-y-4">
@@ -227,12 +275,12 @@ function AnalyticsDashboard({ token }) {
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,255,255,0.06)" />
-                    <XAxis dataKey="hour" tickFormatter={formatHour} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
+                    <XAxis dataKey="hour" tickFormatter={formatGmt8HourLabel} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
                     <YAxis tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} tickFormatter={v => `$${v.toFixed(2)}`} />
                     <Tooltip
                       contentStyle={{ background: 'rgba(5,5,20,0.9)', border: '1px solid rgba(0,255,255,0.2)', borderRadius: 8, fontSize: 12, boxShadow: '0 0 15px rgba(0,255,255,0.1)' }}
                       formatter={(v) => [`$${Number(v).toFixed(4)}`, '累計利潤']}
-                      labelFormatter={formatHour}
+                      labelFormatter={formatGmt8HourLabel}
                     />
                     <Area type="monotone" dataKey="cumulative" stroke="#00ff41" fill="url(#profitGrad)" strokeWidth={2} />
                   </AreaChart>
@@ -254,12 +302,12 @@ function AnalyticsDashboard({ token }) {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dailyPnl}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,255,255,0.06)" />
-                    <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
+                    <XAxis dataKey="date" tickFormatter={formatGmt8DateLabel} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
                     <YAxis tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} tickFormatter={v => `$${v.toFixed(2)}`} />
                     <Tooltip
                       contentStyle={{ background: 'rgba(5,5,20,0.9)', border: '1px solid rgba(0,255,255,0.2)', borderRadius: 8, fontSize: 12, boxShadow: '0 0 15px rgba(0,255,255,0.1)' }}
                       formatter={(v) => [`$${Number(v).toFixed(4)}`, '利潤']}
-                      labelFormatter={formatDate}
+                      labelFormatter={formatGmt8DateLabel}
                     />
                     <Bar dataKey="total_profit" radius={[4, 4, 0, 0]}>
                       {dailyPnl.map((entry, i) => (
@@ -288,12 +336,12 @@ function AnalyticsDashboard({ token }) {
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,255,255,0.06)" />
-                    <XAxis dataKey="hour" tickFormatter={formatHour} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
+                    <XAxis dataKey="hour" tickFormatter={formatGmt8HourLabel} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
                     <YAxis tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} tickFormatter={v => `$${v.toFixed(2)}`} />
                     <Tooltip
                       contentStyle={{ background: 'rgba(5,5,20,0.9)', border: '1px solid rgba(255,0,255,0.2)', borderRadius: 8, fontSize: 12, boxShadow: '0 0 15px rgba(255,0,255,0.1)' }}
                       formatter={(v) => [`$${Number(v).toFixed(4)}`]}
-                      labelFormatter={formatHour}
+                      labelFormatter={formatGmt8HourLabel}
                     />
                     <Area type="monotone" dataKey="hourly_profit" name="每小時" stroke="#ffc800" fill="none" strokeWidth={1.5} />
                     <Area type="monotone" dataKey="cumulative" name="累計" stroke="#ff00ff" fill="url(#profitGrad2)" strokeWidth={2} />
@@ -316,11 +364,11 @@ function AnalyticsDashboard({ token }) {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={tradeFreq}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,255,255,0.06)" />
-                    <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
+                    <XAxis dataKey="date" tickFormatter={formatGmt8DateLabel} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
                     <YAxis tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
                     <Tooltip
                       contentStyle={{ background: 'rgba(5,5,20,0.9)', border: '1px solid rgba(0,255,255,0.2)', borderRadius: 8, fontSize: 12, boxShadow: '0 0 15px rgba(0,255,255,0.1)' }}
-                      labelFormatter={formatDate}
+                      labelFormatter={formatGmt8DateLabel}
                     />
                     <Bar dataKey="successful" name="成功" stackId="a" fill="#00ff41" radius={[0, 0, 0, 0]} />
                     <Bar dataKey="failed" name="失敗" stackId="a" fill="#ff2d95" radius={[4, 4, 0, 0]} />
@@ -338,12 +386,12 @@ function AnalyticsDashboard({ token }) {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={winRate}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,255,255,0.06)" />
-                    <XAxis dataKey="date" tickFormatter={formatDate} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
+                    <XAxis dataKey="date" tickFormatter={formatGmt8DateLabel} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} />
                     <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: 'rgba(0,255,255,0.4)' }} tickFormatter={v => `${v}%`} />
                     <Tooltip
                       contentStyle={{ background: 'rgba(5,5,20,0.9)', border: '1px solid rgba(255,0,255,0.2)', borderRadius: 8, fontSize: 12, boxShadow: '0 0 15px rgba(255,0,255,0.1)' }}
                       formatter={(v) => [`${Number(v).toFixed(1)}%`, '勝率']}
-                      labelFormatter={formatDate}
+                      labelFormatter={formatGmt8DateLabel}
                     />
                     <Line type="monotone" dataKey="win_rate" stroke="#ff00ff" strokeWidth={2} dot={{ r: 3, fill: '#ff00ff' }} />
                   </LineChart>
@@ -381,7 +429,7 @@ function AnalyticsDashboard({ token }) {
                     {recentTrades.map((t, i) => (
                       <tr key={t.id || i} className="border-b border-neon-cyan/5 hover:bg-neon-cyan/5">
                         <td className="py-1.5 pr-2 text-gray-400 font-mono whitespace-nowrap">
-                          {t.timestamp?.slice(5, 16)?.replace('T', ' ')}
+                          {formatGmt8TableTimestamp(t.timestamp)}
                         </td>
                         <td className="py-1.5 px-2 text-gray-300 truncate max-w-[120px]" title={t.market_slug}>
                           {t.market_slug}

@@ -16,6 +16,7 @@ from position_merger import PositionMerger
 import trade_db
 
 LOG_FILE = Path(__file__).resolve().parent / "bot.log"
+LOG_TIMEZONE = timezone(timedelta(hours=8))
 
 
 def _read_log_tail(limit: int = 200) -> List[str]:
@@ -211,7 +212,7 @@ class BotStatus:
         self.trades_per_market[slug] = self.trades_per_market.get(slug, 0) + 1
 
     def add_log(self, msg: str):
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        ts = datetime.now(LOG_TIMEZONE).strftime("%H:%M:%S")
         entry = f"[{ts}] {msg}"
         self.logs.append(entry)
         if len(self.logs) > 200:

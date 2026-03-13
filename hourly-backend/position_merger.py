@@ -19,6 +19,7 @@ import trade_db
 # Polymarket 合約地址 (Polygon)
 CTF_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
 USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDCe on Polygon
+LOG_TIMEZONE = timezone(timedelta(hours=8))
 
 # CTF mergePositions ABI
 CTF_ABI = [
@@ -283,7 +284,7 @@ class PositionMerger:
         return True
 
     def add_log(self, msg: str):
-        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        ts = datetime.now(LOG_TIMEZONE).strftime("%H:%M:%S")
         entry = f"[{ts}] {msg}"
         self.logs.append(entry)
         if len(self.logs) > 100:
