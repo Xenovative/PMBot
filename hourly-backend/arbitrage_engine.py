@@ -2170,7 +2170,7 @@ class ArbitrageEngine:
                             pending_exit_label = holding.pending_exit_order_id[:12] if holding.pending_exit_order_id else str(holding.pending_exit_reason or "settlement_pending")
                             self.status.add_log(f"⚡ [急跌護欄] 已有待成交退出狀態 {pending_exit_label}，略過重複掛單")
                             continue
-                        unwind_ok = True
+                        unwind_result = {"success": True, "pending": False, "order_type": None, "response": None}
                         if self.config.dry_run:
                             holding.status = "stopped_out"
                         else:
@@ -2180,17 +2180,75 @@ class ArbitrageEngine:
                                     clob_client, holding.token_id, holding.shares,
                                     current_price, "Plummet guard"
                                 )
-                                unwind_ok = bool(unwind_result)
-                                if isinstance(unwind_result, dict):
-                                    pending_order_id = str((unwind_result.get("response") or {}).get("orderID") or (unwind_result.get("response") or {}).get("orderId") or (unwind_result.get("response") or {}).get("id") or (unwind_result.get("response") or {}).get("order_id") or "")
-                                    if pending_order_id:
-                                        holding.pending_exit_order_id = pending_order_id
-                                        holding.pending_exit_reason = "plummet"
-                                holding.status = "stopped_out"
+                                if unwind_result.get("success"):
+                                    holding.status = "stopped_out"
+                                    self._clear_holding_pending_exit(holding)
+                                elif unwind_result.get("pending"):
+                                    pending_response = unwind_result.get("response") or {}
+                                    holding.pending_exit_order_id = str(
+                                        pending_response.get("orderID")
+                                        or pending_response.get("orderId")
+                                        or pending_response.get("id")
+                                        or pending_response.get("order_id")
+                                        or ""
+                                    )
+                                    holding.pending_exit_reason = "plummet"
+                                    record = TradeRecord(
+                                        timestamp=datetime.now(timezone.utc).isoformat(),
+                                        market_slug=holding.market_slug,
+                                        up_price=price_info.up_price,
+                                        down_price=price_info.down_price,
+                                        total_cost=current_price,
+                                        order_size=holding.shares,
+                                        expected_profit=0,
+                                        profit_pct=0,
+                                        status="pending",
+                                        details=f"⚡ 急跌護欄 {holding.side} 已掛出 GTC，待成交",
+                                    )
+                                    record.pending_unwind_result = dict(unwind_result)
+                                    record.pending_unwind_token_id = holding.token_id
+                                    record.pending_unwind_side_label = holding.side
+                                    record.pending_unwind_shares = unwind_result.get("shares", holding.shares)
+                                    record.pending_unwind_buy_price = holding.buy_price
+                                    record.pending_unwind_sell_price = unwind_result.get("sell_price", current_price)
+                                    record.pending_unwind_holding_timestamp = holding.timestamp
+                                    record.pending_unwind_holding_reason = "plummet"
+                                    trade_id = trade_db.record_trade(
+                                        timestamp=record.timestamp,
+                                        market_slug=record.market_slug,
+                                        trade_type="bargain_plummet",
+                                        side=holding.side,
+                                        up_price=record.up_price,
+                                        down_price=record.down_price,
+                                        total_cost=record.total_cost,
+                                        order_size=record.order_size,
+                                        profit=record.expected_profit,
+                                        profit_pct=record.profit_pct,
+                                        status=record.status,
+                                        details=record.details,
+                                    )
+                                    trade_db.rebuild_daily_summary()
+                                    self.status.trade_history.append(record)
+                                    holding.pending_exit_trade_id = trade_id
+                                    self._register_pending_unwind_trade(
+                                        record,
+                                        trade_id,
+                                        holding.market,
+                                        holding.token_id,
+                                        holding.side,
+                                        holding.shares,
+                                        holding.buy_price,
+                                        unwind_result,
+                                    )
+                                    self.status.add_log("⚡ [急跌護欄] 已掛出 GTC，待成交後才算完成")
+                                else:
+                                    self._clear_holding_pending_exit(holding)
+                                    self.status.add_log("⚡ [急跌護欄失敗] 賣單未成交")
                             except Exception as e:
-                                unwind_ok = False
+                                unwind_result = {"success": False, "pending": False, "order_type": None, "response": None}
+                                self._clear_holding_pending_exit(holding)
                                 self.status.add_log(f"⚡ [急跌護欄異常] {str(e)[:120]}")
-                        if self.config.dry_run or unwind_ok:
+                        if self.config.dry_run or unwind_result.get("success"):
                             pnl = (current_price - holding.buy_price) * holding.shares
                             record = TradeRecord(
                                 timestamp=datetime.now(timezone.utc).isoformat(),
@@ -2201,7 +2259,7 @@ class ArbitrageEngine:
                                 order_size=holding.shares,
                                 expected_profit=pnl,
                                 profit_pct=(pnl / (holding.buy_price * holding.shares) * 100) if holding.buy_price > 0 else 0,
-                                status="executed" if (not self.config.dry_run and unwind_ok) else "simulated",
+                                status="executed" if (unwind_result.get("success") and not self.config.dry_run) else "simulated",
                                 details=f"⚡ 急跌護欄 {holding.side} 跌 {drop_pct:.1f}%",
                             )
                             self.status.trade_history.append(record)
@@ -2209,7 +2267,7 @@ class ArbitrageEngine:
                             self.status.increment_trades_for_market(holding.market_slug)
                             self.status.total_profit += record.expected_profit
                             try:
-                                recorded_trade_id = trade_db.record_trade(
+                                trade_db.record_trade(
                                     timestamp=record.timestamp,
                                     market_slug=record.market_slug,
                                     trade_type="bargain_plummet",
@@ -2223,14 +2281,6 @@ class ArbitrageEngine:
                                     status=record.status,
                                     details=record.details,
                                 )
-                                if not self.config.dry_run and 'unwind_result' in locals() and isinstance(unwind_result, dict):
-                                    record.pending_unwind_shares = holding.shares
-                                    record.pending_unwind_buy_price = holding.buy_price
-                                    record.pending_unwind_sell_price = current_price
-                                    record.pending_unwind_holding_timestamp = holding.timestamp
-                                    record.pending_unwind_holding_reason = "plummet"
-                                    holding.pending_exit_trade_id = int(recorded_trade_id or 0) if recorded_trade_id is not None else None
-                                    self._register_pending_unwind_trade(record, int(recorded_trade_id or 0), holding.market, holding.token_id, holding.side, holding.shares, holding.buy_price, unwind_result)
                                 trade_db.rebuild_daily_summary()
                             except Exception:
                                 pass
