@@ -17,7 +17,7 @@ import httpx
 
 from config import get_config, BotConfig, validate_private_key, validate_funder_address
 from market_finder import MarketFinder, MarketInfo
-from arbitrage_engine import ArbitrageEngine
+from arbitrage_engine import ArbitrageEngine, _read_log_tail, _redact_log_message
 from position_merger import PositionMerger
 import trade_db
 import auth
@@ -408,6 +408,16 @@ async def bot_loop():
 @app.get("/api/status")
 async def get_status(_user=Depends(auth.require_auth)):
     return engine.status.to_dict()
+
+
+@app.get("/api/logs")
+async def get_runtime_logs(limit: int = 200, _user=Depends(auth.require_auth)):
+    safe_limit = max(1, min(int(limit or 200), 1000))
+    persisted_logs = _read_log_tail(safe_limit)
+    if persisted_logs:
+        return {"logs": [_redact_log_message(log_line) for log_line in persisted_logs]}
+    fallback_logs = engine.status.logs[-safe_limit:]
+    return {"logs": [_redact_log_message(log_line) for log_line in fallback_logs]}
 
 
 @app.get("/api/markets")

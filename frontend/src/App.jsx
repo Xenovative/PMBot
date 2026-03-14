@@ -60,6 +60,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
   const { status, trades, mergeStatus, connected } = useWebSocket(wsUrl, token)
   const [polledStatus, setPolledStatus] = useState(null)
+  const [runtimeLogs, setRuntimeLogs] = useState([])
   const [config, setConfig] = useState(null)
   const [configForm, setConfigForm] = useState({})
   const [loading, setLoading] = useState(false)
@@ -85,6 +86,29 @@ function Dashboard({ token, authHeaders, onLogout }) {
 
     fetchStatus()
     const intervalId = setInterval(fetchStatus, 3000)
+
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
+  }, [authHeaders])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function fetchLogs() {
+      try {
+        const res = await fetch(`${API}/api/logs?limit=200`, { headers: authHeaders })
+        if (!res.ok) return
+        const data = await res.json()
+        if (!cancelled) setRuntimeLogs(Array.isArray(data.logs) ? data.logs : [])
+      } catch (e) {
+        console.error('Failed to fetch runtime logs:', e)
+      }
+    }
+
+    fetchLogs()
+    const intervalId = setInterval(fetchLogs, 3000)
 
     return () => {
       cancelled = true
@@ -136,6 +160,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
 
   const effectiveStatus = status ?? polledStatus
   const isRunning = effectiveStatus?.running || false
+  const displayedLogs = runtimeLogs.length > 0 ? runtimeLogs : (effectiveStatus?.logs || [])
 
   return (
     <div className="min-h-screen text-gray-100 scanlines relative">
@@ -166,7 +191,7 @@ function Dashboard({ token, authHeaders, onLogout }) {
 
               <div className={`flex items-center gap-1 text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full border ${isRunning ? 'bg-emerald-500/5 text-emerald-300 border-emerald-500/30 shadow-neon-green' : 'bg-gray-600/10 text-gray-300 border-gray-500/30'}`}>
                 <Activity className="w-3 h-3" />
-                <span className="hidden sm:inline">{isRunning ? `Bot運行中 · 掃描${status?.scan_count ?? 0}` : 'Bot已停止'}</span>
+                <span className="hidden sm:inline">{isRunning ? `Bot運行中 · 掃描${effectiveStatus?.scan_count ?? 0}` : 'Bot已停止'}</span>
               </div>
 
               <div className={`text-[10px] sm:text-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full font-medium border ${config?.dry_run !== false ? 'bg-neon-amber/5 text-neon-amber border-neon-amber/30 shadow-neon-amber' : 'bg-neon-pink/5 text-neon-pink border-neon-pink/30 shadow-neon-pink neon-pulse'}`}>
@@ -203,9 +228,9 @@ function Dashboard({ token, authHeaders, onLogout }) {
           <div className="space-y-4 sm:space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-3">
               <StatCard icon={<Activity className="w-5 h-5" />} label="狀態" value={isRunning ? '運行中' : '已停止'} color={isRunning ? 'emerald' : 'gray'} />
-              <StatCard icon={<BarChart3 className="w-5 h-5" />} label="交易" value={status?.total_trades ?? 0} color="blue" />
-              <StatCard icon={<DollarSign className="w-5 h-5" />} label="利潤" value={`$${(status?.total_profit ?? 0).toFixed(4)}`} color={(status?.total_profit ?? 0) > 0 ? 'emerald' : 'red'} />
-              <StatCard icon={<RefreshCw className="w-5 h-5" />} label="掃描" value={status?.scan_count ?? 0} color="amber" />
+              <StatCard icon={<BarChart3 className="w-5 h-5" />} label="交易" value={effectiveStatus?.total_trades ?? 0} color="blue" />
+              <StatCard icon={<DollarSign className="w-5 h-5" />} label="利潤" value={`$${(effectiveStatus?.total_profit ?? 0).toFixed(4)}`} color={(effectiveStatus?.total_profit ?? 0) > 0 ? 'emerald' : 'red'} />
+              <StatCard icon={<RefreshCw className="w-5 h-5" />} label="掃描" value={effectiveStatus?.scan_count ?? 0} color="amber" />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
@@ -428,10 +453,10 @@ function Dashboard({ token, authHeaders, onLogout }) {
               <div className="cyber-panel p-3 sm:p-5">
                 <h3 className="text-sm font-medium neon-text-cyan mb-3 flex items-center gap-2"><Activity className="w-4 h-4" />運行日誌</h3>
                 <div className="bg-black/50 border border-neon-cyan/10 rounded-lg p-3 max-h-64 overflow-y-scroll font-mono text-[11px] space-y-0.5">
-                  {(status?.logs || []).length === 0 ? (
+                  {displayedLogs.length === 0 ? (
                     <p className="text-gray-600">等待機器人啟動...</p>
                   ) : (
-                    status.logs.map((log, i) => (
+                    displayedLogs.map((log, i) => (
                       <p key={i} className={`${log.includes('❌') ? 'text-red-400' : log.includes('⚠️') ? 'text-amber-400' : 'text-gray-200'}`}>{log}</p>
                     ))
                   )}
