@@ -2442,7 +2442,7 @@ class ArbitrageEngine:
         else:
             try:
                 clob_client = self._get_clob_client()
-                result = self._try_buy_one_side(clob_client, token_id, amount_usd, price, f"撿便宜R{buy_round}-{side}")
+                result = await self._try_buy_one_side(clob_client, token_id, amount_usd, price, f"撿便宜R{buy_round}-{side}")
                 if not result["success"]:
                     self.status.add_log(f"🏷️ [撿便宜] {side} 買入失敗: {result.get('error', '')[:100]}")
                     return None
