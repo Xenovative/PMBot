@@ -803,7 +803,11 @@ class PositionMerger:
         for cid, pos in list(self.tracked_positions.items()):
             if pos.fallback_triggered:
                 continue
-            if pos.mergeable_amount >= self.min_merge_amount:
+            should_attempt_merge = (
+                pos.mergeable_amount >= self.min_merge_amount
+                or pos.failed_merge_attempts > 0
+            )
+            if should_attempt_merge:
                 self.add_log(
                     f"🔄 自動合併 | {pos.market_slug} | "
                     f"數量: {pos.mergeable_amount:.0f}"
