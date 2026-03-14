@@ -482,7 +482,6 @@ class MarketFinder:
         根據 Polymarket 實際樣式，例如:
           bitcoin-up-or-down-march-3-11pm-et
           ethereum-up-or-down-march-3-11pm-et
-        同時保留舊有的 at/to 變體以增加匹配率。
         """
         from zoneinfo import ZoneInfo
 
@@ -508,14 +507,15 @@ class MarketFinder:
             if minute:
                 slugs.append(f"{crypto_name}-up-or-down-{month_name}-{day}-{hour_12}-{minute:02d}{ampm}-et")
 
-            # Legacy patterns kept for safety
-            slugs.append(f"{crypto_name}-up-or-down-on-{month_name}-{day}-at-{hour_12}{ampm}")
-            slugs.append(f"{crypto_name}-up-or-down-on-{month_name}-{day}-{hour_12}{ampm}-to-{next_hour_12}{next_ampm}")
-            slugs.append(f"{crypto_name}-up-or-down-in-1-hour-on-{month_name}-{day}-at-{hour_12}{ampm}")
-            slugs.append(f"{crypto_name}-up-or-down-on-{month_name}-{day:02d}-at-{hour_12}{ampm}")
-            slugs.append(f"{crypto_name}-up-or-down-on-{month_name}-{day}-{hour_24:02d}00-utc")
-
         return slugs
+
+    def _is_canonical_hourly_slug(self, crypto: str, slug: str) -> bool:
+        crypto_name = re.escape(CRYPTO_NAME_MAP.get(crypto.lower(), crypto.lower()))
+        normalized_slug = str(slug or "").strip().lower()
+        if not normalized_slug:
+            return False
+        canonical_hourly_pattern = rf"^{crypto_name}-up-or-down-[a-z]+-\d{{1,2}}-(?:1[0-2]|[1-9])(?:-\d{{2}})?(?:am|pm)-et$"
+        return re.match(canonical_hourly_pattern, normalized_slug) is not None
 
     async def _search_gamma_keyword(self, crypto: str) -> List[MarketInfo]:
         """使用關鍵字搜尋每小時市場（備用方案）"""
@@ -536,17 +536,14 @@ class MarketFinder:
                     data = resp.json()
                     items = data if isinstance(data, list) else data.get("data", [])
                     for m in items:
-                        slug = m.get("slug", "")
-                        question = m.get("question", "").lower()
-                        # Filter for hourly-like markets: contain "hour" or "1h" or time patterns
-                        if ("hour" in slug or "1h" in slug or
-                                "hour" in question or "1h" in question or
-                                ("am" in slug and "pm" in slug) or
-                                ("-am" in slug or "-pm" in slug)):
-                            if crypto_name in slug or crypto.lower() in question:
-                                market = MarketInfo(m)
-                                if market.active and not market.closed:
-                                    markets.append(market)
+                        slug = str(m.get("slug", "") or "").lower()
+                        question = str(m.get("question", "") or "").lower()
+                        if not self._is_canonical_hourly_slug(crypto, slug):
+                            continue
+                        if crypto_name in slug or crypto.lower() in question:
+                            market = MarketInfo(m)
+                            if market.active and not market.closed:
+                                markets.append(market)
         except Exception as e:
             print(f"[搜尋] keyword search 錯誤: {e}")
         return markets
@@ -569,7 +566,7 @@ class MarketFinder:
                         if isinstance(events, list):
                             for event in events:
                                 event_slug = event.get("slug", "")
-                                if event_slug == slug:
+                                if event_slug == slug and self._is_canonical_hourly_slug(crypto, event_slug):
                                     event_markets = event.get("markets", [])
                                     if isinstance(event_markets, list):
                                         for m in event_markets:
@@ -600,12 +597,12 @@ class MarketFinder:
                         if isinstance(data, list):
                             for m in data:
                                 market = MarketInfo(m)
-                                if market.active and not market.closed and market.id not in seen_ids:
+                                if self._is_canonical_hourly_slug(crypto, market.slug) and market.active and not market.closed and market.id not in seen_ids:
                                     seen_ids.add(market.id)
                                     markets.append(market)
                         elif isinstance(data, dict) and data.get("id"):
                             market = MarketInfo(data)
-                            if market.active and not market.closed and market.id not in seen_ids:
+                            if self._is_canonical_hourly_slug(crypto, market.slug) and market.active and not market.closed and market.id not in seen_ids:
                                 seen_ids.add(market.id)
                                 markets.append(market)
                 except Exception as e:
