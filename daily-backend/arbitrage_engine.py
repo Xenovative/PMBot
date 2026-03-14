@@ -1621,7 +1621,7 @@ class ArbitrageEngine:
                     second_token, second_amt, second_price, second_label = (
                         market.up_token_id, up_amount_usd, up_price, "UP")
 
-                first_result = self._try_buy_one_side(
+                first_result = await self._try_buy_one_side(
                     clob_client, first_token, first_amt, first_price, first_label
                 )
 
@@ -1641,7 +1641,7 @@ class ArbitrageEngine:
                             self.status.add_log(f"  ⏭️ 跳過 {try_size} 股: 某側 < $1 (${retry_usd:.2f} / ${other_usd:.2f})")
                             continue
                         self.status.add_log(f"  🔄 重試較小數量: {try_size} (${retry_usd:.2f} @ {first_price:.4f})")
-                        first_result = self._try_buy_one_side(
+                        first_result = await self._try_buy_one_side(
                             clob_client, first_token,
                             retry_usd,
                             first_price, first_label
@@ -1685,7 +1685,7 @@ class ArbitrageEngine:
                             wait_secs = 5 * (attempt + 1)
                             self.status.add_log(f"  ⏳ 等待 {wait_secs}s 鏈上結算後平倉 (第 {attempt+1}/3 次)")
                             await asyncio.sleep(wait_secs)
-                            unwind_result = self._try_unwind_position(
+                            unwind_result = await self._try_unwind_position(
                                 clob_client, first_token, unwind_shares,
                                 first_result.get("price", first_price), first_label
                             )
@@ -1715,7 +1715,7 @@ class ArbitrageEngine:
                 except Exception as e:
                     self.status.add_log(f"⚠️ 二次檢查失敗 (繼續執行): {str(e)[:80]}")
 
-                second_result = self._try_buy_one_side(
+                second_result = await self._try_buy_one_side(
                     clob_client, second_token, second_amt, second_price, second_label
                 )
 
@@ -1730,7 +1730,7 @@ class ArbitrageEngine:
                         wait_secs = 5 * (attempt + 1)
                         self.status.add_log(f"  ⏳ 等待 {wait_secs}s 鏈上結算後平倉 (第 {attempt+1}/3 次)")
                         await asyncio.sleep(wait_secs)
-                        unwind_result = self._try_unwind_position(
+                        unwind_result = await self._try_unwind_position(
                             clob_client, first_token, unwind_shares,
                             first_result.get("price", first_price), first_label
                         )

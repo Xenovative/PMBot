@@ -1061,7 +1061,7 @@ class ArbitrageEngine:
                     clob_client = self._get_clob_client()
                     if clob_client:
                         holding_bid_levels = price_info.up_bids if h.side == "UP" else price_info.down_bids
-                        self._try_unwind_position(clob_client, h.token_id, shares, sell_price, f"到期平倉-{h.side}", holding_bid_levels)
+                        await self._try_unwind_position(clob_client, h.token_id, shares, sell_price, f"到期平倉-{h.side}", holding_bid_levels)
                 except Exception as e:
                     self.status.add_log(f"⚠️ [到期平倉] 執行失敗: {str(e)[:120]}")
 
@@ -1640,7 +1640,7 @@ class ArbitrageEngine:
                     second_token, second_amt, second_price, second_label = (
                         market.up_token_id, up_amount_usd, up_price, "UP")
 
-                first_result = self._try_buy_one_side(
+                first_result = await self._try_buy_one_side(
                     clob_client, first_token, first_amt, first_price, first_label
                 )
 
@@ -1660,7 +1660,7 @@ class ArbitrageEngine:
                             self.status.add_log(f"  ⏭️ 跳過 {try_size} 股: 某側 < $1 (${retry_usd:.2f} / ${other_usd:.2f})")
                             continue
                         self.status.add_log(f"  🔄 重試較小數量: {try_size} (${retry_usd:.2f} @ {first_price:.4f})")
-                        first_result = self._try_buy_one_side(
+                        first_result = await self._try_buy_one_side(
                             clob_client, first_token,
                             retry_usd,
                             first_price, first_label
@@ -1704,7 +1704,7 @@ class ArbitrageEngine:
                             wait_secs = 5 * (attempt + 1)
                             self.status.add_log(f"  ⏳ 等待 {wait_secs}s 鏈上結算後平倉 (第 {attempt+1}/3 次)")
                             await asyncio.sleep(wait_secs)
-                            unwind_result = self._try_unwind_position(
+                            unwind_result = await self._try_unwind_position(
                                 clob_client, first_token, unwind_shares,
                                 first_result.get("price", first_price), first_label
                             )
@@ -1734,7 +1734,7 @@ class ArbitrageEngine:
                 except Exception as e:
                     self.status.add_log(f"⚠️ 二次檢查失敗 (繼續執行): {str(e)[:80]}")
 
-                second_result = self._try_buy_one_side(
+                second_result = await self._try_buy_one_side(
                     clob_client, second_token, second_amt, second_price, second_label
                 )
 
@@ -1749,7 +1749,7 @@ class ArbitrageEngine:
                         wait_secs = 5 * (attempt + 1)
                         self.status.add_log(f"  ⏳ 等待 {wait_secs}s 鏈上結算後平倉 (第 {attempt+1}/3 次)")
                         await asyncio.sleep(wait_secs)
-                        unwind_result = self._try_unwind_position(
+                        unwind_result = await self._try_unwind_position(
                             clob_client, first_token, unwind_shares,
                             first_result.get("price", first_price), first_label
                         )
@@ -2140,7 +2140,7 @@ class ArbitrageEngine:
         else:
             try:
                 clob_client = self._get_clob_client()
-                result = self._try_buy_one_side(clob_client, token_id, amount_usd, price, f"撿便宜R{buy_round}-{side}")
+                result = await self._try_buy_one_side(clob_client, token_id, amount_usd, price, f"撿便宜R{buy_round}-{side}")
                 if not result["success"]:
                     self.status.add_log(f"🏷️ [撿便宜] {side} 買入失敗: {result.get('error', '')[:100]}")
                     return None
@@ -2323,7 +2323,7 @@ class ArbitrageEngine:
                             try:
                                 clob_client = self._get_clob_client()
                                 holding_bid_levels = price_info.up_bids if holding.side == "UP" else price_info.down_bids
-                                unwind_result = self._try_unwind_position(
+                                unwind_result = await self._try_unwind_position(
                                     clob_client, holding.token_id, holding.shares,
                                     current_price, "Plummet guard", holding_bid_levels
                                 )
@@ -2433,7 +2433,7 @@ class ArbitrageEngine:
                             try:
                                 clob_client = self._get_clob_client()
                                 holding_bid_levels = price_info.up_bids if holding.side == "UP" else price_info.down_bids
-                                unwind_result = self._try_unwind_position(
+                                unwind_result = await self._try_unwind_position(
                                     clob_client, holding.token_id, holding.shares,
                                     current_price, "TP sniper", holding_bid_levels
                                 )
@@ -2547,7 +2547,7 @@ class ArbitrageEngine:
                     try:
                         clob_client = self._get_clob_client()
                         holding_bid_levels = price_info.up_bids if holding.side == "UP" else price_info.down_bids
-                        unwind_result = self._try_unwind_position(
+                        unwind_result = await self._try_unwind_position(
                             clob_client, holding.token_id, holding.shares,
                             current_price, f"止損R{holding.round}-{holding.side}", holding_bid_levels
                         )
@@ -2831,7 +2831,7 @@ class ArbitrageEngine:
             ask = down_ask
 
         self.status.add_log(f"🔌 測試市場: {test_market.slug} | {side} @ {ask:.4f}")
-        result = self._try_buy_one_side(clob, token_id, 1.0, ask, f"[測試]{side}")
+        result = await self._try_buy_one_side(clob, token_id, 1.0, ask, f"[測試]{side}")
         if not result.get("success"):
             self.status.add_log(f"❌ 連線測試買入失敗: {result.get('error')}")
             return
@@ -2844,7 +2844,7 @@ class ArbitrageEngine:
             return
         self.status.add_log(f"✅ 測試買入成功 {shares} 股 @ {buy_price:.4f}，等待結算後平倉...")
         await asyncio.sleep(8)
-        unwind_result = self._try_unwind_position(clob, token_id, shares, buy_price, f"[測試]{side}")
+        unwind_result = await self._try_unwind_position(clob, token_id, shares, buy_price, f"[測試]{side}")
         if isinstance(unwind_result, dict) and (unwind_result.get("success") or unwind_result.get("pending")):
             trade_db.kv_set(_kv_key, "ok")
             self.status.add_log("✅ 連線測試完成：買入+平倉成功，錢包連線正常")
