@@ -3228,7 +3228,7 @@ class ArbitrageEngine:
             ask = down_ask
 
         self.status.add_log(f"🔌 測試市場: {test_market.slug} | {side} @ {ask:.4f}")
-        result = self._try_buy_one_side(clob, token_id, 1.0, ask, f"[測試]{side}")
+        result = await self._try_buy_one_side(clob, token_id, 1.0, ask, f"[測試]{side}")
         if not result.get("success"):
             self.status.add_log(f"❌ 連線測試買入失敗: {result.get('error')}")
             return
