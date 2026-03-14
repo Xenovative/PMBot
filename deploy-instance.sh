@@ -383,6 +383,10 @@ if [ -n "$FRONTEND_SRC" ]; then
         "$SCRIPT_DIR/$FRONTEND_SRC/" "$APP_DIR/frontend/"
 fi
 
+if [ -d "$SCRIPT_DIR/scripts" ]; then
+    rsync -a --delete "$SCRIPT_DIR/scripts/" "$APP_DIR/scripts/"
+fi
+
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 ok "Code synced to $APP_DIR"
 
@@ -401,6 +405,14 @@ fi
 sudo -u "$APP_USER" $PYTHON_BIN -m venv "$APP_DIR/venv"
 sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install -q --upgrade pip
 sudo -u "$APP_USER" "$APP_DIR/venv/bin/pip" install -q -r requirements.txt
+
+if [ -f "$APP_DIR/scripts/package.json" ]; then
+    header "4.5/7" "Installing relayer helper dependencies..."
+    sudo mkdir -p "$NPM_CACHE_DIR"
+    sudo chown -R "$APP_USER:$APP_USER" "$NPM_CACHE_DIR"
+    sudo -u "$APP_USER" env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$APP_DIR/scripts" install --no-audit --no-fund
+    ok "Relayer helper dependencies installed"
+fi
 
 if [ ! -f "$APP_DIR/backend/.env" ]; then
     if [ -f "$APP_DIR/backend/.env.example" ]; then

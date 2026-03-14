@@ -370,7 +370,7 @@ class PositionMerger:
         self.pending_fallback_orders.append(pending_payload)
         self.pending_fallback_orders = self.pending_fallback_orders[-20:]
 
-    async def _fallback_exit_paired_position(self, pos: PairedPosition, fallback_price: float = 0.999) -> bool:
+    async def _fallback_exit_paired_position(self, pos: PairedPosition, fallback_price: float = 0.99) -> bool:
         if self.config.dry_run:
             self.add_log(
                 f"🧪 merge 失敗 fallback | 模擬掛出雙邊 GTC @ {fallback_price:.3f} | {pos.market_slug}"
@@ -396,6 +396,7 @@ class PositionMerger:
             self.add_log(f"❌ merge 失敗 fallback 無法建立 CLOB client: {str(e)[:180]}")
             return False
 
+        normalized_fallback_price = min(0.99, max(0.01, round(float(fallback_price or 0.99), 3)))
         paired_shares = math.floor(max(float(pos.mergeable_amount or 0.0), 0.0) * 100) / 100
         if paired_shares <= 0:
             self.add_log(f"⚠️ merge 失敗 fallback 略過: {pos.market_slug} 無可掛出雙邊股數")
@@ -416,7 +417,7 @@ class PositionMerger:
                     clob_client,
                     token_id,
                     side_shares,
-                    fallback_price,
+                    normalized_fallback_price,
                 )
                 fallback_results.append((side_label, bool(side_result.get("success")), "", side_result.get("response")))
             except Exception as e:
@@ -440,11 +441,11 @@ class PositionMerger:
                     side_label,
                     pos.up_token_id if side_label == "UP" else pos.down_token_id,
                     paired_shares,
-                    fallback_price,
+                    normalized_fallback_price,
                     response_payload,
                 )
                 self.add_log(
-                    f"🆘 merge 失敗 fallback | {pos.market_slug} {side_label} 已掛出 GTC @ {fallback_price:.3f} | order_id={order_id[:12] or 'n/a'}"
+                    f"🆘 merge 失敗 fallback | {pos.market_slug} {side_label} 已掛出 GTC @ {normalized_fallback_price:.3f} | order_id={order_id[:12] or 'n/a'}"
                 )
             else:
                 all_successful = False
@@ -806,10 +807,11 @@ class PositionMerger:
 
         if record.status == "failed":
             fallback_ok = await self._fallback_exit_paired_position(pos)
+            pos.fallback_triggered = True
             if fallback_ok:
-                self.add_log(f"🆘 merge 失敗後已啟動雙邊 0.999 GTC fallback | {pos.market_slug}")
+                self.add_log(f"🆘 merge 失敗後已啟動雙邊 0.990 GTC fallback | {pos.market_slug}")
             else:
-                self.add_log(f"❌ merge 失敗後雙邊 0.999 GTC fallback 未完全成功 | {pos.market_slug}")
+                self.add_log(f"❌ merge 失敗後雙邊 0.990 GTC fallback 未完全成功 | {pos.market_slug}")
 
         # 持久化到 SQLite
         try:
@@ -865,14 +867,14 @@ class PositionMerger:
                 )
                 if pos.failed_merge_attempts >= max_retry_attempts:
                     fallback_ok = await self._fallback_exit_paired_position(pos)
-                    pos.fallback_triggered = fallback_ok
+                    pos.fallback_triggered = True
                     if fallback_ok:
                         self.add_log(
-                            f"🆘 自動合併重試達上限，已啟動雙邊 0.999 GTC fallback | {pos.market_slug}"
+                            f"🆘 自動合併重試達上限，已啟動雙邊 0.990 GTC fallback | {pos.market_slug}"
                         )
                     else:
                         self.add_log(
-                            f"❌ 自動合併重試達上限，但雙邊 0.999 GTC fallback 失敗 | {pos.market_slug}"
+                            f"❌ 自動合併重試達上限，但雙邊 0.990 GTC fallback 失敗 | {pos.market_slug}"
                         )
 
         return results

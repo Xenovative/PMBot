@@ -706,6 +706,14 @@ action_update() {
     runuser -u "$APP_USER" -- "$app_dir/venv/bin/pip" install -q -r "$app_dir/backend/requirements.txt"
     echo "    done"
 
+    if [ -f "$app_dir/scripts/package.json" ]; then
+        echo -e "${CYAN}[3.5/5] Installing relayer helper deps...${NC}"
+        mkdir -p "$NPM_CACHE_DIR"
+        chown -R "$APP_USER:$APP_USER" "$NPM_CACHE_DIR"
+        runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$app_dir/scripts" install --no-audit --no-fund
+        echo "    done"
+    fi
+
     if [ -d "$app_dir/frontend" ]; then
         echo -e "${CYAN}[4/5] Rebuilding frontend...${NC}"
         mkdir -p "$NPM_CACHE_DIR"
