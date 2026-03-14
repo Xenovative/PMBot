@@ -1076,6 +1076,22 @@ class ArbitrageEngine:
             return last_consumed_bid_price
         return 0.0
 
+    def _normalize_trade_price(self, raw_trade_price: Any, fallback_price: float) -> float:
+        try:
+            parsed_trade_price = float(raw_trade_price or 0)
+        except (TypeError, ValueError):
+            return fallback_price
+
+        if parsed_trade_price <= 0:
+            return fallback_price
+
+        if fallback_price > 0:
+            price_ratio = parsed_trade_price / fallback_price
+            if price_ratio <= 0.2 or price_ratio >= 5.0:
+                return fallback_price
+
+        return parsed_trade_price
+
     def _execute_buy_one_side_sync(self, clob_client, token_id: str, amount_usd: float,
                                    price: float, side_label: str) -> dict:
         from py_clob_client.clob_types import MarketOrderArgs, OrderType, TradeParams
@@ -1119,7 +1135,7 @@ class ArbitrageEngine:
         if trades:
             for trade_payload in trades:
                 trade_size = float(trade_payload.get("size", 0))
-                trade_price = float(trade_payload.get("price", 0))
+                trade_price = self._normalize_trade_price(trade_payload.get("price", 0), marginal_price)
                 fill_shares += trade_size
                 fill_cost += trade_size * trade_price
             if fill_shares > 0:

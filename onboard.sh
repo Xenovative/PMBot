@@ -388,6 +388,10 @@ for stack in "${SELECTED_STACKS[@]}"; do
             "$SCRIPT_DIR/$fsrc/" "$APP_DIR/frontend/"
     fi
 
+    if [ -d "$SCRIPT_DIR/scripts" ]; then
+        rsync -a --delete "$SCRIPT_DIR/scripts/" "$APP_DIR/scripts/"
+    fi
+
     chown -R "$APP_USER:$APP_USER" "$APP_DIR"
     ok "Code synced → $APP_DIR"
 
@@ -401,6 +405,15 @@ for stack in "${SELECTED_STACKS[@]}"; do
     runuser -u "$APP_USER" -- "$APP_DIR/venv/bin/pip" install -q --upgrade pip
     runuser -u "$APP_USER" -- "$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/backend/requirements.txt"
     ok "Python venv ready"
+
+    # ── Relayer helper deps ──
+    if [ -f "$APP_DIR/scripts/package.json" ]; then
+        header "relayer" "Installing relayer helper dependencies..."
+        mkdir -p "$NPM_CACHE_DIR"
+        chown -R "$APP_USER:$APP_USER" "$NPM_CACHE_DIR"
+        runuser -u "$APP_USER" -- env NPM_CONFIG_CACHE="$NPM_CACHE_DIR" npm --prefix "$APP_DIR/scripts" install --no-audit --no-fund
+        ok "Relayer helper dependencies installed"
+    fi
 
     # ── .env setup ──
     header "env" "Configuring environment..."
