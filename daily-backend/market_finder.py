@@ -2,6 +2,7 @@
 市場搜尋器 - 負責找到 Polymarket 上的每日加密貨幣 Up or Down 市場
 """
 import httpx
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 from config import BotConfig
@@ -143,6 +144,14 @@ class MarketFinder:
 
         return slugs
 
+    def _is_canonical_daily_slug(self, crypto: str, slug: str) -> bool:
+        crypto_name = re.escape(CRYPTO_NAME_MAP.get(crypto.lower(), crypto.lower()))
+        normalized_slug = str(slug or "").strip().lower()
+        if not normalized_slug:
+            return False
+        canonical_daily_pattern = rf"^{crypto_name}-up-or-down-on-[a-z]+-\d{{1,2}}-\d{{4}}$"
+        return re.match(canonical_daily_pattern, normalized_slug) is not None
+
     async def _search_gamma_keyword(self, crypto: str) -> List[MarketInfo]:
         """使用關鍵字搜尋每日市場（備用方案）"""
         crypto_name = CRYPTO_NAME_MAP.get(crypto.lower(), crypto.lower())
@@ -166,6 +175,8 @@ class MarketFinder:
                         market = MarketInfo(raw_market)
                         normalized_slug = str(market.slug or "").lower()
                         normalized_question = str(market.question or "").lower()
+                        if not self._is_canonical_daily_slug(crypto, normalized_slug):
+                            continue
                         if crypto_name not in normalized_slug and crypto_name not in normalized_question:
                             continue
                         if "up or down" not in normalized_question and "up-or-down" not in normalized_slug:
@@ -197,7 +208,7 @@ class MarketFinder:
                         if isinstance(events, list):
                             for event in events:
                                 event_slug = event.get("slug", "")
-                                if event_slug == slug:
+                                if event_slug == slug and self._is_canonical_daily_slug(crypto, event_slug):
                                     event_markets = event.get("markets", [])
                                     if isinstance(event_markets, list):
                                         for m in event_markets:
@@ -230,12 +241,12 @@ class MarketFinder:
                         if isinstance(data, list):
                             for m in data:
                                 market = MarketInfo(m)
-                                if market.active and not market.closed and market.id not in seen_ids:
+                                if self._is_canonical_daily_slug(crypto, market.slug) and market.active and not market.closed and market.id not in seen_ids:
                                     seen_ids.add(market.id)
                                     markets.append(market)
                         elif isinstance(data, dict) and data.get("id"):
                             market = MarketInfo(data)
-                            if market.active and not market.closed and market.id not in seen_ids:
+                            if self._is_canonical_daily_slug(crypto, market.slug) and market.active and not market.closed and market.id not in seen_ids:
                                 seen_ids.add(market.id)
                                 markets.append(market)
                     else:

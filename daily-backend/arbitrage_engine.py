@@ -1035,6 +1035,22 @@ class ArbitrageEngine:
             return (0.0, 0.0)
         return (sweep_price, total_cost)
 
+    def _normalize_trade_price(self, raw_trade_price: Any, fallback_price: float) -> float:
+        try:
+            parsed_trade_price = float(raw_trade_price or 0)
+        except (TypeError, ValueError):
+            return fallback_price
+
+        if parsed_trade_price <= 0:
+            return fallback_price
+
+        if fallback_price > 0:
+            price_ratio = parsed_trade_price / fallback_price
+            if price_ratio <= 0.2 or price_ratio >= 5.0:
+                return fallback_price
+
+        return parsed_trade_price
+
     def _get_clob_client(self):
         """建立並返回 CLOB 客戶端"""
         from py_clob_client.client import ClobClient
@@ -1216,7 +1232,7 @@ class ArbitrageEngine:
             if trades:
                 for t in trades:
                     t_size = float(t.get("size", 0))
-                    t_price = float(t.get("price", 0))
+                    t_price = self._normalize_trade_price(t.get("price", 0), marginal_price)
                     fill_shares += t_size
                     fill_cost += t_size * t_price
                 if fill_shares > 0:
