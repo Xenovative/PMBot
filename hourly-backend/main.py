@@ -368,6 +368,12 @@ async def bot_loop():
                 except Exception as e:
                     engine.status.add_log(f"⚠️ 待成交退出對帳失敗: {str(e)[:160]}")
 
+            if engine.status.running:
+                try:
+                    await engine.retry_pending_auto_merges()
+                except Exception as e:
+                    engine.status.add_log(f"⚠️ 自動合併重試失敗: {str(e)[:160]}")
+
             try:
                 engine._flush_merger_logs()
             except Exception as e:

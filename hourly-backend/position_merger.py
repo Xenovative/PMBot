@@ -118,6 +118,8 @@ class PairedPosition:
     down_balance: float = 0.0
     mergeable_amount: float = 0.0
     total_cost_basis: float = 0.0  # 買入時的總成本
+    failed_merge_attempts: int = 0
+    fallback_triggered: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -129,6 +131,8 @@ class PairedPosition:
             "down_balance": self.down_balance,
             "mergeable_amount": self.mergeable_amount,
             "total_cost_basis": self.total_cost_basis,
+            "failed_merge_attempts": self.failed_merge_attempts,
+            "fallback_triggered": self.fallback_triggered,
         }
 
 
@@ -540,6 +544,8 @@ class PositionMerger:
         pos.down_balance += amount
         pos.mergeable_amount = min(pos.up_balance, pos.down_balance)
         pos.total_cost_basis += total_cost * amount
+        pos.failed_merge_attempts = 0
+        pos.fallback_triggered = False
         self.add_log(
             f"📊 追蹤持倉 | {market_slug} | "
             f"UP: {pos.up_balance:.0f} DOWN: {pos.down_balance:.0f} | "
@@ -793,7 +799,10 @@ class PositionMerger:
             return []
 
         results = []
+        max_retry_attempts = max(1, int(getattr(self.config, "merge_retry_attempts", 3) or 3))
         for cid, pos in list(self.tracked_positions.items()):
+            if pos.fallback_triggered:
+                continue
             if pos.mergeable_amount >= self.min_merge_amount:
                 self.add_log(
                     f"🔄 自動合併 | {pos.market_slug} | "
@@ -801,7 +810,28 @@ class PositionMerger:
                 )
                 record = await self.merge_positions(cid)
                 if record:
+                    if record.status in {"success", "simulated"}:
+                        pos.failed_merge_attempts = 0
+                    elif record.status == "failed":
+                        pos.failed_merge_attempts += 1
                     results.append(record)
+                    continue
+
+                pos.failed_merge_attempts += 1
+                self.add_log(
+                    f"⚠️ 自動合併未完成 | {pos.market_slug} | 重試 {pos.failed_merge_attempts}/{max_retry_attempts}"
+                )
+                if pos.failed_merge_attempts >= max_retry_attempts:
+                    fallback_ok = await self._fallback_exit_paired_position(pos)
+                    pos.fallback_triggered = fallback_ok
+                    if fallback_ok:
+                        self.add_log(
+                            f"🆘 自動合併重試達上限，已啟動雙邊 0.999 GTC fallback | {pos.market_slug}"
+                        )
+                    else:
+                        self.add_log(
+                            f"❌ 自動合併重試達上限，但雙邊 0.999 GTC fallback 失敗 | {pos.market_slug}"
+                        )
 
         return results
 

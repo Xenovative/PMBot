@@ -1338,6 +1338,22 @@ class ArbitrageEngine:
                 self.status.add_log(f"[merger] {entry.split('] ', 1)[-1]}")
         self._flushed_merger_logs = set(self.merger.logs)
 
+    async def retry_pending_auto_merges(self) -> None:
+        if self.config.dry_run:
+            return
+        if not self.merger.auto_merge_enabled:
+            return
+        if not self.merger.tracked_positions:
+            return
+
+        merge_results = await self.merger.auto_merge_all()
+        self._flush_merger_logs()
+        for merge_record in merge_results:
+            self.status.add_log(
+                f"🔄 合併結果: {merge_record.status} | {merge_record.amount:.0f} 對 → "
+                f"{merge_record.usdc_received:.2f} USDC | {merge_record.details}"
+            )
+
     def _ensure_clob_client(self):
         if self._clob_client is None:
             # dry_run 不需要初始化 CLOB client
