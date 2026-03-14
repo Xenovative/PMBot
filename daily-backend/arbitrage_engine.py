@@ -1369,7 +1369,10 @@ class ArbitrageEngine:
                     realized_notional = 0.0
                     for market_trade_payload in market_trades:
                         realized_trade_size = float(market_trade_payload.get("size", 0) or 0)
-                        realized_trade_price = float(market_trade_payload.get("price", 0) or 0)
+                        realized_trade_price = self._normalize_trade_price(
+                            market_trade_payload.get("price", 0),
+                            market_reference_price,
+                        )
                         realized_shares += realized_trade_size
                         realized_notional += realized_trade_size * realized_trade_price
                     realized_sell_price = (realized_notional / realized_shares) if realized_shares > 0 else market_reference_price
