@@ -181,6 +181,19 @@ class PositionMerger:
             return self.account.address
         return None
 
+    def _get_candidate_owner_addresses(self) -> List[str]:
+        candidate_addresses: List[str] = []
+        preferred_owner = self._get_merge_owner_address()
+        signer_address = self.account.address if self.account else None
+        for candidate_address in [preferred_owner, signer_address]:
+            normalized_candidate = (candidate_address or "").strip()
+            if not normalized_candidate:
+                continue
+            if any(existing_candidate.lower() == normalized_candidate.lower() for existing_candidate in candidate_addresses):
+                continue
+            candidate_addresses.append(normalized_candidate)
+        return candidate_addresses
+
     def _get_relayer_helper_script(self) -> Path:
         configured_script = (getattr(self.config, "relayer_helper_script", "") or "").strip()
         if configured_script:
@@ -573,18 +586,43 @@ class PositionMerger:
                 return None
 
         try:
-            owner = self._get_merge_owner_address() or self.account.address
-            up_balance = self.ctf_contract.functions.balanceOf(
-                owner, int(pos.up_token_id)
-            ).call()
-            down_balance = self.ctf_contract.functions.balanceOf(
-                owner, int(pos.down_token_id)
-            ).call()
+            candidate_owners = self._get_candidate_owner_addresses()
+            if not candidate_owners:
+                self.add_log("❌ 查詢鏈上餘額失敗: 無可用 owner 地址")
+                return None
+
+            selected_owner = candidate_owners[0]
+            selected_up_balance_raw = 0
+            selected_down_balance_raw = 0
+            selected_total_balance_raw = -1
+            owner_balance_rows: List[str] = []
+
+            for candidate_owner in candidate_owners:
+                candidate_up_balance_raw = self.ctf_contract.functions.balanceOf(
+                    candidate_owner, int(pos.up_token_id)
+                ).call()
+                candidate_down_balance_raw = self.ctf_contract.functions.balanceOf(
+                    candidate_owner, int(pos.down_token_id)
+                ).call()
+                candidate_total_balance_raw = int(candidate_up_balance_raw) + int(candidate_down_balance_raw)
+                owner_balance_rows.append(
+                    f"{candidate_owner[:10]}... UP={candidate_up_balance_raw / 1e6:.2f} DOWN={candidate_down_balance_raw / 1e6:.2f}"
+                )
+                if candidate_total_balance_raw > selected_total_balance_raw:
+                    selected_owner = candidate_owner
+                    selected_up_balance_raw = int(candidate_up_balance_raw)
+                    selected_down_balance_raw = int(candidate_down_balance_raw)
+                    selected_total_balance_raw = candidate_total_balance_raw
 
             # CTF 代幣使用 6 位小數 (與 USDC 一致)
-            pos.up_balance = up_balance / 1e6
-            pos.down_balance = down_balance / 1e6
+            pos.up_balance = selected_up_balance_raw / 1e6
+            pos.down_balance = selected_down_balance_raw / 1e6
             pos.mergeable_amount = min(pos.up_balance, pos.down_balance)
+
+            if len(owner_balance_rows) > 1:
+                self.add_log(
+                    f"🔎 鏈上 owner 探測 | {pos.market_slug} | {' | '.join(owner_balance_rows)} | 使用 {selected_owner[:10]}..."
+                )
 
             self.add_log(
                 f"🔗 鏈上餘額 | {pos.market_slug} | "
